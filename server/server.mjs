@@ -417,7 +417,7 @@ function registerFsReadTools(mcp) {
     "read_file",
     {
       title: "Read file",
-      description: "Read a UTF-8 text file. Supports line ranges for large files.",
+      description: "Read ONE UTF-8 text file (supports line ranges). If you need several files, call read_many ONCE instead of calling this repeatedly — it is far faster over the network. For large files, pass start_line/line_count to read only the part you need.",
       inputSchema: {
         path: z.string().min(1),
         start_line: z.number().int().min(1).optional().describe("1-based first line to return."),
@@ -479,7 +479,7 @@ function registerFsReadTools(mcp) {
     "search_text",
     {
       title: "Search text",
-      description: "Search text files under a path for a substring or regex.",
+      description: "Search text under a path for a substring or regex (uses fast `git grep` in git repos, falls back to a file scan). Prefer this over reading many files to find something.",
       inputSchema: {
         query: z.string().min(1),
         path: z.string().optional(),
@@ -489,8 +489,15 @@ function registerFsReadTools(mcp) {
     },
     async ({ query, path: rel = ".", regex = false, limit = 100 }) => {
       const start = resolvePath(rel);
-      const matches = await searchTree(start, query, { regex, limit });
-      return jsonResult({ query, regex, count: matches.length, matches });
+      let engine = "scan";
+      let matches = null;
+      const info = await stat(start).catch(() => null);
+      if (info && info.isDirectory()) {
+        matches = await gitGrep(start, query, { regex, limit });
+        if (matches) engine = "git";
+      }
+      if (matches === null) matches = await searchTree(start, query, { regex, limit });
+      return jsonResult({ query, regex, engine, count: matches.length, matches });
     }
   );
 
@@ -635,7 +642,7 @@ function registerFsWriteTools(mcp) {
     "replace_in_file",
     {
       title: "Replace in file",
-      description: "Replace exact text in a file. Prefer this for small edits after read_file.",
+      description: "Replace exact text in ONE file. If you are making several edits (in one or many files), call apply_patch ONCE with all of them instead of calling this repeatedly — fewer round trips, much faster.",
       inputSchema: {
         path: z.string().min(1),
         old_text: z.string().min(1),
@@ -978,6 +985,40 @@ async function listEntries(dir, { recursive, limit }) {
   }
   await walk(dir);
   return out;
+}
+
+// Fast path: use `git grep` inside a git work tree. Returns null when not a git
+// repo / git unavailable / errored, so the caller can fall back to a JS scan.
+function gitGrep(dir, query, { regex, limit }) {
+  return new Promise((resolve) => {
+    const args = ["-C", dir, "grep", "--no-color", "-n", "-I", "-i", "--untracked"];
+    args.push(regex ? "-E" : "-F", "-e", query, "--", ".");
+    let out = "";
+    let child;
+    try {
+      child = spawn("git", args, { windowsHide: true });
+    } catch {
+      return resolve(null);
+    }
+    child.stdout?.on("data", (c) => {
+      if (out.length < 4_000_000) out += c.toString();
+    });
+    child.on("error", () => resolve(null));
+    child.on("close", (code) => {
+      if (code === 128) return resolve(null); // not a git repo
+      if (code !== 0 && code !== 1) return resolve(null); // 1 = no matches
+      const matches = [];
+      for (const line of out.split(/\r?\n/)) {
+        if (!line) continue;
+        const m = line.match(/^(.*?):(\d+):(.*)$/);
+        if (!m) continue;
+        const abs = path.resolve(dir, m[1]);
+        matches.push({ path: toRel(abs), line: Number(m[2]), text: m[3].slice(0, 500) });
+        if (matches.length >= limit) break;
+      }
+      resolve(matches);
+    });
+  });
 }
 
 async function searchTree(start, query, { regex, limit }) {
