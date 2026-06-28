@@ -134,6 +134,23 @@ await mkdir(PRIMARY_ROOT, { recursive: true });
 
 const metrics = loadMetrics();
 
+// Detect ripgrep once at startup — the fastest search engine when present.
+const RG_BIN = await detectRg();
+if (RG_BIN) console.log("ripgrep detected: search_text/find_files will use rg");
+
+function detectRg() {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn("rg", ["--version"], { windowsHide: true });
+    } catch {
+      return resolve(null);
+    }
+    child.on("error", () => resolve(null));
+    child.on("close", (code) => resolve(code === 0 ? "rg" : null));
+  });
+}
+
 const httpServer = http.createServer(async (req, res) => {
   try {
     log(`${req.method} ${req.url} ua=${req.headers["user-agent"] || ""}`);
@@ -479,25 +496,52 @@ function registerFsReadTools(mcp) {
     "search_text",
     {
       title: "Search text",
-      description: "Search text under a path for a substring or regex (uses fast `git grep` in git repos, falls back to a file scan). Prefer this over reading many files to find something.",
+      description: "Search text under a path (ripgrep > git grep > file scan, picked automatically). Prefer this over reading many files. Pass context>0 to get surrounding lines so you usually do NOT need a follow-up read_file. Pass glob (e.g. \"*.ts\") to limit file types.",
       inputSchema: {
         query: z.string().min(1),
         path: z.string().optional(),
         regex: z.boolean().optional(),
+        glob: z.string().optional().describe('Only search files matching this glob, e.g. "*.ts".'),
+        context: z.number().int().min(0).max(10).optional().describe("Lines of context before/after each match."),
         limit: z.number().int().min(1).max(500).optional()
       }
     },
-    async ({ query, path: rel = ".", regex = false, limit = 100 }) => {
+    async ({ query, path: rel = ".", regex = false, glob, context = 0, limit = 100 }) => {
       const start = resolvePath(rel);
       let engine = "scan";
       let matches = null;
       const info = await stat(start).catch(() => null);
-      if (info && info.isDirectory()) {
-        matches = await gitGrep(start, query, { regex, limit });
+      const isDir = info && info.isDirectory();
+      if (isDir && RG_BIN) {
+        matches = await ripgrepGrep(start, query, { regex, limit, glob });
+        if (matches) engine = "ripgrep";
+      }
+      if (matches === null && isDir) {
+        matches = await gitGrep(start, query, { regex, limit, glob });
         if (matches) engine = "git";
       }
-      if (matches === null) matches = await searchTree(start, query, { regex, limit });
-      return jsonResult({ query, regex, engine, count: matches.length, matches });
+      if (matches === null) matches = await searchTree(start, query, { regex, limit, glob });
+      if (context > 0 && matches.length) await attachContext(matches, context);
+      return jsonResult({ query, regex, engine, context, count: matches.length, matches });
+    }
+  );
+
+  reg(
+    mcp,
+    "find_files",
+    {
+      title: "Find files",
+      description: "List file paths matching a name glob (ripgrep > git ls-files > scan). Fast way to locate files (e.g. glob \"*.config.ts\") instead of listing directories one by one.",
+      inputSchema: {
+        glob: z.string().min(1).describe('Name glob, e.g. "*.ts" or "**/Dockerfile".'),
+        path: z.string().optional().describe("Directory to search under."),
+        limit: z.number().int().min(1).max(2000).optional()
+      }
+    },
+    async ({ glob, path: rel = ".", limit = 300 }) => {
+      const start = resolvePath(rel);
+      const { files, engine } = await findFiles(start, glob, limit);
+      return jsonResult({ glob, engine, count: files.length, files });
     }
   );
 
@@ -987,12 +1031,52 @@ async function listEntries(dir, { recursive, limit }) {
   return out;
 }
 
-// Fast path: use `git grep` inside a git work tree. Returns null when not a git
-// repo / git unavailable / errored, so the caller can fall back to a JS scan.
-function gitGrep(dir, query, { regex, limit }) {
+// Parse "path:line:text" grep-style output into match objects.
+function parseGrepOutput(out, dir, limit) {
+  const matches = [];
+  for (const line of out.split(/\r?\n/)) {
+    if (!line) continue;
+    const m = line.match(/^(.*?):(\d+):(.*)$/);
+    if (!m) continue;
+    const abs = path.resolve(dir, m[1]);
+    matches.push({ path: toRel(abs), line: Number(m[2]), text: m[3].slice(0, 500) });
+    if (matches.length >= limit) break;
+  }
+  return matches;
+}
+
+// Fastest path: ripgrep. Respects .gitignore, works in any folder. null on miss.
+function ripgrepGrep(dir, query, { regex, limit, glob }) {
+  if (!RG_BIN) return Promise.resolve(null);
+  const args = ["--no-heading", "--with-filename", "-n", "-I", "-S", "--color", "never"];
+  if (!regex) args.push("-F");
+  if (glob) args.push("-g", glob);
+  args.push("-e", query, "--", ".");
+  return new Promise((resolve) => {
+    let out = "";
+    let child;
+    try {
+      child = spawn(RG_BIN, args, { cwd: dir, windowsHide: true });
+    } catch {
+      return resolve(null);
+    }
+    child.stdout?.on("data", (c) => {
+      if (out.length < 8_000_000) out += c.toString();
+    });
+    child.on("error", () => resolve(null));
+    child.on("close", (code) => {
+      if (code !== 0 && code !== 1) return resolve(null);
+      resolve(parseGrepOutput(out, dir, limit));
+    });
+  });
+}
+
+// Fast path: `git grep` inside a git work tree. Returns null when not a git repo
+// / git unavailable / errored, so the caller can fall back to a JS scan.
+function gitGrep(dir, query, { regex, limit, glob }) {
   return new Promise((resolve) => {
     const args = ["-C", dir, "grep", "--no-color", "-n", "-I", "-i", "--untracked"];
-    args.push(regex ? "-E" : "-F", "-e", query, "--", ".");
+    args.push(regex ? "-E" : "-F", "-e", query, "--", glob ? glob : ".");
     let out = "";
     let child;
     try {
@@ -1001,29 +1085,104 @@ function gitGrep(dir, query, { regex, limit }) {
       return resolve(null);
     }
     child.stdout?.on("data", (c) => {
-      if (out.length < 4_000_000) out += c.toString();
+      if (out.length < 8_000_000) out += c.toString();
     });
     child.on("error", () => resolve(null));
     child.on("close", (code) => {
       if (code === 128) return resolve(null); // not a git repo
       if (code !== 0 && code !== 1) return resolve(null); // 1 = no matches
-      const matches = [];
-      for (const line of out.split(/\r?\n/)) {
-        if (!line) continue;
-        const m = line.match(/^(.*?):(\d+):(.*)$/);
-        if (!m) continue;
-        const abs = path.resolve(dir, m[1]);
-        matches.push({ path: toRel(abs), line: Number(m[2]), text: m[3].slice(0, 500) });
-        if (matches.length >= limit) break;
-      }
-      resolve(matches);
+      resolve(parseGrepOutput(out, dir, limit));
     });
   });
 }
 
-async function searchTree(start, query, { regex, limit }) {
+// Attach a few lines of context to each match by reading files locally (no extra
+// round trips to the model). Files are read once and cached for this call.
+async function attachContext(matches, ctx) {
+  const cache = new Map();
+  for (const m of matches) {
+    const abs = path.isAbsolute(m.path) ? m.path : path.resolve(PRIMARY_ROOT, m.path);
+    let lines = cache.get(abs);
+    if (!lines) {
+      try {
+        lines = (await readFile(abs, "utf8")).split(/\r?\n/);
+      } catch {
+        lines = null;
+      }
+      cache.set(abs, lines);
+    }
+    if (!lines) continue;
+    const from = Math.max(1, m.line - ctx);
+    const to = Math.min(lines.length, m.line + ctx);
+    const snippet = [];
+    for (let i = from; i <= to; i++) snippet.push(`${i}| ${lines[i - 1]}`);
+    m.snippet = snippet.join("\n");
+  }
+}
+
+// Convert a simple glob (*, **, ?) to a RegExp for the scan fallback.
+function globToRegex(glob) {
+  const re = glob
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*/g, " ")
+    .replace(/\*/g, "[^/]*")
+    .replace(/ /g, ".*")
+    .replace(/\?/g, ".");
+  return new RegExp("^" + re + "$", "i");
+}
+
+// Find files by name glob: ripgrep --files > git ls-files > JS walk.
+async function findFiles(start, glob, limit) {
+  // ripgrep
+  if (RG_BIN) {
+    const out = await spawnFilesList(RG_BIN, ["--files", "-g", glob], start);
+    if (out !== null) return { engine: "ripgrep", files: out.slice(0, limit).map((p) => toRel(path.resolve(start, p))) };
+  }
+  // git ls-files
+  const gitOut = await spawnFilesList("git", ["-C", start, "ls-files", "--cached", "--others", "--exclude-standard"], null);
+  if (gitOut !== null) {
+    const rx = globToRegex(glob);
+    const hasSlash = glob.includes("/");
+    const hit = gitOut.filter((p) => rx.test(hasSlash ? p : path.basename(p)));
+    if (hit.length || gitOut.length) return { engine: "git", files: hit.slice(0, limit).map((p) => toRel(path.resolve(start, p))) };
+  }
+  // JS walk fallback
+  const rx = globToRegex(glob);
+  const hasSlash = glob.includes("/");
+  const all = await listEntries(start, { recursive: true, limit: 20000 });
+  const files = all
+    .filter((e) => e.type === "file")
+    .map((e) => e.path)
+    .filter((p) => rx.test(hasSlash ? p.split(path.sep).join("/") : path.basename(p)))
+    .slice(0, limit);
+  return { engine: "scan", files };
+}
+
+function spawnFilesList(file, args, cwd) {
+  return new Promise((resolve) => {
+    let out = "";
+    let child;
+    try {
+      child = spawn(file, args, cwd ? { cwd, windowsHide: true } : { windowsHide: true });
+    } catch {
+      return resolve(null);
+    }
+    child.stdout?.on("data", (c) => {
+      if (out.length < 8_000_000) out += c.toString();
+    });
+    child.on("error", () => resolve(null));
+    child.on("close", (code) => {
+      if (code !== 0 && code !== 1) return resolve(null);
+      resolve(out.split(/\r?\n/).filter(Boolean));
+    });
+  });
+}
+
+async function searchTree(start, query, { regex, limit, glob }) {
   const pattern = regex ? new RegExp(query, "i") : null;
   const needle = query.toLowerCase();
+  const globRx = glob ? globToRegex(glob) : null;
+  const globHasSlash = glob ? glob.includes("/") : false;
   const matches = [];
   const files = [];
 
@@ -1054,6 +1213,11 @@ async function searchTree(start, query, { regex, limit }) {
   await collect(start);
   for (const file of files) {
     if (matches.length >= limit) break;
+    if (globRx) {
+      const rel = toRel(file);
+      const target = globHasSlash ? rel : path.basename(file);
+      if (!globRx.test(target)) continue;
+    }
     let content;
     try {
       content = await readFile(file, "utf8");
@@ -1450,7 +1614,7 @@ function homeHtml() {
     <div class="panel"><p><strong>Roots</strong></p>${ROOTS.map((r) => `<p><code>${escapeHtml(r)}</code></p>`).join("")}</div>
     <div class="panel"><p><strong>MCP endpoint</strong></p><p><code>http://${HOST}:${PORT}/mcp</code></p></div>
     <div class="panel"><p><strong>Tools</strong></p>
-      <p><code>workspace_info, repo_overview, list_files, read_file, read_many, stat_path, search_text, write_file, replace_in_file, apply_patch, make_dir, move_path, delete_path, run_command, proc_start, proc_list, proc_output, proc_stop, git, ping, save_note, list_notes</code></p>
+      <p><code>workspace_info, repo_overview, list_files, find_files, read_file, read_many, stat_path, search_text, write_file, replace_in_file, apply_patch, make_dir, move_path, delete_path, run_command, proc_start, proc_list, proc_output, proc_stop, git, ping, save_note, list_notes</code></p>
     </div>
     <div class="panel"><p><strong>Local dashboard</strong> (this machine only): <code>http://${DASHBOARD_HOST}:${DASHBOARD_PORT}/ui</code></p></div>
   </main>

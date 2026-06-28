@@ -13,7 +13,7 @@ ChatGPT sessions; it is a normal MCP connector you authorize.
 | Group | Tools |
 |-------|-------|
 | Info | `workspace_info`, `ping` |
-| Read | `repo_overview`, `list_files`, `read_file`, `read_many`, `stat_path`, `search_text` |
+| Read | `repo_overview`, `list_files`, `find_files`, `read_file`, `read_many`, `stat_path`, `search_text` (ripgrep/git, with context + glob) |
 | Write | `write_file`, `replace_in_file`, `apply_patch`, `make_dir`, `move_path`, `delete_path` |
 | Execute | `run_command` (cmd/powershell/bash) |
 | Processes | `proc_start`, `proc_list`, `proc_output`, `proc_stop` |

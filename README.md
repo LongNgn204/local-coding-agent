@@ -16,11 +16,11 @@ background processes, and use git — confined to folders you choose. Ships with
 
 ### Features
 
-- **20+ coding tools** over MCP: `repo_overview`, `list_files`, `read_file`,
-  `read_many` (batch read), `search_text`, `write_file`, `replace_in_file`,
-  `apply_patch` (multi-file), `make_dir`, `move_path`, `delete_path`,
-  `run_command` (cmd/powershell/bash), background processes
-  (`proc_start/list/output/stop`), `git`, and notes.
+- **20+ coding tools** over MCP: `repo_overview`, `list_files`, `find_files`,
+  `read_file`, `read_many` (batch read), `search_text` (ripgrep/git, with
+  context + glob), `write_file`, `replace_in_file`, `apply_patch` (multi-file),
+  `make_dir`, `move_path`, `delete_path`, `run_command` (cmd/powershell/bash),
+  background processes (`proc_start/list/output/stop`), `git`, and notes.
 - **Speed-tuned**: compact JSON, relative paths, batch reads, one-call repo map —
   fewer round-trips over the tunnel.
 - **Safety layers**: loopback-only bind, root confinement, `safe`/`full` modes,
@@ -143,11 +143,12 @@ Windows** để quản lý và một **dashboard số liệu cục bộ**.
 
 ### Tính năng
 
-- **Hơn 20 tool coding** qua MCP: `repo_overview`, `list_files`, `read_file`,
-  `read_many` (đọc nhiều file 1 lần), `search_text`, `write_file`,
-  `replace_in_file`, `apply_patch` (sửa nhiều file), `make_dir`, `move_path`,
-  `delete_path`, `run_command` (cmd/powershell/bash), tiến trình nền
-  (`proc_start/list/output/stop`), `git`, và ghi chú.
+- **Hơn 20 tool coding** qua MCP: `repo_overview`, `list_files`, `find_files`,
+  `read_file`, `read_many` (đọc nhiều file 1 lần), `search_text` (ripgrep/git,
+  kèm context + glob), `write_file`, `replace_in_file`, `apply_patch` (sửa nhiều
+  file), `make_dir`, `move_path`, `delete_path`, `run_command`
+  (cmd/powershell/bash), tiến trình nền (`proc_start/list/output/stop`), `git`,
+  và ghi chú.
 - **Tối ưu tốc độ**: JSON gọn, đường dẫn tương đối, đọc theo lô, map repo trong 1
   lần gọi — giảm round-trip qua tunnel.
 - **Nhiều lớp an toàn**: chỉ bind loopback, giới hạn thư mục gốc, chế độ
