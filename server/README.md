@@ -18,7 +18,7 @@ ChatGPT sessions; it is a normal MCP connector you authorize.
 | Execute | `run_command` (cmd/powershell/bash) |
 | Processes | `proc_start`, `proc_list`, `proc_output`, `proc_stop` |
 | Git | `git` |
-| Notes | `save_note`, `list_notes` |
+| Notes & session | `save_note`, `list_notes`, `checkpoint`, `resume` |
 
 ## Run
 

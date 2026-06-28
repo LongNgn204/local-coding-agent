@@ -27,7 +27,7 @@ import { z } from "zod";
 // ----------------------------------------------------------------------------
 // Configuration (all overridable via environment variables)
 // ----------------------------------------------------------------------------
-const VERSION = "1.3.0";
+const VERSION = "1.4.0";
 const PORT = Number(process.env.PORT || 8787);
 // Bind to loopback by default. The local OpenAI tunnel-client forwards to this,
 // so we never need to listen on 0.0.0.0 (which would expose a shell to the LAN).
@@ -65,6 +65,7 @@ const AUTH_TOKEN = process.env.MCP_AUTH_TOKEN || "";
 
 const DATA_DIR = path.resolve(APP_DIR, "data");
 const NOTES_PATH = path.resolve(DATA_DIR, "notes.json");
+const CHECKPOINT_PATH = path.resolve(DATA_DIR, "checkpoint.json");
 const AUDIT_PATH = path.resolve(DATA_DIR, "audit.log");
 const METRICS_PATH = path.resolve(DATA_DIR, "metrics.json");
 
@@ -313,6 +314,7 @@ const SERVER_INSTRUCTIONS = [
   "- Combine multiple steps into ONE command (&& on cmd/bash, ; on PowerShell).",
   "- Keep output small with tail_lines/head_lines/max_output_chars.",
   "Keep the conversation light: do NOT re-read a file you already read; read only the line range you need; never dump a whole large file or large command output unless asked.",
+  "When the conversation grows long or feels slow, call checkpoint() with a compact summary + next steps, then tell the user to open a NEW chat; in that fresh chat call resume() first. This resets the heavy context (faster) while keeping your progress.",
   "Prefer a few large, well-targeted calls over many tiny ones."
 ].join("\n");
 
@@ -422,6 +424,44 @@ function registerBasicTools(mcp) {
       const notes = (await readNotes()).slice(0, limit);
       if (!notes.length) return textResult("No notes saved yet.");
       return textResult(notes.map((n) => `- ${n.title} (${n.id})\n  ${n.body}`).join("\n"));
+    }
+  );
+
+  reg(
+    mcp,
+    "checkpoint",
+    {
+      title: "Save a progress checkpoint",
+      description: "Save a COMPACT summary of progress so the user can start a fresh, fast chat and you can continue. Call this when the conversation gets long/slow, then tell the user to open a new chat and you will call resume().",
+      inputSchema: {
+        summary: z.string().min(1).describe("What has been done so far, the goal, and current state — concise."),
+        next_steps: z.array(z.string()).optional().describe("Ordered remaining steps."),
+        files_touched: z.array(z.string()).optional().describe("Key files involved.")
+      }
+    },
+    async ({ summary, next_steps = [], files_touched = [] }) => {
+      const cp = { saved_at: isoNow(), summary, next_steps, files_touched };
+      await mkdir(path.dirname(CHECKPOINT_PATH), { recursive: true });
+      await writeFile(CHECKPOINT_PATH, `${JSON.stringify(cp, null, 2)}\n`, "utf8");
+      return textResult("Checkpoint saved. Tell the user to open a NEW chat (resets the heavy context), then call resume() to continue.");
+    }
+  );
+
+  reg(
+    mcp,
+    "resume",
+    {
+      title: "Resume from last checkpoint",
+      description: "Load the last checkpoint saved by checkpoint(). Call this FIRST in a fresh chat to continue prior work without the old heavy context.",
+      inputSchema: {}
+    },
+    async () => {
+      try {
+        const cp = JSON.parse(await readFile(CHECKPOINT_PATH, "utf8"));
+        return jsonResult(cp);
+      } catch {
+        return textResult("No checkpoint saved yet.");
+      }
     }
   );
 }
@@ -1786,7 +1826,7 @@ function homeHtml() {
     <div class="panel"><p><strong>Roots</strong></p>${ROOTS.map((r) => `<p><code>${escapeHtml(r)}</code></p>`).join("")}</div>
     <div class="panel"><p><strong>MCP endpoint</strong></p><p><code>http://${HOST}:${PORT}/mcp</code></p></div>
     <div class="panel"><p><strong>Tools</strong></p>
-      <p><code>workspace_info, repo_overview, list_files, find_files, read_file, read_many, stat_path, search_text, write_file, replace_in_file, apply_patch, make_dir, move_path, delete_path, run_command, proc_start, proc_list, proc_output, proc_stop, git, ping, save_note, list_notes</code></p>
+      <p><code>workspace_info, repo_overview, list_files, find_files, read_file, read_many, stat_path, search_text, write_file, replace_in_file, apply_patch, make_dir, move_path, delete_path, run_command, proc_start, proc_list, proc_output, proc_stop, git, ping, save_note, list_notes, checkpoint, resume</code></p>
     </div>
     <div class="panel"><p><strong>Local dashboard</strong> (this machine only): <code>http://${DASHBOARD_HOST}:${DASHBOARD_PORT}/ui</code></p></div>
   </main>
