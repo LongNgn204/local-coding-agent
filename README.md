@@ -97,6 +97,40 @@ dotnet run
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
+### Connect it to ChatGPT Web
+
+> Requires a ChatGPT plan that supports custom MCP connectors. Menu names may
+> differ slightly by version.
+
+1. **Start the agent.** Run the tray app (set **Workspace** to the folder you
+   want the agent to work in, pick **Mode**, click **Start**). The header should
+   read `Server: ONLINE`.
+2. **Create a connector in ChatGPT.** ChatGPT → **Settings → Connectors** →
+   enable **Developer mode** → **Create / Add custom connector** (MCP). ChatGPT
+   gives you a **Runtime / control-plane API key** for the secure tunnel.
+3. **Start the tunnel with that key.** In the tray app paste the key into
+   **CONTROL_PLANE_API_KEY → Save key**, then **Start** (or run
+   `scripts/start-tunnel.ps1` and paste the key when prompted). The tunnel links
+   your local server to your ChatGPT account.
+4. **Finish & enable.** Complete the connector in ChatGPT, then enable it in a
+   new chat.
+5. **Verify.** In the chat, send: *“Call workspace_info — what are roots and
+   mode?”* It should return your workspace path and mode. That confirms the path
+   ChatGPT actually reads/writes through MCP.
+
+**Change the working folder later:** edit **Workspace (root)** (or **Extra
+roots**) → **Save settings → Start** (it restarts with the new path). Re-run
+`workspace_info` to confirm. The dashboard (`/ui`) also shows the active roots.
+
+**Troubleshooting**
+- *Server offline* → click Start; open `http://127.0.0.1:8787/healthz`.
+- *Tunnel fails to start ("bind 127.0.0.1:8788")* → the tunnel client owns 8788;
+  keep the dashboard on **8790** (not 8788).
+- *Tools don't appear* → ensure the connector is enabled in the chat and
+  Developer mode is on.
+- *Edits land "nowhere"* → you may have two clones; `workspace_info` shows the
+  exact path being used — point Workspace at the one you mean.
+
 ### Configuration
 
 | Variable | Default | Meaning |
@@ -223,6 +257,37 @@ dotnet run
 # hoặc build 1 file exe self-contained:
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
+
+### Kết nối với ChatGPT Web
+
+> Cần gói ChatGPT hỗ trợ MCP connector tuỳ chỉnh. Tên menu có thể khác chút theo phiên bản.
+
+1. **Khởi động agent.** Mở app tray (đặt **Workspace** = thư mục muốn agent làm
+   việc, chọn **Mode**, bấm **Start**). Dòng đầu phải hiện `Server: ONLINE`.
+2. **Tạo connector trong ChatGPT.** ChatGPT → **Settings → Connectors** → bật
+   **Developer mode** → **Create / Add custom connector** (MCP). ChatGPT sẽ cấp
+   một **Runtime / control-plane API key** cho secure tunnel.
+3. **Chạy tunnel bằng key đó.** Trong app tray dán key vào
+   **CONTROL_PLANE_API_KEY → Save key**, rồi **Start** (hoặc chạy
+   `scripts/start-tunnel.ps1` và dán key khi được hỏi). Tunnel nối server local
+   với tài khoản ChatGPT của bạn.
+4. **Hoàn tất & bật.** Tạo xong connector trong ChatGPT, rồi bật nó trong một
+   chat mới.
+5. **Kiểm chứng.** Trong chat gõ: *“Gọi workspace_info — roots và mode là gì?”*
+   Nó phải trả về đường dẫn workspace + mode → xác nhận đúng path ChatGPT đọc/ghi
+   qua MCP.
+
+**Đổi thư mục làm việc sau này:** sửa **Workspace (root)** (hoặc **Extra roots**)
+→ **Save settings → Start** (tự khởi động lại với path mới). Chạy lại
+`workspace_info` để xác nhận. Dashboard (`/ui`) cũng hiện roots đang dùng.
+
+**Khắc phục sự cố**
+- *Server offline* → bấm Start; mở `http://127.0.0.1:8787/healthz`.
+- *Tunnel không lên ("bind 127.0.0.1:8788")* → tunnel chiếm cổng 8788; để
+  dashboard ở **8790** (đừng dùng 8788).
+- *Không thấy tool* → đảm bảo đã bật connector trong chat và Developer mode đang bật.
+- *Sửa file mà "không thấy đâu"* → có thể bạn có 2 bản clone; `workspace_info`
+  cho biết path chính xác đang dùng — trỏ Workspace vào đúng bản bạn muốn.
 
 ### Cấu hình
 
