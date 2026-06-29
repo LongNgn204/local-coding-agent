@@ -156,8 +156,8 @@ chmod +x scripts/start-tunnel.sh
 AGENT_WORKSPACE="/path/to/your/repo" bash scripts/start-tunnel.sh
 ```
 
-Paste your tunnel Runtime API key when prompted, then add the resulting MCP URL
-as a connector in ChatGPT.
+Paste your tunnel Runtime API key when prompted. In ChatGPT, create the app with
+the same **Tunnel ID**; do not paste the local `127.0.0.1` MCP URL into ChatGPT.
 
 **3) (Optional) Use the tray app instead of scripts**
 
@@ -171,23 +171,124 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ### Connect it to ChatGPT Web
 
 > Requires a ChatGPT plan that supports custom MCP connectors. Menu names may
-> differ slightly by version.
+> differ slightly by rollout. The current UI uses **Settings → Apps**.
 
-1. **Start the agent.** Run the tray app (set **Workspace** to the folder you
-   want the agent to work in, pick **Mode**, click **Start**). The header should
-   read `Server: ONLINE`.
-2. **Create a connector in ChatGPT.** ChatGPT → **Settings → Connectors** →
-   enable **Developer mode** → **Create / Add custom connector** (MCP). ChatGPT
-   gives you a **Runtime / control-plane API key** for the secure tunnel.
-3. **Start the tunnel with that key.** In the tray app paste the key into
-   **CONTROL_PLANE_API_KEY → Save key**, then **Start** (or run
-   `scripts/start-tunnel.ps1` and paste the key when prompted). The tunnel links
-   your local server to your ChatGPT account.
-4. **Finish & enable.** Complete the connector in ChatGPT, then enable it in a
-   new chat.
-5. **Verify.** In the chat, send: *“Call workspace_info — what are roots and
-   mode?”* It should return your workspace path and mode. That confirms the path
-   ChatGPT actually reads/writes through MCP.
+#### Before you begin: the two keys
+
+The secure tunnel uses two different OpenAI Platform credentials. Create both
+under the **same OpenAI organization** that owns the tunnel:
+
+| Credential | Create it at | Used for |
+|------------|--------------|----------|
+| **Admin API key** | `https://platform.openai.com/settings/organization/admin-keys` | Create, update, or delete tunnel records. Do not paste this key into the launcher. |
+| **Runtime API key** | `https://platform.openai.com/settings/organization/api-keys` | Authenticate the local `tunnel-client` to the control plane. It may begin with `sk-proj-...`. |
+
+Creating a key does not make this MCP server call a model API. The Runtime key
+is only used by `tunnel-client` for control-plane authentication. Treat both
+keys as secrets: never commit them, paste them into an issue/chat, or put them
+in a tracked `.env` file. Revoke keys that were exposed.
+
+#### 1. Start and verify the local MCP server
+
+Set the workspace to the repository the agent may access, then start the server
+with the tray app or CLI launcher. Verify both local endpoints before working on
+the tunnel:
+
+```text
+http://127.0.0.1:8787/healthz   # must return status: ok
+http://127.0.0.1:8790/ui        # local dashboard
+```
+
+The MCP endpoint forwarded by the secure tunnel is:
+
+```text
+http://127.0.0.1:8787/mcp
+```
+
+Keep it bound to loopback. Do not expose this coding server through a public
+`loca.lt`, ngrok, or Cloudflare quick-tunnel URL.
+
+#### 2. Create the Secure MCP Tunnel
+
+1. Open `https://platform.openai.com/settings/organization/tunnels`.
+2. Select the same organization used for the two keys above.
+3. Create a tunnel, enter a name and description, and assign the ChatGPT
+   workspace that will use the app.
+4. Copy the generated ID, for example `tunnel_abc123...`. A Tunnel ID is not a
+   secret, but it must match in the local profile and ChatGPT app.
+
+Create/update the local profile with the tunnel client:
+
+```powershell
+tools\tunnel-client.exe init `
+  --profile local-coding-agent `
+  --profile-dir tools\profiles `
+  --tunnel-id tunnel_abc123 `
+  --mcp-server-url http://127.0.0.1:8787/mcp `
+  --health-listen-addr 127.0.0.1:8788 `
+  --open-web-ui `
+  --force
+```
+
+On macOS/Linux, use `tools/tunnel-client` and shell-style line continuations.
+Port `8788` belongs to the tunnel client's health/admin UI; the agent dashboard
+must stay on `8790`.
+
+#### 3. Run the tunnel with the Runtime key
+
+Run the launcher and paste the **Runtime API key**, not the Admin key, when it
+prompts for `CONTROL_PLANE_API_KEY`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-tunnel.ps1
+```
+
+Keep that terminal open. A healthy tunnel has all of these properties:
+
+- `http://127.0.0.1:8788/healthz` returns `live`.
+- `http://127.0.0.1:8788/readyz` returns `ready`.
+- The terminal does not repeat `401 Unauthorized` or `poll failed`.
+- The tunnel metrics contain a non-zero
+  `commands_poll_last_successful_timestamp_seconds` value.
+
+#### 4. Create the app in ChatGPT Web
+
+1. Open **ChatGPT → Settings → Apps → Advanced settings** and enable
+   **Developer mode**.
+2. Return to **Settings → Apps** and choose **Create**.
+3. Enter the app name and description.
+4. Under **Connection**, select **Tunnel** (not **Server URL**).
+5. Paste the exact Tunnel ID from step 2.
+6. Select **No Auth** unless the remote app itself implements a separate auth
+   flow. The Secure MCP Tunnel already authenticates its control-plane channel.
+7. Read and accept the custom-MCP risk warning.
+8. If the UI shows **Scan Tools**, run it and wait for the scan to finish. Some
+   ChatGPT versions scan automatically when **Create** is pressed.
+9. Press **Create**. The app settings page should show a `DEV` badge, the Tunnel
+   ID, and a **Disconnect** button.
+
+For initial testing, prefer permission prompts for write/execute actions instead
+of **Allow all (elevated risk)**. This server can modify files and run commands
+inside its configured roots.
+
+#### 5. Test the app
+
+Start a new chat, enable the new app, and send a read-only smoke test:
+
+```text
+Use Local Coding Agent. Call ping and workspace_info, then list the files in
+the workspace root. Do not modify files.
+```
+
+Then test an edit with an explicit cleanup step:
+
+```text
+Create mcp-smoke-test.txt containing "MCP write test OK", read it back to
+verify the content, then delete the file.
+```
+
+The local dashboard should record the tool calls. Re-run `workspace_info` after
+changing roots to confirm which physical folder ChatGPT can access.
 
 **Change the working folder later:** edit **Workspace (root)** (or **Extra
 roots**) → **Save settings → Start** (it restarts with the new path). Re-run
@@ -197,8 +298,17 @@ roots**) → **Save settings → Start** (it restarts with the new path). Re-run
 - *Server offline* → click Start; open `http://127.0.0.1:8787/healthz`.
 - *Tunnel fails to start ("bind 127.0.0.1:8788")* → the tunnel client owns 8788;
   keep the dashboard on **8790** (not 8788).
+- *Repeated `401 Unauthorized` / `poll failed`* → the Runtime key is invalid,
+  revoked, restricted, or belongs to a different organization. Generate a new
+  Runtime key under the same organization as the tunnel. Do not use the Admin
+  key as `CONTROL_PLANE_API_KEY`.
+- *The Tunnel ID in ChatGPT differs from the terminal/profile* → update the
+  profile and restart `tunnel-client`; all three locations must use the same ID.
 - *Tools don't appear* → ensure the connector is enabled in the chat and
-  Developer mode is on.
+  Developer mode is on. Open the app settings and press **Refresh** to rescan
+  tools after upgrading the server.
+- *The app exists but calls time out* → keep the local MCP server and tunnel
+  terminal running. Turning off the computer makes local tools unavailable.
 - *Edits land "nowhere"* → you may have two clones; `workspace_info` shows the
   exact path being used — point Workspace at the one you mean.
 
@@ -362,8 +472,8 @@ chmod +x scripts/start-tunnel.sh
 AGENT_WORKSPACE="/duong/dan/toi/repo" bash scripts/start-tunnel.sh
 ```
 
-Dán Runtime API key của tunnel khi được hỏi, rồi thêm MCP URL thu được làm
-connector trong ChatGPT.
+Dán Runtime API key khi được hỏi. Trong ChatGPT, tạo app bằng đúng **Tunnel ID**;
+không nhập URL MCP `127.0.0.1` vào ChatGPT.
 
 **3) (Tuỳ chọn) Dùng app tray thay cho script**
 
@@ -376,22 +486,122 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 ### Kết nối với ChatGPT Web
 
-> Cần gói ChatGPT hỗ trợ MCP connector tuỳ chỉnh. Tên menu có thể khác chút theo phiên bản.
+> Cần gói ChatGPT hỗ trợ custom MCP app. Tên menu có thể thay đổi theo đợt cập
+> nhật; giao diện hiện tại dùng **Settings → Apps**.
 
-1. **Khởi động agent.** Mở app tray (đặt **Workspace** = thư mục muốn agent làm
-   việc, chọn **Mode**, bấm **Start**). Dòng đầu phải hiện `Server: ONLINE`.
-2. **Tạo connector trong ChatGPT.** ChatGPT → **Settings → Connectors** → bật
-   **Developer mode** → **Create / Add custom connector** (MCP). ChatGPT sẽ cấp
-   một **Runtime / control-plane API key** cho secure tunnel.
-3. **Chạy tunnel bằng key đó.** Trong app tray dán key vào
-   **CONTROL_PLANE_API_KEY → Save key**, rồi **Start** (hoặc chạy
-   `scripts/start-tunnel.ps1` và dán key khi được hỏi). Tunnel nối server local
-   với tài khoản ChatGPT của bạn.
-4. **Hoàn tất & bật.** Tạo xong connector trong ChatGPT, rồi bật nó trong một
-   chat mới.
-5. **Kiểm chứng.** Trong chat gõ: *“Gọi workspace_info — roots và mode là gì?”*
-   Nó phải trả về đường dẫn workspace + mode → xác nhận đúng path ChatGPT đọc/ghi
-   qua MCP.
+#### Trước khi bắt đầu: cần hai key
+
+Secure Tunnel dùng hai credential OpenAI Platform khác nhau. Hãy tạo cả hai
+trong **cùng Organization** đang sở hữu tunnel:
+
+| Credential | Nơi tạo | Mục đích |
+|------------|---------|----------|
+| **Admin API key** | `https://platform.openai.com/settings/organization/admin-keys` | Tạo, sửa hoặc xoá tunnel. Không dán key này vào launcher. |
+| **Runtime API key** | `https://platform.openai.com/settings/organization/api-keys` | Cho `tunnel-client` local đăng nhập control plane. Key có thể bắt đầu bằng `sk-proj-...`. |
+
+Việc tạo key không làm MCP server này tự gọi model API. Runtime key chỉ dùng để
+xác thực `tunnel-client`. Hãy coi cả hai key như mật khẩu: không commit lên Git,
+không gửi qua issue/chat và không đặt trong file `.env` được track. Thu hồi ngay
+key từng bị lộ.
+
+#### 1. Khởi động và kiểm tra MCP server local
+
+Chọn đúng repository trong **Workspace**, rồi khởi động server bằng app tray
+hoặc launcher. Kiểm tra hai địa chỉ local:
+
+```text
+http://127.0.0.1:8787/healthz   # phải trả về status: ok
+http://127.0.0.1:8790/ui        # dashboard local
+```
+
+Endpoint MCP mà Secure Tunnel chuyển tiếp là:
+
+```text
+http://127.0.0.1:8787/mcp
+```
+
+Giữ server bind ở loopback. Không đưa coding server ra Internet bằng `loca.lt`,
+ngrok hoặc Cloudflare quick tunnel công khai.
+
+#### 2. Tạo Secure MCP Tunnel
+
+1. Mở `https://platform.openai.com/settings/organization/tunnels`.
+2. Chọn đúng Organization đã dùng để tạo hai key.
+3. Tạo tunnel, nhập tên/mô tả và gán đúng ChatGPT workspace sẽ dùng app.
+4. Sao chép ID dạng `tunnel_abc123...`. Tunnel ID không phải secret, nhưng phải
+   giống nhau trong profile local và ChatGPT App.
+
+Tạo hoặc cập nhật profile local:
+
+```powershell
+tools\tunnel-client.exe init `
+  --profile local-coding-agent `
+  --profile-dir tools\profiles `
+  --tunnel-id tunnel_abc123 `
+  --mcp-server-url http://127.0.0.1:8787/mcp `
+  --health-listen-addr 127.0.0.1:8788 `
+  --open-web-ui `
+  --force
+```
+
+Trên macOS/Linux, dùng `tools/tunnel-client` và cú pháp xuống dòng của shell.
+Cổng `8788` thuộc health/admin UI của tunnel client; dashboard agent phải giữ ở
+`8790`.
+
+#### 3. Chạy tunnel bằng Runtime key
+
+Chạy launcher và dán **Runtime API key**, không phải Admin key, khi thấy prompt
+`CONTROL_PLANE_API_KEY`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-tunnel.ps1
+```
+
+Giữ cửa sổ terminal này mở. Tunnel hoạt động đúng khi:
+
+- `http://127.0.0.1:8788/healthz` trả về `live`.
+- `http://127.0.0.1:8788/readyz` trả về `ready`.
+- Terminal không lặp `401 Unauthorized` hoặc `poll failed`.
+- Metrics có `commands_poll_last_successful_timestamp_seconds` khác `0`.
+
+#### 4. Tạo App trên ChatGPT Web
+
+1. Mở **ChatGPT → Settings → Apps → Advanced settings**, bật
+   **Developer mode**.
+2. Quay lại **Settings → Apps**, chọn **Create**.
+3. Nhập tên và mô tả app.
+4. Trong **Connection**, chọn **Tunnel**, không chọn **Server URL**.
+5. Dán chính xác Tunnel ID ở bước 2.
+6. Chọn **No Auth**, trừ khi app từ xa có thêm luồng xác thực riêng. Secure MCP
+   Tunnel đã xác thực kênh control plane.
+7. Đọc và đánh dấu xác nhận cảnh báo custom MCP server.
+8. Nếu giao diện có **Scan Tools**, chạy và đợi quét xong. Một số phiên bản tự
+   quét tool sau khi bấm **Create**.
+9. Bấm **Create**. Trang cài đặt app phải hiện nhãn `DEV`, đúng Tunnel ID và nút
+   **Disconnect**.
+
+Trong giai đoạn thử nghiệm, nên bật hỏi quyền cho hành động ghi/chạy lệnh thay
+vì **Allow all (elevated risk)**. Server có thể sửa file và chạy command trong
+các root đã cấu hình.
+
+#### 5. Kiểm tra App
+
+Mở chat mới, bật app vừa tạo và gửi bài test chỉ đọc:
+
+```text
+Dùng Local Coding Agent. Gọi ping và workspace_info, sau đó liệt kê file ở thư
+mục gốc. Không thay đổi file.
+```
+
+Sau đó thử quyền ghi có bước dọn dẹp:
+
+```text
+Tạo file mcp-smoke-test.txt với nội dung "MCP write test OK", đọc lại để xác
+minh rồi xoá file.
+```
+
+Dashboard local sẽ ghi nhận các tool call. Sau khi đổi root, gọi lại
+`workspace_info` để xác nhận chính xác thư mục vật lý ChatGPT được truy cập.
 
 **Đổi thư mục làm việc sau này:** sửa **Workspace (root)** (hoặc **Extra roots**)
 → **Save settings → Start** (tự khởi động lại với path mới). Chạy lại
@@ -401,7 +611,15 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 - *Server offline* → bấm Start; mở `http://127.0.0.1:8787/healthz`.
 - *Tunnel không lên ("bind 127.0.0.1:8788")* → tunnel chiếm cổng 8788; để
   dashboard ở **8790** (đừng dùng 8788).
-- *Không thấy tool* → đảm bảo đã bật connector trong chat và Developer mode đang bật.
+- *Lặp `401 Unauthorized` / `poll failed`* → Runtime key sai, bị thu hồi, bị giới
+  hạn quyền hoặc thuộc Organization khác. Tạo Runtime key mới trong cùng
+  Organization với tunnel. Không dùng Admin key làm `CONTROL_PLANE_API_KEY`.
+- *Tunnel ID trên ChatGPT khác terminal/profile* → cập nhật profile rồi restart
+  `tunnel-client`; cả ba nơi phải dùng cùng một ID.
+- *Không thấy tool* → đảm bảo đã bật app trong chat và Developer mode đang bật.
+  Mở cài đặt app, bấm **Refresh** để quét lại tool sau khi nâng cấp server.
+- *App đã tạo nhưng gọi tool bị timeout* → phải giữ MCP server local và terminal
+  tunnel đang chạy. Tắt máy thì tool local không thể hoạt động.
 - *Sửa file mà "không thấy đâu"* → có thể bạn có 2 bản clone; `workspace_info`
   cho biết path chính xác đang dùng — trỏ Workspace vào đúng bản bạn muốn.
 

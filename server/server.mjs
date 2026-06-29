@@ -250,6 +250,9 @@ const httpServer = http.createServer(async (req, res) => {
         mcp_endpoint: `http://${HOST}:${PORT}/mcp`
       });
     }
+    if (req.method === "GET" && url.pathname === "/.well-known/oauth-protected-resource") {
+      return sendJson(res, 200, oauthProtectedResourceMetadata());
+    }
     if (url.pathname === "/mcp") {
       if (!checkAuth(req, url)) {
         return sendJson(res, 401, {
@@ -2516,6 +2519,17 @@ function sendJson(res, status, value) {
 function sendHtml(res, html) {
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Content-Length": Buffer.byteLength(html) });
   res.end(html);
+}
+
+function oauthProtectedResourceMetadata() {
+  const resource = `http://${HOST}:${PORT}/mcp`;
+  return {
+    resource,
+    bearer_methods_supported: ["header"],
+    scopes_supported: [],
+    resource_name: "Local Coding Agent MCP",
+    resource_documentation: `http://${HOST}:${PORT}/`
+  };
 }
 
 function homeHtml() {
