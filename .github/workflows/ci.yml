@@ -73,3 +73,37 @@ jobs:
       - name: Dump server log on failure
         if: failure()
         run: cat server/server.log || true
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install server deps
+        working-directory: server
+        run: npm install
+      - name: Start server (safe mode, non-git workspace)
+        working-directory: server
+        env:
+          PORT: "8799"
+          DASHBOARD_PORT: "0"
+          AGENT_MODE: safe
+        run: |
+          WORKSPACE="$(mktemp -d)"   # deliberately NOT a git repo
+          AGENT_WORKSPACE="$WORKSPACE" node server.mjs > sec.log 2>&1 &
+          echo "SEC_PID=$!" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8799/healthz >/dev/null && break; sleep 1; done
+      - name: Run security suite
+        working-directory: server
+        env:
+          TEST_ENDPOINT: http://127.0.0.1:8799/mcp
+          AUDIT_LOG: data/audit.log
+        run: npm run test:security
+      - name: Stop server
+        if: always()
+        run: '[ -n "${SEC_PID:-}" ] && kill "$SEC_PID" 2>/dev/null || true'
+      - name: Dump log on failure
+        if: failure()
+        run: cat server/sec.log || true

@@ -27,7 +27,7 @@ import { z } from "zod";
 // ----------------------------------------------------------------------------
 // Configuration (all overridable via environment variables)
 // ----------------------------------------------------------------------------
-const VERSION = "2.0.1";
+const VERSION = "2.0.2";
 const PORT = Number(process.env.PORT || 8787);
 // Bind to loopback by default. The local OpenAI tunnel-client forwards to this,
 // so we never need to listen on 0.0.0.0 (which would expose a shell to the LAN).
@@ -1284,6 +1284,15 @@ function registerProcessTools(mcp) {
   );
 }
 
+// Git flags blocked on the raw `git` tool (any mode): they can write arbitrary
+// files, run external programs, or operate outside the resolved repo.
+const BAD_GIT_FLAGS = [
+  /^-c$/, /^-C$/,
+  /^--git-dir(=|$)/i, /^--work-tree(=|$)/i,
+  /^--output(=|$)/i, /^--no-index$/i, /^--ext-diff$/i,
+  /^--exec-path(=|$)/i, /^--upload-pack(=|$)/i, /^--receive-pack(=|$)/i
+];
+
 // Read-only git subcommands allowed in safe mode (mutating ones need full mode).
 const GIT_READONLY = new Set([
   "status", "diff", "log", "show", "ls-files", "ls-tree", "rev-parse", "blame",
@@ -1304,10 +1313,16 @@ function registerGitTool(mcp) {
       }
     },
     async ({ args, cwd = "." }) => {
+      // Always block flags that can write files, run external programs, or escape
+      // the repo — even on "read" subcommands (e.g. `git diff --output=../x`,
+      // `-c core.pager=...`, `--ext-diff`, `--git-dir`/`--work-tree`).
+      if (args.some((a) => BAD_GIT_FLAGS.some((re) => re.test(a)))) {
+        throw new Error("That git flag is blocked (can write files, run external programs, or escape the repo).");
+      }
       if (MODE !== "full") {
-        // safe mode: only allow read-only git subcommands. Anything that can
-        // mutate the repo/working tree (restore, checkout --, rm, branch -D,
-        // push --force, reset, clean, …) requires AGENT_MODE=full.
+        // safe mode: only allow read-only git subcommands. Mutations
+        // (restore, checkout --, rm, branch -D, push --force, reset, clean, …)
+        // require AGENT_MODE=full.
         const sub = (args.find((a) => !a.startsWith("-")) || "").toLowerCase();
         const infoFlag = args.some((a) => /^(--version|--help)$/i.test(a) || /^-[vh]$/.test(a));
         if (!infoFlag && !GIT_READONLY.has(sub)) {
@@ -2121,21 +2136,31 @@ function trimOutput(s, { tail_lines, head_lines, max_chars }) {
 
 // Fields whose values may carry secrets or large payloads — redact them in the
 // audit log so data/audit.log never stores tokens/keys/file contents/commands.
-const AUDIT_REDACT = /^(content|body|old_text|new_text|command|token|key|secret|password|authorization|auth|api[_-]?key)$/i;
+const AUDIT_REDACT = /^(content|body|diff|patch|old_text|new_text|command|token|key|secret|password|authorization|auth|api[_-]?key)$/i;
+
+// Recursively redact sensitive keys at ANY depth (e.g. apply_patch.operations[].content,
+// .edits[].new_text) and truncate long strings, so data/audit.log never stores secrets.
+function redactDeep(v, depth = 0) {
+  if (depth > 8) return "…";
+  if (Array.isArray(v)) return v.slice(0, 50).map((x) => redactDeep(x, depth + 1));
+  if (v && typeof v === "object") {
+    const o = {};
+    for (const [k, val] of Object.entries(v)) {
+      if (AUDIT_REDACT.test(k)) {
+        o[k] = typeof val === "string" ? `[redacted ${val.length} chars]` : "[redacted]";
+      } else {
+        o[k] = redactDeep(val, depth + 1);
+      }
+    }
+    return o;
+  }
+  if (typeof v === "string" && v.length > 200) return `${v.slice(0, 200)}…(${v.length} chars)`;
+  return v;
+}
 
 function summarizeArgs(args) {
   try {
-    const clone = {};
-    for (const [k, v] of Object.entries(args || {})) {
-      if (AUDIT_REDACT.test(k)) {
-        clone[k] = typeof v === "string" ? `[redacted ${v.length} chars]` : "[redacted]";
-      } else if (typeof v === "string" && v.length > 200) {
-        clone[k] = `${v.slice(0, 200)}…(${v.length} chars)`;
-      } else {
-        clone[k] = v;
-      }
-    }
-    const s = JSON.stringify(clone);
+    const s = JSON.stringify(redactDeep(args || {}));
     return s.length > 800 ? `${s.slice(0, 800)}…` : s;
   } catch {
     return "<unserializable>";

@@ -84,3 +84,9 @@ authoring, and CI.
 - `git` raw tool in safe mode is now read-only (allowlist); mutating git (restore/checkout --/rm/branch -D/push --force/reset/clean) requires AGENT_MODE=full.
 - `git_status`/`git_diff` (and dashboard /api/diff) return `is_git_repo:false` + a short error on non-git folders instead of faking "clean" or dumping git help.
 - Audit log redacts sensitive arg fields (content/command/token/key/secret/password/authorization/…) so data/audit.log never stores secrets or file contents.
+
+## v2.0.2 — security hardening v2 (raw-git lockdown + recursive redaction)
+
+- Raw `git` tool: blocks flags that can write files, run external programs, or escape the repo (`--output`, `--no-index`, `--ext-diff`, `--git-dir`, `--work-tree`, `-c`, `-C`, `--exec-path`, `--upload-pack`, `--receive-pack`) in every mode; safe mode stays read-only-allowlist (use `git_status`/`git_diff`).
+- Audit log redaction is now recursive (nested objects/arrays), so secrets/content in e.g. `apply_patch.operations[].content` / `.edits[].new_text` are never written to `data/audit.log`.
+- Added a security regression suite (`npm run test:security`) + a CI `security` job: path traversal, `git --output`/`-c` blocked, mutating git blocked in safe mode, non-git handling, and no-secret-in-audit. 6/6 passing.
