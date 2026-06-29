@@ -3,6 +3,100 @@
 All notable changes to this project are documented here. Versioning follows
 [Semantic Versioning](https://semver.org/).
 
+## [3.0.0] - 2026-06-29
+
+Major feature release: repo intelligence, patch engine + undo, test/build runner,
+review mode, planner/thread memory, policy layer, workspace profiles, and eval suite.
+
+### Added — v2.1 Repo Intelligence
+
+- **`project_profile`** — detects languages, frameworks, package managers, and
+  scripts by reading root manifests (package.json, pubspec.yaml, go.mod, Cargo.toml,
+  pyproject.toml, requirements.txt, pom.xml, build.gradle, *.csproj). Results cached 5 min.
+- **`important_files`** — lists key project files (README, tsconfig, .env.example,
+  .github/workflows/, Dockerfile, etc.) with sizes.
+- **`repo_map`** — one call returning tree + manifests + package scripts +
+  project_profile summary. Use this first to understand a repo.
+- **`repo_symbols`** — regex scan for function/class/route/const definitions in
+  JS/TS/Python files. Returns [{path, line, kind, name}].
+- **`index_status`** — returns current cache age and freshness.
+
+### Added — v2.2 Patch Engine + Undo
+
+- **`preview_patch`** — DRY RUN for diff/operations; never writes to disk.
+- **`validate_patch`** — returns ok + list of conflicts (unmatched old_text/hunks).
+- **`undo_last_patch`** — restores files from the most recent backup batch.
+- All write tools (write_file, replace_in_file, apply_patch, delete_path,
+  move_path) now create a backup batch before mutating files so undo always works.
+
+### Added — v2.3 Smart Test/Build Runner
+
+- **`detect_test_commands`** — detects test/build/lint/dev commands from manifests.
+- **`run_tests`** — runs detected or provided test command; returns {ok, exit_code,
+  summary, failures} with heuristic failure parsing.
+- **`run_build`** — same as run_tests but for build.
+- **`run_lint`** — same for lint.
+- **`run_changed_tests`** — maps changed files to test files and runs targeted tests;
+  falls back to full suite.
+
+### Added — v2.4 Review Mode
+
+- **`review_diff`** — heuristic code review on git diff; returns P1/P2/P3 findings
+  and a PASS/WARN/BLOCK verdict. Checks: eval, innerHTML, dangerouslySetInnerHTML,
+  console.log, debugger, TODO/FIXME, large added blocks, missing test coverage.
+- **`security_scan`** — scans files for AWS keys, private keys, API tokens, Slack/
+  GitHub tokens, and generic secret patterns. Reports file:line without echoing values.
+- **`todo_scan`** — finds TODO/FIXME/HACK/XXX comments across the workspace.
+- **`change_summary`** — summarizes git diff --stat + changed file list.
+
+### Added — v2.5 Planner / Thread Memory
+
+- **`task_plan`** — create a task plan (goal + steps) in .agent/state/current-task.json.
+- **`task_state`** — read or update the plan (mark steps done, add steps, set status).
+- **`decision_log`** — append decision + reasoning to .agent/state/decisions.md.
+- `checkpoint` now also snapshots current-task.json for cross-chat continuity.
+
+### Added — v2.6 Policy Layer
+
+- **`AGENT_POLICY`** env (strict|balanced|full, default balanced).
+  - strict: read/analyze only.
+  - balanced: read + edit + test/build; delete/install/network need approval.
+  - full: same as before (catastrophic still blocked).
+- **`policy_status`** — returns current policy and what's allowed/blocked.
+- **`explain_risk`** — classifies a proposed action and gives risk level + decision.
+- **`request_approval`** — writes a pending approval to data/approvals/<id>.json.
+- **`approve_request`** / **`deny_request`** — approve or deny a pending request.
+
+### Added — v2.8 Workspace Profiles
+
+- On startup, loads `<PRIMARY_ROOT>/.agent/profile.json` if present.
+- Profile can set: mode, policy, extraRoots, testCommands, ignoredDirs, conventions.
+- **`profile_status`** — returns the loaded profile and schema documentation.
+- **`reload_profile`** — reloads the profile from disk without restarting.
+
+### Added — v2.9 Evals
+
+- `evals/run.mjs` — eval runner that spins a temp server and asserts behavior.
+- 20 eval scenarios covering: edit-single-file, edit-multi-file, undo restore,
+  run failing test, path escape, audit redaction, git safety, repo_map, checkpoint/
+  resume, task_plan, policy_status, and preview_patch dry-run.
+- `npm run eval` from server/; passes 100% (≥90% required).
+
+### Changed — v3.0
+
+- SERVER_INSTRUCTIONS updated with new workflow (repo_map first, preview/validate
+  before apply, run_tests after edits, review_diff before done, task_plan/decision_log).
+- VERSION bumped to 3.0.0 in server.mjs and package.json.
+- Home page tool list updated to show all tools grouped by version.
+- `createMcpServer()` registers all new tool groups.
+
+### Internal
+
+- Added `copyFile` import for backup operations.
+- New data paths: index.json, patch-history.json, backups/, approvals/, .agent/state/.
+- `recordTestRun()` helper stores last 20 test runs in metrics.
+
+
 ## [2.0.0] - 2026-06-29
 
 The "mini-IDE" release: richer git tooling, in-dashboard file browsing, skill

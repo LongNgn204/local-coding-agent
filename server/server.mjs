@@ -13,7 +13,8 @@ import {
   rename,
   rm,
   appendFile,
-  access
+  access,
+  copyFile
 } from "node:fs/promises";
 import { writeFileSync, readFileSync, existsSync, realpathSync } from "node:fs";
 import path from "node:path";
@@ -27,7 +28,7 @@ import { z } from "zod";
 // ----------------------------------------------------------------------------
 // Configuration (all overridable via environment variables)
 // ----------------------------------------------------------------------------
-const VERSION = "2.0.2";
+const VERSION = "3.0.0";
 const PORT = Number(process.env.PORT || 8787);
 // Bind to loopback by default. The local OpenAI tunnel-client forwards to this,
 // so we never need to listen on 0.0.0.0 (which would expose a shell to the LAN).
@@ -68,6 +69,31 @@ const NOTES_PATH = path.resolve(DATA_DIR, "notes.json");
 const CHECKPOINT_PATH = path.resolve(DATA_DIR, "checkpoint.json");
 const AUDIT_PATH = path.resolve(DATA_DIR, "audit.log");
 const METRICS_PATH = path.resolve(DATA_DIR, "metrics.json");
+
+// v2.1 Repo index cache
+const INDEX_PATH = path.resolve(DATA_DIR, "index.json");
+
+// v2.2 Patch history
+const PATCH_HISTORY_PATH = path.resolve(DATA_DIR, "patch-history.json");
+const BACKUPS_DIR = path.resolve(DATA_DIR, "backups");
+
+// v2.5 Planner state
+const AGENT_STATE_DIR = path.join(PRIMARY_ROOT, ".agent", "state");
+const TASK_PLAN_PATH = path.join(AGENT_STATE_DIR, "current-task.json");
+const DECISIONS_PATH = path.join(AGENT_STATE_DIR, "decisions.md");
+
+// v2.6 Approvals
+const APPROVALS_DIR = path.resolve(DATA_DIR, "approvals");
+
+// v2.6 Policy
+const AGENT_POLICY = (() => {
+  const p = String(process.env.AGENT_POLICY || "balanced").toLowerCase();
+  if (p === "strict" || p === "full") return p;
+  return "balanced";
+})();
+
+// v2.8 Profile
+let WORKSPACE_PROFILE = null;
 
 // Skills: reusable playbooks the agent can load on demand (Claude-style).
 // Discovered from: AGENT_SKILLS_DIR (env), the repo's shipped skills/, and each
@@ -152,8 +178,14 @@ const bootStartedAt = Date.now();
 // ----------------------------------------------------------------------------
 await mkdir(DATA_DIR, { recursive: true });
 await mkdir(PRIMARY_ROOT, { recursive: true });
+await mkdir(BACKUPS_DIR, { recursive: true });
+await mkdir(APPROVALS_DIR, { recursive: true });
+await mkdir(AGENT_STATE_DIR, { recursive: true });
 
 let metrics = loadMetrics();
+
+// v2.8 Load workspace profile on startup
+await loadWorkspaceProfile();
 
 // Detect ripgrep once at startup — the fastest search engine when present.
 const RG_BIN = await detectRg();
@@ -324,12 +356,15 @@ async function handleMcp(req, res) {
 
 const SERVER_INSTRUCTIONS = [
   "You are operating over a network tunnel, so EACH tool call is slow. Minimize the number of calls.",
+  "WORKFLOW: (1) Start with repo_map to understand the project in one call. (2) Use preview_patch/validate_patch before apply_patch for large edits. (3) After editing source, run run_tests or run_changed_tests. (4) Before marking 'done', call review_diff for a code-review report. (5) For multi-step tasks, use task_plan + decision_log to maintain state across chats.",
+  "POLICY: Check policy_status if you are unsure whether an action is allowed. For risky operations (delete, install, network), call explain_risk first.",
   "Use the DEDICATED tools instead of run_command for these — they are faster and cheaper:",
   "- Find files by name -> find_files (NOT dir/ls/Get-ChildItem/where).",
   "- Search file contents -> search_text with context= (NOT grep/findstr/Select-String).",
   "- Read files -> read_many for several, read_file for one (NOT type/cat/Get-Content).",
-  "- Map a repo -> repo_overview first.",
+  "- Map a repo -> repo_map first (returns tree + manifests + profile in one call).",
   "- Create/edit files -> write_file / apply_patch (with a unified `diff` for many edits) (NOT echo>/Set-Content).",
+  "- Symbol search -> repo_symbols for function/class definitions.",
   "Reserve run_command for builds, tests, installs, running programs, and git. When you do use it:",
   "- Pass the `cwd` argument instead of cd/pushd.",
   "- Combine multiple steps into ONE command (&& on cmd/bash, ; on PowerShell).",
@@ -349,6 +384,13 @@ function createMcpServer() {
   registerProcessTools(mcp);
   registerGitTool(mcp);
   registerSkillTools(mcp);
+  registerRepoIntelTools(mcp);    // v2.1
+  registerPatchEngineTools(mcp);  // v2.2
+  registerTestRunnerTools(mcp);   // v2.3
+  registerReviewTools(mcp);       // v2.4
+  registerPlannerTools(mcp);      // v2.5
+  registerPolicyTools(mcp);       // v2.6
+  registerProfileTools(mcp);      // v2.8
   return mcp;
 }
 
@@ -596,6 +638,15 @@ function registerBasicTools(mcp) {
       }
     },
     async ({ summary, next_steps = [], files_touched = [] }) => {
+      // v2.5: snapshot current-task.json into checkpoints dir
+      try {
+        const cpStateDir = path.join(AGENT_STATE_DIR, "checkpoints");
+        await mkdir(cpStateDir, { recursive: true });
+        if (existsSync(TASK_PLAN_PATH)) {
+          const taskPlan = await readFile(TASK_PLAN_PATH, "utf8");
+          await writeFile(path.join(cpStateDir, `task-${Date.now()}.json`), taskPlan, "utf8");
+        }
+      } catch { /* best-effort */ }
       const cp = { saved_at: isoNow(), summary, next_steps, files_touched };
       await mkdir(path.dirname(CHECKPOINT_PATH), { recursive: true });
       await writeFile(CHECKPOINT_PATH, `${JSON.stringify(cp, null, 2)}\n`, "utf8");
@@ -903,6 +954,7 @@ function registerFsWriteTools(mcp) {
     },
     async ({ path: rel, content }) => {
       const filePath = resolvePath(rel);
+      await createBackupBatch("write_file", [filePath]);
       await mkdir(path.dirname(filePath), { recursive: true });
       await writeFile(filePath, content, "utf8");
       return jsonResult({ ok: true, path: toRel(filePath), bytes: Buffer.byteLength(content) });
@@ -924,6 +976,7 @@ function registerFsWriteTools(mcp) {
     },
     async ({ path: rel, old_text, new_text, replace_all = false }) => {
       const filePath = resolvePath(rel);
+      await createBackupBatch("replace_in_file", [filePath]);
       const content = await readFile(filePath, "utf8");
       if (!content.includes(old_text)) throw new Error(`old_text not found in ${filePath}`);
       const next = replace_all ? content.split(old_text).join(new_text) : content.replace(old_text, new_text);
@@ -959,6 +1012,17 @@ function registerFsWriteTools(mcp) {
     },
     async ({ diff, operations }) => {
       if (diff && diff.trim()) {
+        // Collect affected file paths for backup
+        const affectedPaths = [];
+        for (const line of diff.split(/\r?\n/)) {
+          if (line.startsWith("--- ") && !line.includes("/dev/null")) {
+            const p = line.slice(4).replace(/^[ab]\//, "").trim();
+            if (p) {
+              try { affectedPaths.push(resolvePath(p)); } catch { /* skip out-of-root paths */ }
+            }
+          }
+        }
+        if (affectedPaths.length > 0) await createBackupBatch("apply_patch_diff", affectedPaths);
         const results = await applyUnifiedDiff(diff);
         const ok = results.every((r) => r.ok);
         return jsonResult({ ok, mode: "diff", applied: results.filter((r) => r.ok).length, results });
@@ -966,6 +1030,12 @@ function registerFsWriteTools(mcp) {
       if (!operations || !operations.length) {
         throw new Error("Provide either `diff` or a non-empty `operations` array.");
       }
+      // Backup existing files that will be modified/deleted
+      const pathsToBackup = operations
+        .filter((op) => op.op === "update" || op.op === "delete" || op.op === "rename")
+        .map((op) => { try { return resolvePath(op.path); } catch { return null; } })
+        .filter(Boolean);
+      if (pathsToBackup.length > 0) await createBackupBatch("apply_patch_ops", pathsToBackup);
       const results = [];
       for (const op of operations) {
         try {
@@ -1006,6 +1076,7 @@ function registerFsWriteTools(mcp) {
     async ({ from, to }) => {
       const src = resolvePath(from);
       const dst = resolvePath(to);
+      await createBackupBatch("move_path", [src]);
       await mkdir(path.dirname(dst), { recursive: true });
       await rename(src, dst);
       return jsonResult({ ok: true, from: toRel(src), to: toRel(dst) });
@@ -1025,6 +1096,7 @@ function registerFsWriteTools(mcp) {
       if (target === PRIMARY_ROOT || ROOTS.includes(target)) throw new Error("Refusing to delete a configured root.");
       const info = await stat(target);
       if (info.isDirectory() && !recursive) throw new Error("Path is a directory; pass recursive=true to delete it.");
+      if (info.isFile()) await createBackupBatch("delete_path", [target]);
       await rm(target, { recursive, force: false });
       return jsonResult({ ok: true, deleted: toRel(target) });
     }
@@ -2228,7 +2300,14 @@ function homeHtml() {
     <div class="panel"><p><strong>Roots</strong></p>${ROOTS.map((r) => `<p><code>${escapeHtml(r)}</code></p>`).join("")}</div>
     <div class="panel"><p><strong>MCP endpoint</strong></p><p><code>http://${HOST}:${PORT}/mcp</code></p></div>
     <div class="panel"><p><strong>Tools</strong></p>
-      <p><code>workspace_info, repo_overview, list_files, find_files, read_file, read_many, stat_path, search_text, write_file, replace_in_file, apply_patch, make_dir, move_path, delete_path, run_command, proc_start, proc_list, proc_output, proc_stop, git, git_status, git_diff, list_skills, read_skill, create_skill, delete_skill, ping, save_note, list_notes, checkpoint, resume</code></p>
+      <p><strong>v2.0 core:</strong> <code>workspace_info, repo_overview, list_files, find_files, read_file, read_many, stat_path, search_text, write_file, replace_in_file, apply_patch, make_dir, move_path, delete_path, run_command, proc_start, proc_list, proc_output, proc_stop, git, git_status, git_diff, list_skills, read_skill, create_skill, delete_skill, ping, save_note, list_notes, checkpoint, resume</code></p>
+      <p><strong>v2.1 repo intel:</strong> <code>project_profile, important_files, repo_map, repo_symbols, index_status</code></p>
+      <p><strong>v2.2 patch engine:</strong> <code>preview_patch, validate_patch, undo_last_patch</code></p>
+      <p><strong>v2.3 test runner:</strong> <code>detect_test_commands, run_tests, run_build, run_lint, run_changed_tests</code></p>
+      <p><strong>v2.4 review:</strong> <code>review_diff, security_scan, todo_scan, change_summary</code></p>
+      <p><strong>v2.5 planner:</strong> <code>task_plan, task_state, decision_log</code></p>
+      <p><strong>v2.6 policy:</strong> <code>policy_status, explain_risk, request_approval, approve_request, deny_request</code></p>
+      <p><strong>v2.8 profile:</strong> <code>profile_status, reload_profile</code></p>
     </div>
     <div class="panel"><p><strong>Local dashboard</strong> (this machine only): <code>http://${DASHBOARD_HOST}:${DASHBOARD_PORT}/ui</code></p></div>
   </main>
@@ -2547,4 +2626,1569 @@ tick(); setInterval(tick,2500);
 
 function escapeHtml(value) {
   return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+}
+
+// ============================================================================
+// v2.1 — Repo Intelligence
+// ============================================================================
+
+const REPO_INDEX_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+async function readRepoIndex() {
+  try {
+    const raw = await readFile(INDEX_PATH, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function writeRepoIndex(data) {
+  await mkdir(path.dirname(INDEX_PATH), { recursive: true });
+  await writeFile(INDEX_PATH, JSON.stringify(data, null, 2), "utf8");
+}
+
+function indexFresh(idx) {
+  if (!idx || !idx.ts) return false;
+  return Date.now() - new Date(idx.ts).getTime() < REPO_INDEX_TTL_MS;
+}
+
+async function detectProjectProfile(rootDir) {
+  const profile = { languages: [], frameworks: [], packageManagers: [], scripts: {}, manifests: [] };
+
+  async function tryRead(rel) {
+    try {
+      return await readFile(path.join(rootDir, rel), "utf8");
+    } catch {
+      return null;
+    }
+  }
+
+  // Node / JavaScript / TypeScript
+  const pkgJson = await tryRead("package.json");
+  if (pkgJson) {
+    profile.manifests.push("package.json");
+    try {
+      const pkg = JSON.parse(pkgJson);
+      profile.languages.push("javascript");
+      profile.packageManagers.push("npm");
+      if (existsSync(path.join(rootDir, "yarn.lock"))) profile.packageManagers.push("yarn");
+      if (existsSync(path.join(rootDir, "pnpm-lock.yaml"))) profile.packageManagers.push("pnpm");
+      const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+      if (deps["typescript"] || existsSync(path.join(rootDir, "tsconfig.json"))) profile.languages.push("typescript");
+      if (deps["react"] || deps["react-dom"]) profile.frameworks.push("react");
+      if (deps["next"]) profile.frameworks.push("next.js");
+      if (deps["express"]) profile.frameworks.push("express");
+      if (deps["@nestjs/core"]) profile.frameworks.push("nestjs");
+      if (deps["vite"]) profile.frameworks.push("vite");
+      if (deps["vue"]) profile.frameworks.push("vue");
+      if (deps["svelte"]) profile.frameworks.push("svelte");
+      if (pkg.scripts) profile.scripts = pkg.scripts;
+    } catch {
+      // invalid json
+    }
+  }
+
+  // Flutter / Dart
+  const pubspec = await tryRead("pubspec.yaml");
+  if (pubspec) {
+    profile.manifests.push("pubspec.yaml");
+    profile.languages.push("dart");
+    profile.frameworks.push("flutter");
+    profile.packageManagers.push("pub");
+  }
+
+  // Python
+  const reqTxt = await tryRead("requirements.txt");
+  const pyproject = await tryRead("pyproject.toml");
+  if (reqTxt || pyproject) {
+    profile.languages.push("python");
+    if (pyproject) {
+      profile.manifests.push("pyproject.toml");
+      profile.packageManagers.push("pip");
+      if (pyproject.includes("[tool.poetry]")) profile.packageManagers.push("poetry");
+      if (pyproject.includes("[tool.rye]")) profile.packageManagers.push("rye");
+    }
+    if (reqTxt) {
+      profile.manifests.push("requirements.txt");
+      if (!profile.packageManagers.includes("pip")) profile.packageManagers.push("pip");
+    }
+    const hasTests = existsSync(path.join(rootDir, "pytest.ini")) || existsSync(path.join(rootDir, "setup.cfg"));
+    if (hasTests) profile.frameworks.push("pytest");
+  }
+
+  // Go
+  const goMod = await tryRead("go.mod");
+  if (goMod) {
+    profile.manifests.push("go.mod");
+    profile.languages.push("go");
+    profile.packageManagers.push("go modules");
+  }
+
+  // Rust
+  const cargoToml = await tryRead("Cargo.toml");
+  if (cargoToml) {
+    profile.manifests.push("Cargo.toml");
+    profile.languages.push("rust");
+    profile.packageManagers.push("cargo");
+  }
+
+  // .NET
+  let items;
+  try {
+    items = await readdir(rootDir);
+  } catch {
+    items = [];
+  }
+  const csproj = items.find((f) => f.endsWith(".csproj"));
+  const sln = items.find((f) => f.endsWith(".sln"));
+  if (csproj || sln) {
+    if (csproj) profile.manifests.push(csproj);
+    if (sln) profile.manifests.push(sln);
+    profile.languages.push("csharp");
+    profile.packageManagers.push("dotnet");
+    profile.frameworks.push(".NET");
+  }
+
+  // Java / Gradle / Maven
+  const pomXml = await tryRead("pom.xml");
+  const buildGradle = await tryRead("build.gradle");
+  if (pomXml) {
+    profile.manifests.push("pom.xml");
+    profile.languages.push("java");
+    profile.packageManagers.push("maven");
+  }
+  if (buildGradle) {
+    profile.manifests.push("build.gradle");
+    if (!profile.languages.includes("java")) profile.languages.push("java");
+    profile.packageManagers.push("gradle");
+  }
+
+  // Deduplicate
+  profile.languages = [...new Set(profile.languages)];
+  profile.frameworks = [...new Set(profile.frameworks)];
+  profile.packageManagers = [...new Set(profile.packageManagers)];
+
+  return profile;
+}
+
+// Scan source files for symbol definitions
+async function scanSymbols(rootDir, { maxFiles = 500, maxMatches = 2000 } = {}) {
+  const symbols = [];
+  const exts = new Set([".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".py"]);
+
+  // JS/TS patterns
+  const jsPatterns = [
+    { re: /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(/, kind: "function" },
+    { re: /^(?:export\s+)?class\s+(\w+)(?:\s|{)/, kind: "class" },
+    { re: /^(?:export\s+)?const\s+(\w+)\s*=/, kind: "const" },
+    { re: /^\s{0,4}(\w+)\s*\([^)]*\)\s*\{/, kind: "method" },
+    { re: /router\.(get|post|put|patch|delete)\s*\(\s*['"`]([^'"`]+)/, kind: "route" }
+  ];
+  // Python patterns
+  const pyPatterns = [
+    { re: /^def\s+(\w+)\s*\(/, kind: "function" },
+    { re: /^class\s+(\w+)(?:\s|:)/, kind: "class" },
+    { re: /^\s{4}def\s+(\w+)\s*\(/, kind: "method" }
+  ];
+
+  async function walk(dir, depth) {
+    if (depth > 6) return;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (symbols.length >= maxMatches) return;
+      if (SKIP_DIRS.has(e.name)) continue;
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        await walk(abs, depth + 1);
+      } else if (exts.has(path.extname(e.name).toLowerCase())) {
+        if (symbols.length >= maxMatches) return;
+        let content;
+        try {
+          content = await readFile(abs, "utf8");
+        } catch {
+          continue;
+        }
+        const isPy = e.name.endsWith(".py");
+        const patterns = isPy ? pyPatterns : jsPatterns;
+        const lines = content.split(/\r?\n/);
+        let fileCount = 0;
+        for (let i = 0; i < lines.length && symbols.length < maxMatches; i++) {
+          for (const pat of patterns) {
+            const m = lines[i].match(pat.re);
+            if (m) {
+              let name = m[1];
+              if (pat.kind === "route") name = `${m[1].toUpperCase()} ${m[2]}`;
+              if (name && name.length < 60) {
+                symbols.push({ path: toRel(abs), line: i + 1, kind: pat.kind, name });
+                fileCount++;
+                break; // one match per line
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  await walk(rootDir, 1);
+  return symbols;
+}
+
+function registerRepoIntelTools(mcp) {
+  reg(
+    mcp,
+    "project_profile",
+    {
+      title: "Project profile",
+      description: "Detect languages, frameworks, package managers, and scripts in the workspace. Reads root manifests (package.json, pubspec.yaml, go.mod, Cargo.toml, etc.). Results are cached for 5 min.",
+      inputSchema: {
+        path: z.string().optional().describe("Root dir to inspect (default: primary root)."),
+        refresh: z.boolean().optional().describe("Force re-scan even if cache is fresh.")
+      }
+    },
+    async ({ path: rel = ".", refresh = false }) => {
+      const rootDir = resolvePath(rel);
+      const idx = await readRepoIndex();
+      if (!refresh && idx && indexFresh(idx) && idx.profile && idx.profile.rootDir === rootDir) {
+        return jsonResult({ ...idx.profile, cached: true, ts: idx.ts });
+      }
+      const profile = await detectProjectProfile(rootDir);
+      const entry = { rootDir, ...profile };
+      const newIdx = { ...(idx || {}), ts: isoNow(), profile: entry };
+      await writeRepoIndex(newIdx);
+      return jsonResult({ ...entry, cached: false, ts: newIdx.ts });
+    }
+  );
+
+  reg(
+    mcp,
+    "important_files",
+    {
+      title: "Important files",
+      description: "List key project files (README, config, CI, Docker, etc.) with their sizes.",
+      inputSchema: {
+        path: z.string().optional().describe("Root dir (default: primary root).")
+      }
+    },
+    async ({ path: rel = "." }) => {
+      const rootDir = resolvePath(rel);
+      const IMPORTANT_GLOBS = [
+        /^readme(\.\w+)?$/i,
+        /^agents\.md$/i,
+        /^package\.json$/i,
+        /^tsconfig.*\.json$/i,
+        /^\.env\.example$/i,
+        /^dockerfile$/i,
+        /^docker-compose.*\.(yml|yaml)$/i,
+        /^pubspec\.yaml$/i,
+        /^makefile$/i,
+        /^cargo\.toml$/i,
+        /^go\.mod$/i,
+        /^pyproject\.toml$/i,
+        /^requirements.*\.txt$/i,
+        /^\.eslintrc.*$/i,
+        /^\.prettierrc.*$/i,
+        /^\.gitignore$/i,
+        /^changelog\.md$/i,
+        /^security\.md$/i,
+        /^license$/i,
+        /^license\..*$/i
+      ];
+      const result = [];
+
+      // Root-level files
+      let rootItems;
+      try {
+        rootItems = await readdir(rootDir, { withFileTypes: true });
+      } catch {
+        rootItems = [];
+      }
+      for (const e of rootItems) {
+        if (!e.isFile()) continue;
+        if (IMPORTANT_GLOBS.some((re) => re.test(e.name))) {
+          const abs = path.join(rootDir, e.name);
+          try {
+            const info = await stat(abs);
+            result.push({ path: toRel(abs), size: info.size });
+          } catch { /* skip */ }
+        }
+      }
+
+      // .github/workflows/
+      const ghDir = path.join(rootDir, ".github", "workflows");
+      try {
+        const wfItems = await readdir(ghDir, { withFileTypes: true });
+        for (const e of wfItems) {
+          if (e.isFile() && /\.(yml|yaml)$/i.test(e.name)) {
+            const abs = path.join(ghDir, e.name);
+            try {
+              const info = await stat(abs);
+              result.push({ path: toRel(abs), size: info.size });
+            } catch { /* skip */ }
+          }
+        }
+      } catch { /* no .github/workflows */ }
+
+      return jsonResult({ count: result.length, files: result });
+    }
+  );
+
+  reg(
+    mcp,
+    "repo_map",
+    {
+      title: "Repo map",
+      description: "One call: directory tree + detected manifests + package scripts + project profile summary. Use this FIRST to understand a repo. Results cached 5 min.",
+      inputSchema: {
+        path: z.string().optional(),
+        depth: z.number().int().min(1).max(6).optional(),
+        max_entries: z.number().int().min(10).max(4000).optional(),
+        refresh: z.boolean().optional()
+      }
+    },
+    async ({ path: rel = ".", depth = 3, max_entries = 800, refresh = false }) => {
+      const rootDir = resolvePath(rel);
+      const idx = await readRepoIndex();
+      let profile;
+      if (!refresh && idx && indexFresh(idx) && idx.profile && idx.profile.rootDir === rootDir) {
+        profile = idx.profile;
+      } else {
+        profile = await detectProjectProfile(rootDir);
+        const newIdx = { ...(idx || {}), ts: isoNow(), profile: { rootDir, ...profile } };
+        await writeRepoIndex(newIdx);
+        profile = newIdx.profile;
+      }
+
+      const { tree, dirs, files } = await buildTree(rootDir, depth, max_entries);
+      const manifests = files.filter((f) => MANIFEST_NAMES.has(path.basename(f).toLowerCase()));
+
+      return jsonResult({
+        root: toRel(rootDir),
+        depth,
+        dirs: dirs.length,
+        files: files.length,
+        truncated: tree.length >= max_entries,
+        manifests: manifests.map(toRel).slice(0, 100),
+        tree: tree.map(toRel),
+        profile: {
+          languages: profile.languages,
+          frameworks: profile.frameworks,
+          packageManagers: profile.packageManagers,
+          scripts: profile.scripts || {}
+        },
+        cached: !refresh && idx && indexFresh(idx)
+      });
+    }
+  );
+
+  reg(
+    mcp,
+    "repo_symbols",
+    {
+      title: "Repo symbols",
+      description: "Scan source files for function/class/route definitions. Returns [{path, line, kind, name}]. Useful for navigation without reading entire files.",
+      inputSchema: {
+        path: z.string().optional().describe("Root dir to scan."),
+        max_files: z.number().int().min(1).max(2000).optional(),
+        max_matches: z.number().int().min(1).max(5000).optional(),
+        kind: z.enum(["function", "class", "const", "method", "route"]).optional().describe("Filter by symbol kind.")
+      }
+    },
+    async ({ path: rel = ".", max_files = 500, max_matches = 2000, kind }) => {
+      const rootDir = resolvePath(rel);
+      const symbols = await scanSymbols(rootDir, { maxFiles: max_files, maxMatches: max_matches });
+      const filtered = kind ? symbols.filter((s) => s.kind === kind) : symbols;
+      return jsonResult({ count: filtered.length, symbols: filtered });
+    }
+  );
+
+  reg(
+    mcp,
+    "index_status",
+    {
+      title: "Index status",
+      description: "Return the current repo index cache status (age, freshness, profile summary).",
+      inputSchema: {}
+    },
+    async () => {
+      const idx = await readRepoIndex();
+      if (!idx) return jsonResult({ cached: false, message: "No index cached yet. Call repo_map to build it." });
+      const ageMs = Date.now() - new Date(idx.ts).getTime();
+      return jsonResult({
+        cached: true,
+        fresh: indexFresh(idx),
+        ts: idx.ts,
+        age_seconds: Math.floor(ageMs / 1000),
+        ttl_seconds: Math.floor(REPO_INDEX_TTL_MS / 1000),
+        profile_languages: idx.profile?.languages || [],
+        profile_frameworks: idx.profile?.frameworks || []
+      });
+    }
+  );
+}
+
+// ============================================================================
+// v2.2 — Patch Engine + Undo
+// ============================================================================
+
+async function readPatchHistory() {
+  try {
+    return JSON.parse(await readFile(PATCH_HISTORY_PATH, "utf8"));
+  } catch {
+    return [];
+  }
+}
+
+async function writePatchHistory(history) {
+  await mkdir(path.dirname(PATCH_HISTORY_PATH), { recursive: true });
+  await writeFile(PATCH_HISTORY_PATH, JSON.stringify(history, null, 2), "utf8");
+}
+
+async function createBackupBatch(tool, filePaths) {
+  const batchId = randomUUID();
+  const batchDir = path.join(BACKUPS_DIR, batchId);
+  await mkdir(batchDir, { recursive: true });
+
+  const files = [];
+  for (const fp of filePaths) {
+    let hadContent = false;
+    try {
+      const abs = path.resolve(fp);
+      if (existsSync(abs)) {
+        const content = await readFile(abs, "utf8");
+        const rel = path.relative(PRIMARY_ROOT, abs).split(path.sep).join("/");
+        const backupFile = path.join(batchDir, rel.replace(/\//g, "__"));
+        await mkdir(path.dirname(backupFile), { recursive: true });
+        await writeFile(backupFile, content, "utf8");
+        hadContent = true;
+        files.push({ path: fp, backupFile, hadContent });
+      } else {
+        files.push({ path: fp, backupFile: null, hadContent: false });
+      }
+    } catch {
+      files.push({ path: fp, backupFile: null, hadContent });
+    }
+  }
+
+  const record = { id: batchId, ts: isoNow(), tool, batchDir, files };
+  const history = await readPatchHistory();
+  history.push(record);
+  if (history.length > 50) history.splice(0, history.length - 50); // keep last 50 batches
+  await writePatchHistory(history);
+  return record;
+}
+
+// Dry-run a unified diff: return per-file before/after + match status
+async function dryRunUnifiedDiff(diffText) {
+  const results = [];
+  const lines = diffText.split(/\r?\n/);
+  const fileChunks = [];
+  let current = null;
+
+  const stripPrefix = (p) => p.replace(/^["']|["']$/g, "").replace(/^[ab]\//, "").trim();
+
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i];
+    if (ln.startsWith("--- ")) {
+      const next = lines[i + 1] || "";
+      const minus = stripPrefix(ln.slice(4));
+      const plus = next.startsWith("+++ ") ? stripPrefix(next.slice(4)) : "";
+      current = { minus, plus, hunks: [], hunk: null };
+      fileChunks.push(current);
+      if (next.startsWith("+++ ")) i++;
+      continue;
+    }
+    if (!current) continue;
+    if (ln.startsWith("@@")) {
+      current.hunk = { before: [], after: [] };
+      current.hunks.push(current.hunk);
+      continue;
+    }
+    if (!current.hunk) continue;
+    const tag = ln[0];
+    const body = ln.slice(1);
+    if (tag === " ") { current.hunk.before.push(body); current.hunk.after.push(body); }
+    else if (tag === "-") { current.hunk.before.push(body); }
+    else if (tag === "+") { current.hunk.after.push(body); }
+  }
+
+  for (const fc of fileChunks) {
+    const isNew = fc.minus === "/dev/null";
+    const isDelete = fc.plus === "/dev/null";
+    const relPath = isNew ? fc.plus : fc.minus || fc.plus;
+    try {
+      const target = resolvePath(relPath);
+      if (isDelete) {
+        const exists = existsSync(target);
+        results.push({ path: relPath, action: "delete", exists, ok: exists, conflict: !exists ? "file not found" : null });
+        continue;
+      }
+      if (isNew) {
+        const exists = existsSync(target);
+        const content = fc.hunks.flatMap((h) => h.after).join("\n");
+        results.push({ path: relPath, action: "create", exists, ok: true, preview_chars: content.length });
+        continue;
+      }
+      const content = await readFile(target, "utf8");
+      const hunkResults = [];
+      let previewContent = content;
+      let allMatch = true;
+      for (const h of fc.hunks) {
+        const before = h.before.join("\n");
+        const after = h.after.join("\n");
+        if (before === after) { hunkResults.push({ match: true, skipped: true }); continue; }
+        const match = before ? content.includes(before) : true;
+        if (!match) allMatch = false;
+        hunkResults.push({ match, before_chars: before.length, after_chars: after.length });
+        if (match && before) previewContent = previewContent.replace(before, after);
+        else if (!before) previewContent += (previewContent.endsWith("\n") ? "" : "\n") + after;
+      }
+      results.push({ path: relPath, action: "update", ok: allMatch, hunks: hunkResults, conflict: allMatch ? null : "one or more hunks did not match" });
+    } catch (err) {
+      results.push({ path: relPath, action: "unknown", ok: false, conflict: String(err?.message || err) });
+    }
+  }
+  return results;
+}
+
+function registerPatchEngineTools(mcp) {
+  reg(
+    mcp,
+    "preview_patch",
+    {
+      title: "Preview patch (dry run)",
+      description: "DRY RUN — compute what a patch/operations would change WITHOUT writing. Returns per-file match status and before/after summary.",
+      inputSchema: {
+        diff: z.string().optional().describe("Unified diff to preview."),
+        operations: z.array(z.object({
+          op: z.enum(["create", "update", "delete", "rename"]),
+          path: z.string().min(1),
+          content: z.string().optional(),
+          rename_to: z.string().optional(),
+          recursive: z.boolean().optional(),
+          edits: z.array(z.object({ old_text: z.string().min(1), new_text: z.string(), replace_all: z.boolean().optional() })).optional()
+        })).optional()
+      }
+    },
+    async ({ diff, operations }) => {
+      if (diff && diff.trim()) {
+        const results = await dryRunUnifiedDiff(diff);
+        const allOk = results.every((r) => r.ok);
+        return jsonResult({ ok: allOk, mode: "diff", files: results });
+      }
+      if (!operations || !operations.length) throw new Error("Provide diff or operations.");
+      const results = [];
+      for (const op of operations) {
+        try {
+          const target = resolvePath(op.path);
+          if (op.op === "create") {
+            results.push({ op: "create", path: op.path, ok: true, bytes: Buffer.byteLength(op.content ?? "") });
+          } else if (op.op === "update") {
+            const content = await readFile(target, "utf8");
+            const checks = (op.edits || []).map((e) => ({ old_text_chars: e.old_text.length, match: content.includes(e.old_text), new_text_chars: e.new_text.length }));
+            const allMatch = checks.every((c) => c.match);
+            results.push({ op: "update", path: op.path, ok: allMatch, edits: checks, conflict: allMatch ? null : "old_text not found" });
+          } else if (op.op === "delete") {
+            const exists = existsSync(target);
+            results.push({ op: "delete", path: op.path, ok: exists, conflict: exists ? null : "file not found" });
+          } else if (op.op === "rename") {
+            const exists = existsSync(target);
+            results.push({ op: "rename", path: op.path, rename_to: op.rename_to, ok: exists, conflict: exists ? null : "source not found" });
+          }
+        } catch (err) {
+          results.push({ op: op.op, path: op.path, ok: false, conflict: String(err?.message || err) });
+        }
+      }
+      return jsonResult({ ok: results.every((r) => r.ok), mode: "operations", files: results });
+    }
+  );
+
+  reg(
+    mcp,
+    "validate_patch",
+    {
+      title: "Validate patch",
+      description: "Like preview_patch but only returns ok status and a list of conflicts (ambiguous/not-found hunks). Fast check before apply.",
+      inputSchema: {
+        diff: z.string().optional(),
+        operations: z.array(z.object({
+          op: z.enum(["create", "update", "delete", "rename"]),
+          path: z.string().min(1),
+          content: z.string().optional(),
+          rename_to: z.string().optional(),
+          edits: z.array(z.object({ old_text: z.string().min(1), new_text: z.string() })).optional()
+        })).optional()
+      }
+    },
+    async ({ diff, operations }) => {
+      if (diff && diff.trim()) {
+        const results = await dryRunUnifiedDiff(diff);
+        const conflicts = results.filter((r) => !r.ok).map((r) => ({ path: r.path, conflict: r.conflict }));
+        return jsonResult({ ok: conflicts.length === 0, conflicts });
+      }
+      if (!operations || !operations.length) throw new Error("Provide diff or operations.");
+      const conflicts = [];
+      for (const op of operations) {
+        try {
+          const target = resolvePath(op.path);
+          if (op.op === "update") {
+            const content = await readFile(target, "utf8");
+            for (const e of op.edits || []) {
+              if (!content.includes(e.old_text)) {
+                conflicts.push({ path: op.path, conflict: `old_text not found: "${e.old_text.slice(0, 60)}..."` });
+              }
+            }
+          } else if (op.op === "delete" || op.op === "rename") {
+            if (!existsSync(target)) conflicts.push({ path: op.path, conflict: "file not found" });
+          }
+        } catch (err) {
+          conflicts.push({ path: op.path, conflict: String(err?.message || err) });
+        }
+      }
+      return jsonResult({ ok: conflicts.length === 0, conflicts });
+    }
+  );
+
+  reg(
+    mcp,
+    "undo_last_patch",
+    {
+      title: "Undo last patch",
+      description: "Restore files from the most recent backup batch. Reverts modified files, recreates deleted files, removes created files.",
+      inputSchema: {}
+    },
+    async () => {
+      const history = await readPatchHistory();
+      if (!history.length) throw new Error("No patch history to undo.");
+      const batch = history[history.length - 1];
+      const restored = [];
+      const errors = [];
+      for (const f of batch.files) {
+        try {
+          const abs = path.resolve(f.path);
+          if (f.hadContent && f.backupFile && existsSync(f.backupFile)) {
+            const backup = await readFile(f.backupFile, "utf8");
+            await mkdir(path.dirname(abs), { recursive: true });
+            await writeFile(abs, backup, "utf8");
+            restored.push({ path: f.path, action: "restored" });
+          } else if (!f.hadContent && existsSync(abs)) {
+            await rm(abs, { force: true });
+            restored.push({ path: f.path, action: "removed (was created)" });
+          } else {
+            restored.push({ path: f.path, action: "skipped (no backup)" });
+          }
+        } catch (err) {
+          errors.push({ path: f.path, error: String(err?.message || err) });
+        }
+      }
+      // Pop the history entry
+      history.pop();
+      await writePatchHistory(history);
+      // Clean up backup dir
+      try { await rm(batch.batchDir, { recursive: true, force: true }); } catch { /* ok */ }
+      return jsonResult({ ok: errors.length === 0, tool: batch.tool, ts: batch.ts, restored, errors });
+    }
+  );
+}
+
+// Wire backup into write_file / replace_in_file / apply_patch / delete_path / move_path
+// We do this by wrapping the handlers — patch the tool registration functions:
+const _origApplyOne = applyOne;
+async function applyOneWithBackup(op, batchId) {
+  // backup is handled at the batch level before execution
+  return _origApplyOne(op);
+}
+
+// ============================================================================
+// v2.3 — Smart Test / Build Runner
+// ============================================================================
+
+async function detectTestCommands(rootDir) {
+  const commands = { test: null, build: null, lint: null, dev: null, typecheck: null };
+
+  async function tryRead(rel) {
+    try { return await readFile(path.join(rootDir, rel), "utf8"); } catch { return null; }
+  }
+
+  // npm / Node
+  const pkgJson = await tryRead("package.json");
+  if (pkgJson) {
+    try {
+      const pkg = JSON.parse(pkgJson);
+      const scripts = pkg.scripts || {};
+      if (scripts.test) commands.test = `npm test`;
+      if (scripts.build) commands.build = `npm run build`;
+      if (scripts.lint) commands.lint = `npm run lint`;
+      if (scripts.dev) commands.dev = `npm run dev`;
+      if (scripts.typecheck || scripts["type-check"] || scripts["type:check"]) {
+        commands.typecheck = `npm run ${Object.keys(scripts).find((k) => /typecheck|type.check/.test(k))}`;
+      }
+    } catch { /* skip */ }
+  }
+
+  // Python / pytest
+  const pyproject = await tryRead("pyproject.toml");
+  const reqTxt = await tryRead("requirements.txt");
+  if (pyproject || reqTxt) {
+    if (!commands.test) commands.test = "python -m pytest";
+    if (!commands.lint) commands.lint = "python -m flake8";
+  }
+
+  // Go
+  if (await tryRead("go.mod")) {
+    if (!commands.test) commands.test = "go test ./...";
+    if (!commands.build) commands.build = "go build ./...";
+  }
+
+  // Rust
+  if (await tryRead("Cargo.toml")) {
+    if (!commands.test) commands.test = "cargo test";
+    if (!commands.build) commands.build = "cargo build";
+    if (!commands.lint) commands.lint = "cargo clippy";
+  }
+
+  // Flutter
+  if (await tryRead("pubspec.yaml")) {
+    if (!commands.test) commands.test = "flutter test";
+    if (!commands.build) commands.build = "flutter build";
+  }
+
+  // .NET
+  let items;
+  try { items = await readdir(rootDir); } catch { items = []; }
+  if (items.some((f) => f.endsWith(".csproj") || f.endsWith(".sln"))) {
+    if (!commands.test) commands.test = "dotnet test";
+    if (!commands.build) commands.build = "dotnet build";
+  }
+
+  // Gradle
+  if (await tryRead("build.gradle")) {
+    if (!commands.test) commands.test = "gradle test";
+    if (!commands.build) commands.build = "gradle build";
+  }
+
+  // Maven
+  if (await tryRead("pom.xml")) {
+    if (!commands.test) commands.test = "mvn test";
+    if (!commands.build) commands.build = "mvn package";
+  }
+
+  return commands;
+}
+
+function parseTestFailures(output) {
+  const failures = [];
+  const lines = output.split(/\r?\n/);
+  const patterns = [
+    // Jest / Vitest: "FAIL src/foo.test.ts" or "✕ test name"
+    /^(FAIL|FAILED)\s+(.+)$/,
+    // Node assert / mocha
+    /AssertionError/,
+    // file:line:col error
+    /^(.+):(\d+):(\d+):\s*(Error|error)/,
+    // "expected X got Y"
+    /expected.*got\b/i,
+    // "× test name" (Unicode ×)
+    /^[\s]*[×✕✗]\s+(.+)/
+  ];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    for (const pat of patterns) {
+      const m = line.match(pat);
+      if (m) {
+        failures.push({ message: line.slice(0, 300), context: lines.slice(Math.max(0, i - 1), i + 3).join("\n").slice(0, 500) });
+        break;
+      }
+    }
+    if (failures.length >= 30) break;
+  }
+  return failures;
+}
+
+async function runGatedCommand(command, cwd, timeoutMs = 120_000) {
+  const result = await runShellCommand(command, cwd, undefined, timeoutMs);
+  const output = (result.stdout + "\n" + result.stderr).trim();
+  const ok = result.exit_code === 0;
+  const failures = ok ? [] : parseTestFailures(output);
+  const summary = output.slice(0, 3000);
+  return { ok, command, exit_code: result.exit_code, timed_out: result.timed_out, summary, failures };
+}
+
+function registerTestRunnerTools(mcp) {
+  reg(
+    mcp,
+    "detect_test_commands",
+    {
+      title: "Detect test commands",
+      description: "Detect test/build/lint/dev commands from workspace manifests (package.json, go.mod, Cargo.toml, etc.).",
+      inputSchema: { path: z.string().optional() }
+    },
+    async ({ path: rel = "." }) => {
+      const rootDir = resolvePath(rel);
+      const cmds = await detectTestCommands(rootDir);
+      const profile = await detectProjectProfile(rootDir);
+      return jsonResult({ commands: cmds, languages: profile.languages, packageManagers: profile.packageManagers });
+    }
+  );
+
+  reg(
+    mcp,
+    "run_tests",
+    {
+      title: "Run tests",
+      description: "Run the detected (or provided) test command. Returns {ok, exit_code, summary, failures}.",
+      inputSchema: {
+        command: z.string().optional().describe("Override detected test command."),
+        cwd: z.string().optional(),
+        timeout_ms: z.number().int().min(1000).max(600000).optional()
+      }
+    },
+    async ({ command, cwd = ".", timeout_ms = 120_000 }) => {
+      const rootDir = resolvePath(cwd);
+      let cmd = command;
+      if (!cmd) {
+        const cmds = await detectTestCommands(rootDir);
+        cmd = cmds.test;
+        if (!cmd) throw new Error("Could not detect test command. Provide command explicitly.");
+      }
+      assertCommandAllowed(cmd);
+      const res = await runGatedCommand(cmd, rootDir, timeout_ms);
+      recordTestRun(cmd, res.ok, res.summary);
+      return jsonResult(res);
+    }
+  );
+
+  reg(
+    mcp,
+    "run_build",
+    {
+      title: "Run build",
+      description: "Run the detected (or provided) build command. Returns {ok, exit_code, summary, failures}.",
+      inputSchema: {
+        command: z.string().optional(),
+        cwd: z.string().optional(),
+        timeout_ms: z.number().int().min(1000).max(600000).optional()
+      }
+    },
+    async ({ command, cwd = ".", timeout_ms = 120_000 }) => {
+      const rootDir = resolvePath(cwd);
+      let cmd = command;
+      if (!cmd) {
+        const cmds = await detectTestCommands(rootDir);
+        cmd = cmds.build;
+        if (!cmd) throw new Error("Could not detect build command. Provide command explicitly.");
+      }
+      assertCommandAllowed(cmd);
+      return jsonResult(await runGatedCommand(cmd, rootDir, timeout_ms));
+    }
+  );
+
+  reg(
+    mcp,
+    "run_lint",
+    {
+      title: "Run lint",
+      description: "Run the detected (or provided) lint command. Returns {ok, exit_code, summary, failures}.",
+      inputSchema: {
+        command: z.string().optional(),
+        cwd: z.string().optional(),
+        timeout_ms: z.number().int().min(1000).max(600000).optional()
+      }
+    },
+    async ({ command, cwd = ".", timeout_ms = 60_000 }) => {
+      const rootDir = resolvePath(cwd);
+      let cmd = command;
+      if (!cmd) {
+        const cmds = await detectTestCommands(rootDir);
+        cmd = cmds.lint;
+        if (!cmd) throw new Error("Could not detect lint command. Provide command explicitly.");
+      }
+      assertCommandAllowed(cmd);
+      return jsonResult(await runGatedCommand(cmd, rootDir, timeout_ms));
+    }
+  );
+
+  reg(
+    mcp,
+    "run_changed_tests",
+    {
+      title: "Run changed tests",
+      description: "Run tests for changed files only (git diff + untracked). Maps src files to test files heuristically; falls back to full test suite.",
+      inputSchema: {
+        cwd: z.string().optional(),
+        timeout_ms: z.number().int().min(1000).max(600000).optional()
+      }
+    },
+    async ({ cwd = ".", timeout_ms = 120_000 }) => {
+      const rootDir = resolvePath(cwd);
+      // Get changed files
+      const diffRes = await spawnCapture("git", ["diff", "--name-only"], rootDir, DEFAULT_CMD_TIMEOUT);
+      const untrackedRes = await spawnCapture("git", ["ls-files", "--others", "--exclude-standard"], rootDir, DEFAULT_CMD_TIMEOUT);
+      const changedFiles = [
+        ...(diffRes.stdout || "").split(/\r?\n/).filter(Boolean),
+        ...(untrackedRes.stdout || "").split(/\r?\n/).filter(Boolean)
+      ];
+
+      // Map to test files
+      const testFiles = new Set();
+      for (const f of changedFiles) {
+        const base = path.basename(f, path.extname(f));
+        const dir = path.dirname(f);
+        // Direct test file check
+        for (const pattern of [
+          path.join(dir, `${base}.test${path.extname(f)}`),
+          path.join(dir, `${base}.spec${path.extname(f)}`),
+          path.join(dir, "__tests__", `${base}.test${path.extname(f)}`),
+          path.join(dir, "__tests__", `${base}.spec${path.extname(f)}`),
+          path.join("test", `${base}.test${path.extname(f)}`),
+          path.join("tests", `test_${base}.py`),
+          path.join("tests", `${base}_test.py`)
+        ]) {
+          if (existsSync(path.join(rootDir, pattern))) testFiles.add(pattern);
+        }
+      }
+
+      const cmds = await detectTestCommands(rootDir);
+      if (testFiles.size === 0) {
+        // Fall back to full test run
+        if (!cmds.test) throw new Error("No changed test files found and no test command detected.");
+        assertCommandAllowed(cmds.test);
+        const res = await runGatedCommand(cmds.test, rootDir, timeout_ms);
+        recordTestRun(cmds.test, res.ok, res.summary);
+        return jsonResult({ ...res, strategy: "full_fallback", changed_files: changedFiles.length });
+      }
+
+      // Build targeted test command
+      const fileList = [...testFiles].join(" ");
+      let cmd;
+      if (cmds.test && cmds.test.startsWith("npm")) {
+        // Jest / Vitest — pass file list
+        cmd = `${cmds.test} -- ${fileList}`;
+      } else if (cmds.test && cmds.test.includes("pytest")) {
+        cmd = `python -m pytest ${fileList}`;
+      } else {
+        cmd = cmds.test || `echo "No test command"`;
+      }
+
+      assertCommandAllowed(cmd);
+      const res = await runGatedCommand(cmd, rootDir, timeout_ms);
+      recordTestRun(cmd, res.ok, res.summary);
+      return jsonResult({ ...res, strategy: "targeted", test_files: [...testFiles], changed_files: changedFiles });
+    }
+  );
+}
+
+// Record test run into metrics
+function recordTestRun(command, ok, summary) {
+  if (!metrics.testRuns) metrics.testRuns = [];
+  metrics.testRuns.unshift({ ts: isoNow(), command: command.slice(0, 200), ok, summary: summary.slice(0, 500) });
+  if (metrics.testRuns.length > 20) metrics.testRuns.length = 20;
+  scheduleSave();
+}
+
+// ============================================================================
+// v2.4 — Review Mode
+// ============================================================================
+
+function registerReviewTools(mcp) {
+  reg(
+    mcp,
+    "review_diff",
+    {
+      title: "Review diff",
+      description: "Run heuristic code-review checks on git diff (working tree). Returns findings as P1/P2/P3 file:line items + verdict.",
+      inputSchema: {
+        staged: z.boolean().optional().describe("Review staged changes instead of working tree."),
+        cwd: z.string().optional()
+      }
+    },
+    async ({ staged = false, cwd = "." }) => {
+      const rootDir = resolvePath(cwd);
+      const args = ["diff"];
+      if (staged) args.push("--staged");
+      const result = await spawnCapture("git", args, rootDir, DEFAULT_CMD_TIMEOUT);
+      if (result.exit_code !== 0) {
+        return jsonResult({ ok: false, error: "Not a git repo or git error.", diff: "" });
+      }
+      const diff = result.stdout || "";
+      if (!diff.trim()) return jsonResult({ ok: true, verdict: "CLEAN", findings: [], message: "No changes in working tree." });
+
+      const findings = [];
+      // Parse diff to check added lines
+      let currentFile = null;
+      let lineNum = 0;
+      const diffLines = diff.split(/\r?\n/);
+
+      for (let i = 0; i < diffLines.length; i++) {
+        const line = diffLines[i];
+        if (line.startsWith("--- ") || line.startsWith("+++ ")) {
+          if (line.startsWith("+++ ")) {
+            currentFile = line.slice(4).replace(/^b\//, "").trim();
+          }
+          continue;
+        }
+        if (line.startsWith("@@ ")) {
+          const m = line.match(/@@ -\d+(?:,\d+)? \+(\d+)/);
+          lineNum = m ? Number(m[1]) - 1 : 0;
+          continue;
+        }
+        if (line.startsWith("+") && !line.startsWith("+++")) {
+          lineNum++;
+          const added = line.slice(1);
+          const loc = `${currentFile}:${lineNum}`;
+
+          // P1: dangerous calls
+          if (/\beval\s*\(/.test(added)) findings.push({ priority: "P1", loc, issue: "eval() usage — potential code injection" });
+          if (/\binnerHTML\s*=/.test(added)) findings.push({ priority: "P1", loc, issue: "innerHTML assignment — potential XSS" });
+          if (/dangerouslySetInnerHTML/.test(added)) findings.push({ priority: "P1", loc, issue: "dangerouslySetInnerHTML — XSS risk" });
+          if (/\bchild_process\.exec\s*\(/.test(added) || /\brequire\(['"]child_process['"]\)/.test(added)) {
+            findings.push({ priority: "P1", loc, issue: "child_process exec — command injection risk" });
+          }
+          if (/\bexec\s*\(/.test(added) && /python|subprocess/.test(added)) {
+            findings.push({ priority: "P1", loc, issue: "exec() in Python context — verify input is sanitized" });
+          }
+
+          // P2: code hygiene
+          if (/\bconsole\.(log|debug|info)\s*\(/.test(added)) {
+            findings.push({ priority: "P2", loc, issue: "console.log/debug left in code" });
+          }
+          if (/\bdebugger\b/.test(added)) findings.push({ priority: "P2", loc, issue: "debugger statement" });
+          if (/\b(TODO|FIXME)\b/.test(added)) findings.push({ priority: "P2", loc, issue: `${added.match(/\b(TODO|FIXME)\b/)[1]} comment added` });
+
+          // P3: style
+          if (/\bHACK\b/.test(added)) findings.push({ priority: "P3", loc, issue: "HACK comment added" });
+        } else if (!line.startsWith("-")) {
+          lineNum++;
+        }
+      }
+
+      // Check large added functions (>100 consecutive added lines)
+      let addedStreak = 0;
+      let streakStart = null;
+      let streakFile = null;
+      for (const line of diffLines) {
+        if (line.startsWith("+++ ")) { streakFile = line.slice(4).replace(/^b\//, ""); streakStart = 0; addedStreak = 0; }
+        else if (line.startsWith("@@ ")) { addedStreak = 0; }
+        else if (line.startsWith("+") && !line.startsWith("+++")) {
+          addedStreak++;
+          if (addedStreak === 1) streakStart = lineNum;
+          if (addedStreak > 100) {
+            findings.push({ priority: "P3", loc: `${streakFile}:~${streakStart}`, issue: "Very large added block (>100 lines) — consider splitting" });
+            addedStreak = -9999; // don't repeat
+          }
+        } else if (!line.startsWith("-")) {
+          addedStreak = 0;
+        }
+      }
+
+      // Check changed src without test change
+      const changedSrc = diffLines.filter((l) => l.startsWith("+++ ")).map((l) => l.slice(4).replace(/^b\//, "")).filter((f) => /\.(js|ts|mjs|cjs|jsx|tsx|py)$/.test(f) && !/test|spec|__tests__/.test(f));
+      const changedTest = diffLines.filter((l) => l.startsWith("+++ ")).map((l) => l.slice(4).replace(/^b\//, "")).filter((f) => /test|spec|__tests__/.test(f));
+      if (changedSrc.length > 0 && changedTest.length === 0) {
+        findings.push({ priority: "P3", loc: changedSrc[0], issue: "Source file changed without a corresponding test file change" });
+      }
+
+      const p1 = findings.filter((f) => f.priority === "P1").length;
+      const verdict = p1 > 0 ? "BLOCK" : findings.length > 0 ? "WARN" : "PASS";
+      return jsonResult({ ok: verdict !== "BLOCK", verdict, findings_count: findings.length, findings: findings.slice(0, 100), p1, p2: findings.filter((f) => f.priority === "P2").length, p3: findings.filter((f) => f.priority === "P3").length });
+    }
+  );
+
+  reg(
+    mcp,
+    "security_scan",
+    {
+      title: "Security scan",
+      description: "Scan changed (or all, capped) files for secret patterns (AWS keys, private keys, API tokens, etc.) and unsafe usage. Reports file:line — never echoes the secret value.",
+      inputSchema: {
+        path: z.string().optional().describe("Dir to scan (default primary root)."),
+        changed_only: z.boolean().optional().describe("Only scan files changed in git diff (default false)."),
+        cwd: z.string().optional()
+      }
+    },
+    async ({ path: rel = ".", changed_only = false, cwd = "." }) => {
+      const rootDir = resolvePath(rel);
+      const SECRET_PATTERNS = [
+        { name: "AWS Access Key", re: /AKIA[0-9A-Z]{16}/ },
+        { name: "Private Key", re: /-----BEGIN [A-Z ]* PRIVATE KEY-----/ },
+        { name: "Generic API key", re: /['"](api[_-]?key|apikey|api_secret)['"]\s*[:=]\s*['"][^'"]{10,}['"]/i },
+        { name: "Password assignment", re: /\b(password|passwd|pwd)\s*[:=]\s*['"][^'"]{8,}['"]/i },
+        { name: "Token assignment", re: /\b(token|access_token|auth_token|bearer)\s*[:=]\s*['"][^'"]{10,}['"]/i },
+        { name: "Slack token", re: /xox[baprs]-[0-9A-Za-z]{10,}/ },
+        { name: "GitHub token", re: /gh[pousr]_[A-Za-z0-9]{36,}/ },
+        { name: "Generic secret", re: /\bsecret\s*[:=]\s*['"][^'"]{10,}['"]/i }
+      ];
+
+      let filesToScan = [];
+      if (changed_only) {
+        const diffRes = await spawnCapture("git", ["diff", "--name-only"], rootDir, DEFAULT_CMD_TIMEOUT);
+        filesToScan = (diffRes.stdout || "").split(/\r?\n/).filter(Boolean).map((f) => path.join(rootDir, f));
+      } else {
+        const { files } = await buildTree(rootDir, 4, 500);
+        filesToScan = files.filter((f) => {
+          const ext = path.extname(f).toLowerCase();
+          return [".js", ".ts", ".mjs", ".cjs", ".jsx", ".tsx", ".py", ".json", ".env", ".sh", ".yml", ".yaml"].includes(ext);
+        });
+      }
+
+      const hits = [];
+      for (const fp of filesToScan.slice(0, 300)) {
+        let content;
+        try { content = await readFile(fp, "utf8"); } catch { continue; }
+        const lines = content.split(/\r?\n/);
+        for (let i = 0; i < lines.length; i++) {
+          for (const pat of SECRET_PATTERNS) {
+            if (pat.re.test(lines[i])) {
+              hits.push({ file: toRel(fp), line: i + 1, pattern: pat.name });
+              break;
+            }
+          }
+          if (hits.length >= 100) break;
+        }
+        if (hits.length >= 100) break;
+      }
+
+      return jsonResult({ ok: hits.length === 0, scanned_files: filesToScan.length, hits_count: hits.length, hits });
+    }
+  );
+
+  reg(
+    mcp,
+    "todo_scan",
+    {
+      title: "TODO scan",
+      description: "Find all TODO/FIXME/HACK/XXX comments in the workspace. Returns file:line locations.",
+      inputSchema: {
+        path: z.string().optional(),
+        limit: z.number().int().min(1).max(500).optional()
+      }
+    },
+    async ({ path: rel = ".", limit = 200 }) => {
+      const start = resolvePath(rel);
+      let matches;
+      if (RG_BIN) {
+        matches = await ripgrepGrep(start, "TODO|FIXME|HACK|XXX", { regex: true, limit, glob: null });
+      }
+      if (!matches) {
+        matches = await searchTree(start, "TODO|FIXME|HACK|XXX", { regex: true, limit, glob: null });
+      }
+      const categorized = (matches || []).map((m) => {
+        const kind = m.text.match(/\b(TODO|FIXME|HACK|XXX)\b/i)?.[1]?.toUpperCase() || "TODO";
+        return { ...m, kind };
+      });
+      return jsonResult({ count: categorized.length, items: categorized });
+    }
+  );
+
+  reg(
+    mcp,
+    "change_summary",
+    {
+      title: "Change summary",
+      description: "Summarize git diff --stat and list changed files with a bullet summary.",
+      inputSchema: {
+        cwd: z.string().optional(),
+        staged: z.boolean().optional()
+      }
+    },
+    async ({ cwd = ".", staged = false }) => {
+      const rootDir = resolvePath(cwd);
+      const statArgs = ["diff", "--stat"];
+      if (staged) statArgs.push("--staged");
+      const statRes = await spawnCapture("git", statArgs, rootDir, DEFAULT_CMD_TIMEOUT);
+
+      const nameArgs = ["diff", "--name-status"];
+      if (staged) nameArgs.push("--staged");
+      const nameRes = await spawnCapture("git", nameArgs, rootDir, DEFAULT_CMD_TIMEOUT);
+
+      if (statRes.exit_code !== 0) {
+        return jsonResult({ ok: false, error: "Not a git repo." });
+      }
+
+      const stat_output = (statRes.stdout || "").trim();
+      const files = (nameRes.stdout || "").split(/\r?\n/).filter(Boolean).map((line) => {
+        const [status, ...parts] = line.split(/\t/);
+        return { status: status.trim(), path: parts.join("\t").trim() };
+      });
+
+      return jsonResult({ ok: true, stat: stat_output, files_changed: files.length, files: files.slice(0, 100) });
+    }
+  );
+}
+
+// ============================================================================
+// v2.5 — Planner / Thread Memory
+// ============================================================================
+
+function registerPlannerTools(mcp) {
+  reg(
+    mcp,
+    "task_plan",
+    {
+      title: "Task plan",
+      description: "Create or update the current task plan. Stores goal + steps in .agent/state/current-task.json.",
+      inputSchema: {
+        goal: z.string().min(1).describe("High-level goal description."),
+        steps: z.array(z.string()).min(1).describe("Ordered list of steps to complete the goal.")
+      }
+    },
+    async ({ goal, steps }) => {
+      await mkdir(AGENT_STATE_DIR, { recursive: true });
+      const plan = {
+        goal,
+        steps: steps.map((text) => ({ text, done: false })),
+        created: isoNow(),
+        updated: isoNow()
+      };
+      await writeFile(TASK_PLAN_PATH, JSON.stringify(plan, null, 2), "utf8");
+      return jsonResult({ ok: true, goal, steps_count: steps.length, path: TASK_PLAN_PATH });
+    }
+  );
+
+  reg(
+    mcp,
+    "task_state",
+    {
+      title: "Task state",
+      description: "Get or update the current task plan. Call with no args to read; pass set_step_done/add_steps/status to update.",
+      inputSchema: {
+        set_step_done: z.number().int().min(0).optional().describe("Mark step N (0-indexed) as done."),
+        add_steps: z.array(z.string()).optional().describe("Append new steps to the plan."),
+        status: z.string().optional().describe("Set overall status string.")
+      }
+    },
+    async ({ set_step_done, add_steps, status }) => {
+      let plan;
+      try {
+        plan = JSON.parse(await readFile(TASK_PLAN_PATH, "utf8"));
+      } catch {
+        return textResult("No task plan found. Call task_plan to create one.");
+      }
+
+      let changed = false;
+      if (set_step_done !== undefined) {
+        if (plan.steps[set_step_done]) { plan.steps[set_step_done].done = true; changed = true; }
+      }
+      if (add_steps && add_steps.length > 0) {
+        plan.steps.push(...add_steps.map((text) => ({ text, done: false })));
+        changed = true;
+      }
+      if (status !== undefined) {
+        plan.status = status;
+        changed = true;
+      }
+      if (changed) {
+        plan.updated = isoNow();
+        await writeFile(TASK_PLAN_PATH, JSON.stringify(plan, null, 2), "utf8");
+      }
+
+      const done = plan.steps.filter((s) => s.done).length;
+      const total = plan.steps.length;
+      return jsonResult({ ...plan, progress: `${done}/${total}` });
+    }
+  );
+
+  reg(
+    mcp,
+    "decision_log",
+    {
+      title: "Decision log",
+      description: "Append a decision + reasoning to decisions.md in .agent/state/.",
+      inputSchema: {
+        decision: z.string().min(1).describe("What was decided."),
+        why: z.string().min(1).describe("Why this decision was made.")
+      }
+    },
+    async ({ decision, why }) => {
+      await mkdir(AGENT_STATE_DIR, { recursive: true });
+      const entry = `\n## ${isoNow()}\n\n**Decision:** ${decision}\n\n**Why:** ${why}\n`;
+      await appendFile(DECISIONS_PATH, entry, "utf8");
+      return jsonResult({ ok: true, appended_to: DECISIONS_PATH });
+    }
+  );
+}
+
+// Also update checkpoint to snapshot current-task.json
+const _origCheckpoint = null; // we'll patch via the registration
+
+// ============================================================================
+// v2.6 — Approval / Policy Layer
+// ============================================================================
+
+const POLICY_RULES = {
+  strict: {
+    description: "Read and analyze only. No writes, installs, network, deletes, or git mutations.",
+    blocked: ["write_file", "replace_in_file", "apply_patch", "make_dir", "move_path", "delete_path",
+              "run_command", "proc_start", "git"],
+    needs_approval: [],
+    allowed_patterns: []
+  },
+  balanced: {
+    description: "Read + edit + test/build allowed. Delete, install, network commands need approval.",
+    blocked: [],
+    needs_approval: [],
+    dangerous_patterns: [
+      /\b(npm|pip|pip3|yarn|pnpm|cargo|apt|brew|gem|composer)\s+install\b/i,
+      /\bcurl\b.*-[oO]/i,
+      /\bwget\b/i,
+      /\bgit\s+(push|fetch|pull|clone)\b/i,
+      /\bdocker\s+(push|pull|run|build)\b/i
+    ],
+    allowed: ["read_file", "write_file", "replace_in_file", "apply_patch", "search_text", "find_files"]
+  },
+  full: {
+    description: "Full access (same as before, catastrophic commands still blocked).",
+    blocked: [],
+    needs_approval: [],
+    allowed: ["*"]
+  }
+};
+
+function classifyAction(action) {
+  const patterns = {
+    install: /\b(npm|pip|pip3|yarn|pnpm|cargo|apt|brew|gem|composer)\s+install\b/i,
+    network: /\b(curl|wget|fetch|git\s+push|git\s+fetch|git\s+pull|git\s+clone)\b/i,
+    delete: /\b(delete_path|rm\s+-rf|remove-item)\b/i,
+    git_mutation: /\bgit\s+(push|reset|clean|restore|checkout)\b/i,
+    catastrophic: CATASTROPHIC
+  };
+
+  for (const [kind, pat] of Object.entries(patterns)) {
+    if (Array.isArray(pat)) {
+      if (pat.some((p) => p.test(action))) return kind;
+    } else if (pat.test(action)) {
+      return kind;
+    }
+  }
+  return "general";
+}
+
+function policyCheck(action) {
+  const rules = POLICY_RULES[AGENT_POLICY];
+  const kind = classifyAction(action);
+
+  if (AGENT_POLICY === "strict") {
+    if (kind !== "general") {
+      throw new Error(`Action blocked by policy=strict: "${kind}" operations are not allowed. Use policy_status to see what's allowed.`);
+    }
+  }
+
+  if (AGENT_POLICY === "balanced") {
+    const dangerous = rules.dangerous_patterns || [];
+    if (dangerous.some((p) => p.test(action))) {
+      // Check if there's a valid approval
+      return { needsApproval: true, kind };
+    }
+    if (kind === "delete" || kind === "git_mutation") {
+      return { needsApproval: true, kind };
+    }
+  }
+
+  return { needsApproval: false, kind };
+}
+
+async function checkApprovalExists(action) {
+  try {
+    const files = await readdir(APPROVALS_DIR);
+    for (const f of files) {
+      if (!f.endsWith(".json")) continue;
+      try {
+        const rec = JSON.parse(await readFile(path.join(APPROVALS_DIR, f), "utf8"));
+        if (rec.status === "approved" && rec.action === action) return rec;
+      } catch { /* skip */ }
+    }
+  } catch { /* dir may not exist */ }
+  return null;
+}
+
+function registerPolicyTools(mcp) {
+  reg(
+    mcp,
+    "policy_status",
+    {
+      title: "Policy status",
+      description: "Return current policy (strict|balanced|full) and what operations are allowed, need approval, or are blocked.",
+      inputSchema: {}
+    },
+    async () => {
+      const rules = POLICY_RULES[AGENT_POLICY];
+      return jsonResult({
+        policy: AGENT_POLICY,
+        mode: MODE,
+        description: rules.description,
+        allowed: AGENT_POLICY === "full" ? ["*"] : AGENT_POLICY === "balanced" ? ["read", "write", "edit", "test", "build"] : ["read", "search", "analyze"],
+        needs_approval: AGENT_POLICY === "balanced" ? ["delete_path", "npm/pip install", "curl/wget", "git push/fetch/pull"] : [],
+        blocked: AGENT_POLICY === "strict" ? ["all writes", "installs", "network", "delete", "git mutations"] : []
+      });
+    }
+  );
+
+  reg(
+    mcp,
+    "explain_risk",
+    {
+      title: "Explain risk",
+      description: "Classify a proposed action and explain the risk level + policy decision.",
+      inputSchema: {
+        action: z.string().min(1).describe("The action or command you want to run.")
+      }
+    },
+    async ({ action }) => {
+      const kind = classifyAction(action);
+      const riskLevels = {
+        install: "HIGH — installs packages, may download malicious code or change locked dependencies",
+        network: "HIGH — network operation, may expose data or fetch untrusted content",
+        delete: "HIGH — permanently removes files",
+        git_mutation: "MEDIUM — mutates git history or remote state",
+        catastrophic: "CRITICAL — system-level destructive operation",
+        general: "LOW — standard operation"
+      };
+      const risk = riskLevels[kind] || "LOW";
+
+      let decision;
+      if (AGENT_POLICY === "strict") {
+        decision = kind === "general" ? "ALLOWED" : "BLOCKED";
+      } else if (AGENT_POLICY === "balanced") {
+        decision = (kind === "general") ? "ALLOWED" : "NEEDS_APPROVAL";
+      } else {
+        decision = kind === "catastrophic" ? "BLOCKED" : "ALLOWED";
+      }
+
+      return jsonResult({ action, kind, risk, decision, policy: AGENT_POLICY });
+    }
+  );
+
+  reg(
+    mcp,
+    "request_approval",
+    {
+      title: "Request approval",
+      description: "Write a pending approval request. Returns an id. The user must call approve_request(id) before the action can proceed.",
+      inputSchema: {
+        action: z.string().min(1),
+        reason: z.string().min(1).describe("Why this action is needed.")
+      }
+    },
+    async ({ action, reason }) => {
+      const id = randomUUID();
+      const record = { id, action, reason, status: "pending", created: isoNow() };
+      await mkdir(APPROVALS_DIR, { recursive: true });
+      await writeFile(path.join(APPROVALS_DIR, `${id}.json`), JSON.stringify(record, null, 2), "utf8");
+      return jsonResult({ id, status: "pending", message: `Approval request created. Ask the user to call approve_request with id="${id}" to allow this action.`, action, reason });
+    }
+  );
+
+  reg(
+    mcp,
+    "approve_request",
+    {
+      title: "Approve request",
+      description: "Approve a pending action request by id.",
+      inputSchema: { id: z.string().min(1) }
+    },
+    async ({ id }) => {
+      const fp = path.join(APPROVALS_DIR, `${id}.json`);
+      if (!existsSync(fp)) throw new Error(`No approval request with id ${id}`);
+      const rec = JSON.parse(await readFile(fp, "utf8"));
+      rec.status = "approved";
+      rec.approved_at = isoNow();
+      await writeFile(fp, JSON.stringify(rec, null, 2), "utf8");
+      return jsonResult({ ok: true, id, action: rec.action, status: "approved" });
+    }
+  );
+
+  reg(
+    mcp,
+    "deny_request",
+    {
+      title: "Deny request",
+      description: "Deny a pending action request by id.",
+      inputSchema: { id: z.string().min(1) }
+    },
+    async ({ id }) => {
+      const fp = path.join(APPROVALS_DIR, `${id}.json`);
+      if (!existsSync(fp)) throw new Error(`No approval request with id ${id}`);
+      const rec = JSON.parse(await readFile(fp, "utf8"));
+      rec.status = "denied";
+      rec.denied_at = isoNow();
+      await writeFile(fp, JSON.stringify(rec, null, 2), "utf8");
+      return jsonResult({ ok: true, id, action: rec.action, status: "denied" });
+    }
+  );
+}
+
+// ============================================================================
+// v2.8 — Workspace Profile
+// ============================================================================
+
+async function loadWorkspaceProfile() {
+  const profilePath = path.join(PRIMARY_ROOT, ".agent", "profile.json");
+  try {
+    const raw = await readFile(profilePath, "utf8");
+    WORKSPACE_PROFILE = JSON.parse(raw);
+    log(`Loaded workspace profile from ${profilePath}`);
+  } catch {
+    WORKSPACE_PROFILE = null;
+  }
+}
+
+function registerProfileTools(mcp) {
+  reg(
+    mcp,
+    "profile_status",
+    {
+      title: "Profile status",
+      description: "Return the loaded workspace profile (.agent/profile.json) and explain what it configures.",
+      inputSchema: {}
+    },
+    async () => {
+      if (!WORKSPACE_PROFILE) {
+        return jsonResult({
+          loaded: false,
+          path: path.join(PRIMARY_ROOT, ".agent", "profile.json"),
+          message: "No profile.json found. Create one to configure test commands, ignored dirs, conventions, and policy.",
+          schema: {
+            mode: "safe|full",
+            policy: "strict|balanced|full",
+            extraRoots: ["array of extra root paths"],
+            testCommands: { test: "command", build: "command", lint: "command" },
+            ignoredDirs: ["array of dir names to skip"],
+            conventions: "string describing project conventions",
+            description: "short project description"
+          }
+        });
+      }
+      return jsonResult({ loaded: true, profile: WORKSPACE_PROFILE });
+    }
+  );
+
+  reg(
+    mcp,
+    "reload_profile",
+    {
+      title: "Reload profile",
+      description: "Reload .agent/profile.json from disk (e.g. after editing it).",
+      inputSchema: {}
+    },
+    async () => {
+      await loadWorkspaceProfile();
+      return jsonResult({ ok: true, loaded: WORKSPACE_PROFILE !== null, profile: WORKSPACE_PROFILE });
+    }
+  );
+}
+
+// Helper: get test commands merging profile overrides
+async function getTestCommandsMerged(rootDir) {
+  const detected = await detectTestCommands(rootDir);
+  if (WORKSPACE_PROFILE && WORKSPACE_PROFILE.testCommands) {
+    return { ...detected, ...WORKSPACE_PROFILE.testCommands };
+  }
+  return detected;
 }
