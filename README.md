@@ -58,11 +58,12 @@ cd local-coding-agent && bash install.sh
 
 ### Features
 
-- **20+ coding tools** over MCP: `repo_overview`, `list_files`, `find_files`,
+- **25+ coding tools** over MCP: `repo_overview`, `list_files`, `find_files`,
   `read_file`, `read_many` (batch read), `search_text` (ripgrep/git, with
   context + glob), `write_file`, `replace_in_file`, `apply_patch` (multi-file),
   `make_dir`, `move_path`, `delete_path`, `run_command` (cmd/powershell/bash),
-  background processes (`proc_start/list/output/stop`), `git`, and notes.
+  background processes (`proc_start/list/output/stop`), git
+  (`git`, `git_status`, `git_diff`), and notes.
 - **Speed-tuned**: compact JSON, relative paths, batch reads, one-call repo map —
   fewer round-trips over the tunnel.
 - **Safety layers**: loopback-only bind, root confinement, `safe`/`full` modes,
@@ -70,10 +71,13 @@ cd local-coding-agent && bash install.sh
 - **Windows tray app** (C#/.NET): start/stop, status, copy MCP URL, encrypted
   key storage (DPAPI), authoritative Stop.
 - **Local dashboard** (`/ui`): tool-call metrics, estimated token throughput, a
-  per-minute chart, top tools, and recent calls with error reasons.
+  per-minute chart, top tools, recent calls with error reasons, a **Files
+  mini-IDE** (read-only file tree + viewer + `git diff`), and a clear-metrics
+  button.
 - **Skills** (Claude-style): drop reusable playbooks in `skills/` or your
   workspace's `.claude/skills/`; the agent discovers and loads them on demand
-  via `list_skills` / `read_skill` (instructions stay out of context until needed).
+  via `list_skills` / `read_skill`, and can author/remove them with
+  `create_skill` / `delete_skill` (instructions stay out of context until needed).
 
 ### Architecture
 
@@ -250,12 +254,12 @@ cd local-coding-agent && bash install.sh
 
 ### Tính năng
 
-- **Hơn 20 tool coding** qua MCP: `repo_overview`, `list_files`, `find_files`,
+- **Hơn 25 tool coding** qua MCP: `repo_overview`, `list_files`, `find_files`,
   `read_file`, `read_many` (đọc nhiều file 1 lần), `search_text` (ripgrep/git,
   kèm context + glob), `write_file`, `replace_in_file`, `apply_patch` (sửa nhiều
   file), `make_dir`, `move_path`, `delete_path`, `run_command`
-  (cmd/powershell/bash), tiến trình nền (`proc_start/list/output/stop`), `git`,
-  và ghi chú.
+  (cmd/powershell/bash), tiến trình nền (`proc_start/list/output/stop`), git
+  (`git`, `git_status`, `git_diff`), và ghi chú.
 - **Tối ưu tốc độ**: JSON gọn, đường dẫn tương đối, đọc theo lô, map repo trong 1
   lần gọi — giảm round-trip qua tunnel.
 - **Nhiều lớp an toàn**: chỉ bind loopback, giới hạn thư mục gốc, chế độ
@@ -263,10 +267,12 @@ cd local-coding-agent && bash install.sh
 - **App tray Windows** (C#/.NET): start/stop, trạng thái, copy MCP URL, lưu key
   mã hoá (DPAPI), nút Stop dừng được cả tiến trình ngoài app.
 - **Dashboard cục bộ** (`/ui`): số liệu tool, ước tính token, biểu đồ theo phút,
-  top tool, và các lệnh gần đây kèm lý do lỗi.
+  top tool, các lệnh gần đây kèm lý do lỗi, **mini-IDE Files** (cây thư mục +
+  trình xem chỉ-đọc + `git diff`), và nút xoá số liệu.
 - **Skills** (kiểu Claude): bỏ "playbook" tái dùng vào `skills/` hoặc
   `.claude/skills/` của workspace; agent tự dò và nạp khi cần qua `list_skills` /
-  `read_skill` (chỉ nạp lúc cần, đỡ tốn context).
+  `read_skill`, và có thể tạo/xoá bằng `create_skill` / `delete_skill` (chỉ nạp
+  lúc cần, đỡ tốn context).
 
 ### Kiến trúc
 

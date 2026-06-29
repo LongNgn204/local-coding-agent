@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install server deps
+        working-directory: server
+        run: npm install
+
+      - name: Guard against NUL bytes in server.mjs
+        run: |
+          node -e "const b=require('fs').readFileSync('server/server.mjs');let n=0;for(const x of b)if(x===0)n++;if(n){console.error('FAIL: server.mjs contains '+n+' NUL byte(s)');process.exit(1);}console.log('OK: no NUL bytes');"
+
+      - name: Syntax check server.mjs
+        run: node --check server/server.mjs
+
+      - name: Start server on a temp workspace
+        working-directory: server
+        env:
+          PORT: "8787"
+          DASHBOARD_PORT: "0"
+          AGENT_MODE: full
+        run: |
+          WORKSPACE="$(mktemp -d)"
+          git init -q "$WORKSPACE"
+          echo "AGENT_WORKSPACE=$WORKSPACE" >> "$GITHUB_ENV"
+          AGENT_WORKSPACE="$WORKSPACE" node server.mjs > server.log 2>&1 &
+          echo "SERVER_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for /healthz
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/healthz > /dev/null; then
+              echo "server is up"
+              curl -fsS http://127.0.0.1:8787/healthz
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "server did not become healthy in time"
+          cat server/server.log || true
+          exit 1
+
+      - name: Run agent test suite
+        working-directory: server
+        env:
+          TEST_ENDPOINT: http://127.0.0.1:8787/mcp
+        run: npm run test:agent
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -n "${SERVER_PID:-}" ]; then
+            kill "$SERVER_PID" 2>/dev/null || true
+          fi
+
+      - name: Dump server log on failure
+        if: failure()
+        run: cat server/server.log || true
