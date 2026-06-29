@@ -17,6 +17,14 @@ Ships with a Windows tray app and a live local dashboard.</p>
   <a href="https://github.com/LongNgn204/local-coding-agent/stargazers"><img src="https://img.shields.io/github/stars/LongNgn204/local-coding-agent?style=social" alt="stars" /></a>
 </p>
 
+<p><b>Works with</b><br/>
+  <img alt="Claude Code" src="https://img.shields.io/badge/Claude%20Code-compatible-D97757?logo=anthropic&logoColor=white" />
+  <img alt="OpenAI Codex" src="https://img.shields.io/badge/Codex-compatible-412991?logo=openai&logoColor=white" />
+  <img alt="Cursor" src="https://img.shields.io/badge/Cursor-compatible-111111?logo=cursor&logoColor=white" />
+  <img alt="ChatGPT Web" src="https://img.shields.io/badge/ChatGPT%20Web-MCP%20connector-10a37f?logo=openai&logoColor=white" />
+</p>
+<sub>Compatible with any MCP client · not affiliated with Anthropic or OpenAI.</sub>
+
 <p><b>🇬🇧 English</b> · <a href="#tiếng-việt">🇻🇳 Tiếng Việt</a></p>
 
 </div>
