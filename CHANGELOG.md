@@ -3,6 +3,27 @@
 All notable changes to Local Coding Agent are documented here. The project
 follows [Semantic Versioning](https://semver.org/).
 
+## [4.4.0-pro] - 2026-07-01
+
+### Added
+
+- Official skill pack for customer onboarding, safe updates, tunnel/network
+  debugging, customer support, releases, security hardening review, skill
+  authoring, and code review.
+- `scripts/validate-skills.mjs` validates skill frontmatter, duplicate names,
+  path-safe names, suspicious secrets, oversized descriptions, and mojibake.
+- Universal CLI now supports `update` for safe customer updates and
+  `skills list|validate` for shipped skill visibility.
+- `docs/CUSTOMER_UPDATE_PROMPT.md` gives customers a copy-paste prompt for their
+  own AI coding agent to update Local Coding Agent safely.
+
+### Changed
+
+- Server, npm package, tray app, and version assertions are now `4.4.0-pro`.
+- CI validates the new CLI, network doctor, and skill validator entry points.
+- README links the customer update prompt and documents `update` and `skills`
+  commands in both English and Vietnamese.
+
 ## [4.3.0-pro] - 2026-07-01
 
 ### Added
@@ -231,6 +252,7 @@ Windows tray workflow.
 - Dashboard port `8788` remains reserved by the tunnel client; use the default
   dashboard port `8790`.
 
+[4.4.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.0-pro
 [4.3.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.3.0-pro
 [4.2.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.2.0-pro
 [4.1.1-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.1.1-pro

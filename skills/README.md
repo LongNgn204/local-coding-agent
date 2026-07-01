@@ -1,22 +1,21 @@
 # Skills
 
-Reusable **playbooks** the agent loads on demand (inspired by Claude skills).
-The agent calls `list_skills` to see what's available, then `read_skill(name)`
-to load one before doing the work — so instructions stay out of context until
-they're actually needed.
+Skills are reusable playbooks that the agent loads only when they are relevant.
+The server exposes `list_skills` for discovery and `read_skill(name)` for the
+full instructions.
 
-## Where skills are discovered
+## Discovery Order
 
-The server scans these locations (first match of a name wins):
+First matching skill name wins:
 
-1. `AGENT_SKILLS_DIR` — an env var pointing to a skills folder.
-2. `skills/` — this folder, shipped with the repo (examples below).
-3. `<workspace>/.claude/skills/` and `<workspace>/.agent/skills/` — per-project
-   skills (this also reuses any existing **Claude** skills in your repo).
+1. `AGENT_SKILLS_DIR`
+2. this repository's `skills/`
+3. `<workspace>/.claude/skills/`
+4. `<workspace>/.agent/skills/`
 
-## Skill format
+## Format
 
-Each skill is a **folder** containing a `SKILL.md` with YAML front matter:
+Each skill is a folder with a `SKILL.md` file:
 
 ```markdown
 ---
@@ -24,15 +23,32 @@ name: my-skill
 description: One line describing when to use this skill.
 ---
 
-# My skill
+# My Skill
 
-Step-by-step instructions for the agent. You can reference other files in this
-folder (scripts, templates); their names are returned by `read_skill`.
+Step-by-step instructions for the agent.
 ```
 
-- `name` — short, unique, used by `read_skill`.
-- `description` — shown by `list_skills` so the agent can decide relevance.
-- The body is free-form Markdown instructions.
+Rules:
 
-Add a new skill by creating `skills/<your-skill>/SKILL.md` (or putting it under
-your workspace's `.claude/skills/`).
+- `name` must be unique across discovered skills.
+- `description` should tell the agent when to use the skill.
+- Keep instructions operational and verifiable.
+- Do not put secrets, API keys, tunnel IDs, or private customer data in skills.
+
+## Validate
+
+```bash
+node scripts/validate-skills.mjs
+node scripts/local-coding-agent.mjs skills validate
+```
+
+## Shipped Skills
+
+- `setup-local-coding-agent`: install and verify a fresh customer setup.
+- `update-local-coding-agent`: safely update an existing customer clone.
+- `debug-tunnel-network`: diagnose tunnel, proxy, DNS, TLS, and office-network issues.
+- `customer-support`: collect useful customer context without exposing secrets.
+- `release-manager`: run release checks, version bumps, tags, GitHub releases, and assets.
+- `security-hardening-review`: review changes around file/command/network/approval security.
+- `skill-creator`: design and validate new project skills.
+- `code-review`: review a git diff for bugs, security issues, and clarity.

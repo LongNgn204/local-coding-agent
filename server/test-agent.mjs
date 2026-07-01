@@ -60,6 +60,15 @@ await call("run_commands", {
     { command: "git --version", timeout_ms: 10000 }
   ]
 });
+await call("list_skills", {});
+await call("read_skill", { name: "code-review" });
+await call("create_skill", {
+  name: "demo-skill",
+  description: "Temporary skill created by the regression test.",
+  body: "# Demo Skill\n\nUse only for regression tests.\n"
+});
+await call("read_skill", { name: "demo-skill" });
+await call("delete_skill", { name: "demo-skill" });
 
 // background process: short ticker
 const startText = await call("proc_start", {

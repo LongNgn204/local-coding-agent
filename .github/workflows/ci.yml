@@ -38,6 +38,13 @@ jobs:
           node --check test-pro.mjs
           node --check test-hardening.mjs
           node --check ../evals/run.mjs
+          node --check ../scripts/local-coding-agent.mjs
+          node --check ../scripts/network-doctor.mjs
+          node --check ../scripts/validate-skills.mjs
+          node ../scripts/local-coding-agent.mjs --help
+          node ../scripts/network-doctor.mjs --help
+          node ../scripts/validate-skills.mjs
+          node ../scripts/local-coding-agent.mjs skills validate
       - name: Parse PowerShell launchers
         run: |
           [void][scriptblock]::Create((Get-Content -Raw ../install.ps1))
@@ -49,6 +56,7 @@ jobs:
         run: |
           bash -n install.sh
           bash -n scripts/start-tunnel.sh
+          bash -n scripts/lca
       - name: Run MCP and runtime-security tests
         working-directory: server
         run: |

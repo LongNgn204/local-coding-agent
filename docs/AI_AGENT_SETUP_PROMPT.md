@@ -118,6 +118,12 @@ Then provide a short setup report with:
 - next step to connect ChatGPT or another MCP client
 ```
 
+## Update Prompt
+
+If the project is already installed, use:
+
+[CUSTOMER_UPDATE_PROMPT.md](CUSTOMER_UPDATE_PROMPT.md)
+
 ## Setup Map
 
 ```mermaid

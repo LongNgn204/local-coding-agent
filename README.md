@@ -83,6 +83,7 @@ Steps:
 ```
 
 More prompt variants are in [docs/AI_AGENT_SETUP_PROMPT.md](docs/AI_AGENT_SETUP_PROMPT.md).
+For existing installs, use [docs/CUSTOMER_UPDATE_PROMPT.md](docs/CUSTOMER_UPDATE_PROMPT.md).
 
 ### Setup Map
 
@@ -131,6 +132,8 @@ Useful commands:
 ```text
 status   show MCP URL, dashboard URL, process status
 doctor   check local setup and common missing requirements
+update   safely fetch/pull latest main, reinstall dependencies, validate skills
+skills   list or validate the shipped skill pack
 open     open the local dashboard
 stop     stop the server and tunnel started by the CLI
 logs     show launcher logs
@@ -202,6 +205,13 @@ Guide: [docs/NETWORK_DOCTOR.md](docs/NETWORK_DOCTOR.md).
 | Safety | `policy_status`, `explain_risk`, `request_approval`, `request_approval_batch` |
 | Dashboard | health score, latency, tool calls, approvals, file viewer, git diff |
 | Workflow | notes, checkpoints, session reports, task state, decision log, skills |
+
+Shipped skills can be checked with:
+
+```powershell
+scripts\lca.cmd skills list
+scripts\lca.cmd skills validate
+```
 
 ### Safety Defaults
 
@@ -313,6 +323,7 @@ Các bước:
 ```
 
 Các prompt khác nằm ở [docs/AI_AGENT_SETUP_PROMPT.md](docs/AI_AGENT_SETUP_PROMPT.md).
+Nếu đã cài rồi và muốn update, dùng [docs/CUSTOMER_UPDATE_PROMPT.md](docs/CUSTOMER_UPDATE_PROMPT.md).
 
 ### Sơ Đồ Setup
 
@@ -361,6 +372,8 @@ Các lệnh hữu ích:
 ```text
 status   xem MCP URL, Dashboard URL và trạng thái tiến trình
 doctor   kiểm tra setup local và các thiếu sót thường gặp
+update   fetch/pull main an toàn, cài lại dependency, validate skill
+skills   liệt kê hoặc validate skill pack đi kèm
 open     mở dashboard local
 stop     dừng server và tunnel do CLI khởi động
 logs     xem log launcher
@@ -431,6 +444,13 @@ Hướng dẫn: [docs/NETWORK_DOCTOR.md](docs/NETWORK_DOCTOR.md).
 | An toàn | `policy_status`, `explain_risk`, `request_approval`, `request_approval_batch` |
 | Dashboard | health score, latency, tool calls, approvals, file viewer, git diff |
 | Workflow | notes, checkpoints, session reports, task state, decision log, skills |
+
+Kiểm tra skill đi kèm:
+
+```powershell
+scripts\lca.cmd skills list
+scripts\lca.cmd skills validate
+```
 
 ### Mặc Định An Toàn
 

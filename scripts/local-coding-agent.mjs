@@ -5,7 +5,7 @@
 
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { chmod, readFile, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
@@ -70,6 +70,8 @@ Usage:
   node scripts/local-coding-agent.mjs logs
   node scripts/local-coding-agent.mjs config show|path|set <key> <value>|unset <key>
   node scripts/local-coding-agent.mjs key set|clear
+  node scripts/local-coding-agent.mjs update
+  node scripts/local-coding-agent.mjs skills list|validate
 
 Common options:
   --workspace <path>          Workspace root the agent may access
@@ -92,6 +94,7 @@ Tunnel options:
   --runtime-key-env <name>    Env var containing Runtime API key
   --runtime-key <key>         Runtime API key for this process
   --save                      With setup, save provided options to config
+  --force                     With update, continue even when local changes exist
   --no-open-web-ui            Do not pass --open-web-ui to tunnel-client
 
 Fast path:
@@ -177,6 +180,9 @@ function parseArgs(argv) {
         break;
       case "--save":
         flags.save = true;
+        break;
+      case "--force":
+        flags.force = true;
         break;
       case "--no-open-web-ui":
         flags.openWebUi = false;
@@ -459,6 +465,7 @@ function stripRuntimeFields(cfg) {
   delete out.save;
   delete out.background;
   delete out.json;
+  delete out.force;
   return out;
 }
 
@@ -468,6 +475,58 @@ async function installDeps(opts) {
   const code = await new Promise((resolveExit) => child.on("exit", resolveExit));
   if (code !== 0) throw new Error(`npm install failed with exit code ${code}`);
   console.log("Install complete.");
+}
+
+async function runChecked(label, command, args, options = {}) {
+  const child = spawnLogged(label, command, args, options);
+  const code = await new Promise((resolveExit) => child.on("exit", resolveExit));
+  if (code !== 0) throw new Error(`${label} failed with exit code ${code}`);
+  return code;
+}
+
+async function capture(command, args, options = {}) {
+  return new Promise((resolveCapture) => {
+    let stdout = "";
+    let stderr = "";
+    const child = spawn(command, args, {
+      cwd: options.cwd || process.cwd(),
+      env: options.env || process.env,
+      windowsHide: true,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("exit", (code, signal) => resolveCapture({ code, signal, stdout, stderr }));
+  });
+}
+
+async function updateSelf(flags) {
+  const git = process.platform === "win32" ? "git.exe" : "git";
+  const before = await capture(git, ["status", "--short", "--branch"], { cwd: REPO_ROOT });
+  if (before.code !== 0) throw new Error(`git status failed: ${before.stderr || before.stdout}`);
+  console.log(before.stdout.trim() || "working tree clean");
+  const dirtyLines = before.stdout.split(/\r?\n/).filter((line) => line && !line.startsWith("##"));
+  if (dirtyLines.length && !flags.force) {
+    throw new Error("Local changes detected. Review them first, then rerun with --force only if you want to proceed.");
+  }
+  await runChecked("git", git, ["fetch", "origin", "main", "--tags"], { cwd: REPO_ROOT });
+  const incoming = await capture(git, ["log", "--oneline", "--decorate", "--max-count=10", "HEAD..origin/main"], { cwd: REPO_ROOT });
+  if (incoming.stdout.trim()) {
+    console.log("\nIncoming changes:");
+    console.log(incoming.stdout.trim());
+  } else {
+    console.log("\nAlready up to date with origin/main.");
+  }
+  await runChecked("git", git, ["pull", "--ff-only", "origin", "main"], { cwd: REPO_ROOT });
+  await installDeps(effectiveOptions(flags));
+  await runChecked("check", process.execPath, ["--check", join(SCRIPT_DIR, "local-coding-agent.mjs")], { cwd: REPO_ROOT });
+  await runChecked("check", process.execPath, ["--check", join(SCRIPT_DIR, "network-doctor.mjs")], { cwd: REPO_ROOT });
+  await runChecked("skills", process.execPath, [join(SCRIPT_DIR, "validate-skills.mjs")], { cwd: REPO_ROOT });
+  await doctor(flags);
+  console.log("\nUpdate complete.");
 }
 
 async function start(flags) {
@@ -706,6 +765,47 @@ async function keyCommand(rest) {
   throw new Error("Usage: key set|clear");
 }
 
+function parseSkillMeta(text, fallbackName) {
+  const fm = text.match(/^---\s*[\r\n]([\s\S]*?)[\r\n]---/);
+  let name = fallbackName;
+  let description = "";
+  if (fm) {
+    const block = fm[1];
+    name = (block.match(/^\s*name\s*:\s*(.+?)\s*$/im)?.[1] || fallbackName).replace(/^["']|["']$/g, "").trim();
+    description = (block.match(/^\s*description\s*:\s*(.+?)\s*$/im)?.[1] || "").replace(/^["']|["']$/g, "").trim();
+  }
+  return { name, description };
+}
+
+function listRepoSkills() {
+  const skillsDir = join(REPO_ROOT, "skills");
+  if (!existsSync(skillsDir)) return [];
+  return readdirSync(skillsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const file = join(skillsDir, entry.name, "SKILL.md");
+      if (!existsSync(file)) return { folder: entry.name, name: entry.name, description: "(missing SKILL.md)" };
+      const meta = parseSkillMeta(readFileSync(file, "utf8"), entry.name);
+      return { folder: entry.name, ...meta };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function skillsCommand(rest) {
+  const [sub = "list"] = rest;
+  if (sub === "list") {
+    for (const skill of listRepoSkills()) {
+      console.log(`${skill.name} - ${skill.description}`);
+    }
+    return;
+  }
+  if (sub === "validate") {
+    await runChecked("skills", process.execPath, [join(SCRIPT_DIR, "validate-skills.mjs")], { cwd: REPO_ROOT });
+    return;
+  }
+  throw new Error("Usage: skills list|validate");
+}
+
 function openUrl(url) {
   const command =
     process.platform === "win32" ? "cmd" :
@@ -749,6 +849,8 @@ async function main() {
   }
   if (command === "config") return configCommand(rest);
   if (command === "key") return keyCommand(rest);
+  if (command === "update") return updateSelf(flags);
+  if (command === "skills") return skillsCommand(rest);
   throw new Error(`Unknown command: ${command}`);
 }
 
