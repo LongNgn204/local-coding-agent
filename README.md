@@ -56,6 +56,70 @@ cd local-coding-agent && bash install.sh
 > **[AGENTS.md](AGENTS.md)** — it has exact, copy-pasteable setup steps so the
 > agent can install & verify the repo for you.
 
+### Let your AI agent install it
+
+If setup feels too manual, copy this prompt into Codex, Claude Code, Cursor, or
+another local coding agent. It will clone this repo, install dependencies, ask
+for the required local paths, and verify the dashboard.
+
+```text
+Please install Local Coding Agent on my machine.
+
+Repository:
+https://github.com/LongNgn204/local-coding-agent
+
+Goal:
+Clone the repo, install it, configure a workspace, start the MCP server, and
+verify the dashboard.
+
+Rules:
+- Do not install system dependencies without asking me first.
+- Do not download, commit, or redistribute tunnel-client. I will provide it if needed.
+- Do not commit secrets, API keys, tunnel IDs, local config, or generated profiles.
+- Default to mode=safe and policy=balanced.
+- Use the universal CLI first. Use the Windows tray app only if I ask for GUI.
+- If anything fails, show the exact error and the next command to fix it.
+
+Steps:
+1. Check Node.js version is >= 18.
+2. Clone https://github.com/LongNgn204/local-coding-agent if it is not already cloned.
+3. Enter the repo directory.
+4. Install with:
+   - Windows: scripts\lca.cmd install
+   - macOS/Linux: bash scripts/lca install
+5. Run setup with:
+   - Windows: scripts\lca.cmd setup
+   - macOS/Linux: bash scripts/lca setup
+6. Ask me for the workspace folder the AI may access.
+7. If I want ChatGPT Web tunnel access, ask me for tunnel-client path, tunnel ID,
+   organization ID if required, and Runtime API key.
+8. Start with:
+   - Windows: scripts\lca.cmd start
+   - macOS/Linux: bash scripts/lca start
+9. Verify:
+   - http://127.0.0.1:8787/healthz returns status ok
+   - http://127.0.0.1:8790/ui opens the dashboard
+   - status command works
+10. Report the MCP URL, dashboard URL, workspace path, mode, policy, and tunnel status.
+```
+
+Setup map:
+
+```mermaid
+flowchart TD
+  A["Paste prompt into your AI coding agent"] --> B["Agent checks Node.js >= 18"]
+  B --> C["Clone LongNgn204/local-coding-agent"]
+  C --> D["Run scripts/lca install"]
+  D --> E["Run scripts/lca setup"]
+  E --> F["User provides workspace and optional tunnel details"]
+  F --> G["Run scripts/lca start"]
+  G --> H["Verify /healthz and /ui dashboard"]
+  H --> I["Connect ChatGPT or another MCP client"]
+```
+
+Full copy-paste prompts are also available in
+**[docs/AI_AGENT_SETUP_PROMPT.md](docs/AI_AGENT_SETUP_PROMPT.md)**.
+
 ### Features
 
 - **50+ coding tools** over MCP: `repo_overview`, `list_files`, `find_files`,
@@ -111,7 +175,7 @@ Windows tray app supervises the node server + tunnel-client.
 ```
 server/      Node MCP server (server.mjs) + tests
 tray-app/    C#/.NET WinForms tray app (source)
-scripts/     start-tunnel.ps1 (Windows) + start-tunnel.sh (macOS/Linux)
+scripts/     universal Node CLI + legacy start-tunnel.ps1/.sh launchers
 tools/        (you create) place your tunnel-client.exe here — gitignored
 ```
 
@@ -146,8 +210,85 @@ Check it: open `http://127.0.0.1:8787/healthz` and the dashboard
 
 **2) Expose it to ChatGPT via the secure tunnel**
 
-Put your tunnel client in `tools/`, then run the launcher for your OS (edit the
-variables at the top first, or set `AGENT_WORKSPACE`):
+For the same setup flow on Windows, macOS, and Linux, use the universal CLI.
+It stores a local config file, writes the tunnel profile, starts the MCP server,
+starts `tunnel-client`, and gives you the same MCP tools as the tray app.
+
+```powershell
+# Windows CMD
+scripts\lca.cmd setup
+scripts\lca.cmd install
+scripts\lca.cmd start
+
+# Useful day-2 commands
+scripts\lca.cmd status
+scripts\lca.cmd doctor
+scripts\lca.cmd open
+scripts\lca.cmd stop
+```
+
+```bash
+# macOS / Linux
+bash scripts/lca setup
+bash scripts/lca install
+bash scripts/lca start
+
+# Useful day-2 commands
+bash scripts/lca status
+bash scripts/lca doctor
+bash scripts/lca open
+bash scripts/lca stop
+```
+
+During `setup`, paste your workspace, tunnel ID, organization ID, and tunnel
+client path. For the Runtime API key, either set `CONTROL_PLANE_API_KEY` before
+`start`, or run `key set` to save it in the local CLI config file:
+
+```powershell
+scripts\lca.cmd key set
+```
+
+```bash
+bash scripts/lca key set
+```
+
+If you prefer a one-shot command instead of saved config:
+
+```powershell
+# Windows CMD
+set CONTROL_PLANE_API_KEY=sk-proj-...
+node scripts\local-coding-agent.mjs start ^
+  --workspace "C:\path\to\your\repo" ^
+  --tunnel-id tunnel_abc123 ^
+  --mode safe ^
+  --policy balanced
+```
+```powershell
+# Windows PowerShell
+$env:CONTROL_PLANE_API_KEY="sk-proj-..."
+node scripts\local-coding-agent.mjs start `
+  --workspace "C:\path\to\your\repo" `
+  --tunnel-id tunnel_abc123 `
+  --mode safe `
+  --policy balanced
+```
+```bash
+# macOS / Linux equivalent
+CONTROL_PLANE_API_KEY=sk-proj-... node scripts/local-coding-agent.mjs start \
+  --workspace "/path/to/your/repo" \
+  --tunnel-id tunnel_abc123 \
+  --mode safe \
+  --policy balanced
+```
+
+The universal launcher is pure Node.js: no tray build, no `.exe` build, and the
+same command shape works across shells. Advanced commands include:
+
+```text
+setup, install, start, stop, status, doctor, profile, url, open, logs, config, key
+```
+
+Legacy launchers are still available:
 
 ```powershell
 # Windows
@@ -183,6 +324,17 @@ The tray app exposes the tunnel fields separately:
 
 > Requires a ChatGPT plan that supports custom MCP connectors. Menu names may
 > differ slightly by rollout. The current UI uses **Settings → Apps**.
+
+If you do not want the Windows tray app, use the universal terminal launcher:
+
+```powershell
+scripts\lca.cmd setup
+scripts\lca.cmd start
+```
+
+This path exposes the same MCP file/command/git tools as the tray app; the tray
+is only a GUI supervisor. On macOS/Linux, use `bash scripts/lca setup` and
+`bash scripts/lca start`.
 
 #### Before you begin: the two keys
 
@@ -451,7 +603,7 @@ App tray Windows giám sát node server + tunnel-client.
 ```
 server/      Node MCP server (server.mjs) + test
 tray-app/    App tray C#/.NET WinForms (source)
-scripts/     Launcher: start-tunnel.ps1 (Windows), start-tunnel.sh (macOS/Linux)
+scripts/     CLI Node đa nền tảng + launcher cũ start-tunnel.ps1/.sh
 tools/        (bạn tự tạo) đặt tunnel-client.exe ở đây — đã gitignore
 ```
 
@@ -490,6 +642,39 @@ Kiểm tra: mở `http://127.0.0.1:8787/healthz` và dashboard
 đầu script hoặc set `AGENT_WORKSPACE`):
 
 ```powershell
+# Windows CMD
+set CONTROL_PLANE_API_KEY=sk-proj-...
+node scripts\local-coding-agent.mjs start ^
+  --workspace "C:\duong-dan\toi\repo" ^
+  --tunnel-id tunnel_abc123 ^
+  --mode safe ^
+  --policy balanced
+```
+```powershell
+# Windows PowerShell
+$env:CONTROL_PLANE_API_KEY="sk-proj-..."
+node scripts\local-coding-agent.mjs start `
+  --workspace "C:\duong-dan\toi\repo" `
+  --tunnel-id tunnel_abc123 `
+  --mode safe `
+  --policy balanced
+```
+```bash
+# macOS / Linux tương đương
+CONTROL_PLANE_API_KEY=sk-proj-... node scripts/local-coding-agent.mjs start \
+  --workspace "/duong/dan/toi/repo" \
+  --tunnel-id tunnel_abc123 \
+  --mode safe \
+  --policy balanced
+```
+
+Launcher này là Node.js thuần: không cần build app tray `.exe`, không cần GUI,
+và cùng một flow chạy được trên nhiều shell. Nó khởi động MCP server, ghi tunnel
+profile YAML, rồi chạy `tunnel-client`.
+
+Launcher cũ vẫn dùng được:
+
+```powershell
 # Windows
 powershell -ExecutionPolicy Bypass -File scripts\start-tunnel.ps1
 ```
@@ -523,6 +708,16 @@ App tray có các ô tunnel riêng biệt:
 
 > Cần gói ChatGPT hỗ trợ custom MCP app. Tên menu có thể thay đổi theo đợt cập
 > nhật; giao diện hiện tại dùng **Settings → Apps**.
+
+Nếu không muốn dùng app tray Windows, dùng launcher terminal đa nền tảng:
+
+```powershell
+$env:CONTROL_PLANE_API_KEY="sk-proj-..."
+node scripts\local-coding-agent.mjs start --workspace "C:\duong-dan\toi\repo" --tunnel-id tunnel_abc123
+```
+
+Đường này có đầy đủ MCP tool đọc/sửa file, chạy lệnh, git, test và dashboard như
+app tray; tray chỉ là GUI để quản lý tiến trình.
 
 #### Trước khi bắt đầu: cần hai key
 

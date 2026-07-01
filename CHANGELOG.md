@@ -16,6 +16,16 @@ follows [Semantic Versioning](https://semver.org/).
   up to 100 files, and a configurable total response cap.
 - Health responses expose the server PID, policy, config id, and dashboard port
   so launchers can identify the exact process/configuration they manage.
+- `scripts/local-coding-agent.mjs` provides a pure Node.js terminal launcher for
+  Windows CMD, PowerShell, macOS, and Linux. It now includes setup, install,
+  start, stop, status, doctor, dashboard open, logs, config, key, and tunnel
+  profile commands so users can run the full workflow without building the tray
+  app.
+- `scripts/lca.cmd` and `scripts/lca` are tiny wrappers for easier Windows and
+  POSIX terminal usage.
+- `docs/AI_AGENT_SETUP_PROMPT.md` and the README now include copy-paste prompts
+  plus a setup map so users can ask their own AI coding agent to clone, install,
+  configure, start, and verify the project.
 
 ### Fixed
 
