@@ -77,6 +77,10 @@ follows [Semantic Versioning](https://semver.org/).
   doctor-terminated runs, avoids false proxy/403 matches from log timestamps,
   and explains the common Node.js CA trust-store mismatch separately from a
   blocked tunnel.
+- Studio v5 now has a `release:doctor` gate that lets Preview builds pass with
+  explicit warnings, but fails Stable readiness unless release-stage, public
+  keys, integrity manifest, packaged artifact, and platform signing evidence
+  are all present.
 
 ## [4.4.0-pro] - 2026-07-01
 

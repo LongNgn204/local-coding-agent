@@ -163,6 +163,7 @@ jobs:
           npm run check
           npm test
           npm run security:audit
+          npm run release:doctor
           npm audit --omit=dev
         working-directory: experiments/standalone-client-roadmap/v5.0.0-local-agent-studio
 

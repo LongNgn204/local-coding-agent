@@ -94,15 +94,17 @@ The release pipeline must:
    health to pass for each release target.
 5. Run syntax checks, unit tests, HTTP security tests, dependency audit, and
    `security:audit` on Windows, macOS, and Linux.
-6. Generate a SHA-256 integrity manifest for production runtime files.
-7. Sign the integrity manifest outside the repository.
-8. Build in an isolated CI runner from a reviewed commit.
-9. Generate an SBOM and provenance attestation.
-10. Sign Windows, macOS, and Linux release artifacts with platform-appropriate
+6. Run `npm run release:doctor` for Preview evidence, and run
+   `npm run release:doctor -- --target stable ...` before Stable shipping.
+7. Generate a SHA-256 integrity manifest for production runtime files.
+8. Sign the integrity manifest outside the repository.
+9. Build in an isolated CI runner from a reviewed commit.
+10. Generate an SBOM and provenance attestation.
+11. Sign Windows, macOS, and Linux release artifacts with platform-appropriate
     signing identities.
-11. Verify the native signature with `npm run signature:verify`, then hash the
+12. Verify the native signature with `npm run signature:verify`, then hash the
     final signed artifact and generate the separately signed update manifest.
-12. Publish checksums, verify them before installation/update, and support
+13. Publish checksums, verify them before installation/update, and support
     rollback. Never modify an artifact after its manifest is signed.
 
 Pattern scanning cannot prove that software has no backdoor. Review, least
@@ -214,14 +216,16 @@ Release pipeline phải:
    cùng đạt trên từng release target.
 5. Chạy syntax check, unit test, HTTP security test, dependency audit và
    `security:audit` trên Windows, macOS và Linux.
-6. Tạo SHA-256 integrity manifest cho các file runtime production.
-7. Ký integrity manifest ở bên ngoài repository.
-8. Build trong CI runner cô lập từ commit đã review.
-9. Tạo SBOM và provenance attestation.
-10. Ký artifact Windows, macOS và Linux bằng signing identity phù hợp từng nền tảng.
-11. Verify chữ ký native bằng `npm run signature:verify`, sau đó mới hash
+6. Chạy `npm run release:doctor` cho bằng chứng Preview, và chạy
+   `npm run release:doctor -- --target stable ...` trước khi ship Stable.
+7. Tạo SHA-256 integrity manifest cho các file runtime production.
+8. Ký integrity manifest ở bên ngoài repository.
+9. Build trong CI runner cô lập từ commit đã review.
+10. Tạo SBOM và provenance attestation.
+11. Ký artifact Windows, macOS và Linux bằng signing identity phù hợp từng nền tảng.
+12. Verify chữ ký native bằng `npm run signature:verify`, sau đó mới hash
     artifact cuối cùng đã ký và tạo update manifest có chữ ký riêng.
-12. Công bố checksum, verify trước khi install/update và hỗ trợ rollback. Không
+13. Công bố checksum, verify trước khi install/update và hỗ trợ rollback. Không
     được sửa artifact sau khi manifest của nó đã được ký.
 
 Pattern scanner không thể tự chứng minh app không có backdoor. Cần kết hợp code

@@ -86,6 +86,23 @@ The original cross-platform application icon and its provenance notes live in
 `build/`. Electron Builder derives the native Windows, macOS, and Linux icon
 formats from that master PNG.
 
+## Release Doctor
+
+Run the release doctor before giving a build to testers or customers:
+
+```powershell
+npm run release:doctor
+```
+
+Preview mode is allowed to pass with warnings for missing production signing
+material. Stable mode fails closed until the release branch has `releaseStage:
+stable`, public verification keys, a valid integrity manifest, a packaged
+artifact, and platform signing policy:
+
+```powershell
+npm run release:doctor -- --target stable --platform win32 --artifact "dist\\win-unpacked\\Local Agent Studio.exe" --publisher "Local Coding Agent" --thumbprint CERTIFICATE_THUMBPRINT
+```
+
 ## Signed Release Updates
 
 Preview can verify signed update manifests before any updater downloads or
@@ -303,6 +320,23 @@ runtime nhúng, kiểm tra `/healthz`, dừng process tree và xác nhận app c
 Icon ứng dụng cross-platform nguyên bản và ghi chú provenance nằm trong
 `build/`. Electron Builder tạo icon native Windows, macOS và Linux từ PNG
 master này.
+
+## Release Doctor
+
+Chạy release doctor trước khi đưa build cho tester hoặc khách hàng:
+
+```powershell
+npm run release:doctor
+```
+
+Preview được phép pass kèm warning khi chưa có vật liệu ký production. Stable
+sẽ fail closed cho tới khi release branch có `releaseStage: stable`, public key
+xác minh, integrity manifest hợp lệ, artifact đã đóng gói và policy chữ ký
+platform:
+
+```powershell
+npm run release:doctor -- --target stable --platform win32 --artifact "dist\\win-unpacked\\Local Agent Studio.exe" --publisher "Local Coding Agent" --thumbprint CERTIFICATE_THUMBPRINT
+```
 
 ## Signed Release Updates
 
