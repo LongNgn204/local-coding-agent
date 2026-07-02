@@ -84,6 +84,9 @@ follows [Semantic Versioning](https://semver.org/).
 - Studio v5 now includes an admin-side `license:issue` tool that signs
   customer-specific commercial license tokens from an external Ed25519 private
   key file and self-verifies the output against the matching public key.
+- Studio v5 now includes `license:keygen` for admin-only Ed25519 license keypair
+  creation with overwrite protection, making the commercial-key setup flow
+  repeatable without committing private keys.
 
 ## [4.4.0-pro] - 2026-07-01
 

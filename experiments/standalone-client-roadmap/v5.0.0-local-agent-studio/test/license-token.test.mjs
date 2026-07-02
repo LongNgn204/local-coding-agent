@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { LicenseService } from "../core/license-service.mjs";
 import { normalizeLicenseClaims, verifyLicenseToken } from "../core/license-token.mjs";
+import { generateLicenseKeypair } from "../scripts/generate-license-keypair.mjs";
 import { issueLicenseToken } from "../scripts/generate-license-token.mjs";
 
 test("license issuer creates admin-signed tokens accepted by stable app verification", () => {
@@ -41,6 +42,28 @@ test("license issuer creates admin-signed tokens accepted by stable app verifica
     const activated = service.activate(issued.token, { persist: false });
     assert.equal(activated.allowed, true);
     assert.equal(activated.claims.licenseId, "lic_customer_a");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("license keygen writes a non-overwriting Ed25519 keypair usable by issuer", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lca-license-keygen-"));
+  try {
+    const generated = generateLicenseKeypair({ outDir: dir });
+    assert.equal(existsSync(generated.privateKeyFile), true);
+    assert.equal(existsSync(generated.publicKeyFile), true);
+    assert.throws(() => generateLicenseKeypair({ outDir: dir }), /Refusing to overwrite/);
+
+    const issued = issueLicenseToken({
+      privateKeyFile: generated.privateKeyFile,
+      publicKeyFile: generated.publicKeyFile,
+      licenseId: "lic_keygen",
+      customerId: "customer_keygen",
+      edition: "pro",
+      features: ["agent"]
+    });
+    assert.equal(issued.claims.licenseId, "lic_keygen");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

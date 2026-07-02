@@ -79,10 +79,11 @@ The private license key belongs in an offline signing environment or a managed
 KMS/HSM. Never put it in source code, environment defaults, CI logs, release
 archives, customer machines, or command-line arguments.
 
-Use `npm run license:issue` only on an admin machine with
-`LCA_LICENSE_SIGNING_PRIVATE_KEY_FILE` pointing to the Ed25519 private key file.
-The generated customer token may be sent to the customer; the public counterpart
-is what ships in `license-public-key.pem` for Stable builds.
+Use `npm run license:keygen` only on an admin machine to create the Ed25519
+license keypair. Then use `npm run license:issue` with
+`LCA_LICENSE_SIGNING_PRIVATE_KEY_FILE` pointing to that private key file. The
+generated customer token may be sent to the customer; the public counterpart is
+what ships in `license-public-key.pem` for Stable builds.
 
 ### Release Integrity and Anti-Backdoor Controls
 
@@ -206,9 +207,10 @@ Private license key phải nằm trong môi trường ký offline hoặc KMS/HSM
 không đặt trong source, env mặc định, CI log, release archive, máy khách hoặc
 command-line argument.
 
-Chỉ chạy `npm run license:issue` trên máy admin, với
-`LCA_LICENSE_SIGNING_PRIVATE_KEY_FILE` trỏ tới Ed25519 private key file. Token
-tạo ra có thể gửi cho khách; public key tương ứng mới được ship trong
+Chỉ chạy `npm run license:keygen` trên máy admin để tạo cặp Ed25519 license key.
+Sau đó chạy `npm run license:issue` với
+`LCA_LICENSE_SIGNING_PRIVATE_KEY_FILE` trỏ tới private key file đó. Token tạo ra
+có thể gửi cho khách; public key tương ứng mới được ship trong
 `license-public-key.pem` cho bản Stable.
 
 ### Release Integrity Và Chống Backdoor

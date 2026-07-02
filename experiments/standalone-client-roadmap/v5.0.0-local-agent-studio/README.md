@@ -214,10 +214,16 @@ The app contains only the public verification key. The admin private key must
 never be committed, bundled, passed on a command line, placed in CI logs, or
 sent to customers.
 
-Issue a customer token from an admin machine:
+Generate a license signing keypair on an admin machine:
 
 ```powershell
-$env:LCA_LICENSE_SIGNING_PRIVATE_KEY_FILE="C:\\secure\\license-private-key.pem"
+npm run license:keygen -- --out-dir "C:\\secure\\local-agent-studio-license"
+```
+
+Then issue a customer token from that admin machine:
+
+```powershell
+$env:LCA_LICENSE_SIGNING_PRIVATE_KEY_FILE="C:\\secure\\local-agent-studio-license\\license-private-key.pem"
 npm run license:issue -- --license-id lic_customer_001 --customer-id customer_001 --edition pro --expires-at 2027-01-01T00:00:00Z --feature agent --feature updates --out license-customer-001.json
 ```
 
@@ -458,10 +464,16 @@ Bản Stable chỉ chấp nhận license token do admin ký ở bên ngoài app.
 public verification key. Admin private key tuyệt đối không được commit, bundle,
 truyền qua command line, đặt trong CI log hoặc gửi cho khách hàng.
 
-Tạo token cho khách trên máy admin:
+Tạo cặp key ký license trên máy admin:
 
 ```powershell
-$env:LCA_LICENSE_SIGNING_PRIVATE_KEY_FILE="C:\\secure\\license-private-key.pem"
+npm run license:keygen -- --out-dir "C:\\secure\\local-agent-studio-license"
+```
+
+Sau đó tạo token cho khách trên máy admin đó:
+
+```powershell
+$env:LCA_LICENSE_SIGNING_PRIVATE_KEY_FILE="C:\\secure\\local-agent-studio-license\\license-private-key.pem"
 npm run license:issue -- --license-id lic_customer_001 --customer-id customer_001 --edition pro --expires-at 2027-01-01T00:00:00Z --feature agent --feature updates --out license-customer-001.json
 ```
 
