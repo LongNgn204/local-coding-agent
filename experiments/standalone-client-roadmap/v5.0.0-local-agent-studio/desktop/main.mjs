@@ -1,12 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, session } from "electron";
-import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { startStudio } from "../standalone-app.mjs";
 import { buildPrivilegedRequest } from "./privileged-actions.mjs";
 import { DesktopCredentialStore } from "./credential-store.mjs";
-import { resolveNodeRuntime } from "./runtime-resolver.mjs";
 
 const APP_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = dirname(APP_DIR);
@@ -14,14 +13,16 @@ const manifest = JSON.parse(await readFile(join(ROOT_DIR, "version-manifest.json
 const host = "127.0.0.1";
 const port = Number(process.env.LCA_STUDIO_PORT || manifest.defaultPort || 5182);
 const baseUrl = `http://${host}:${port}`;
-let serverProcess = null;
+let studioInstance = null;
 let mainWindow = null;
 let studioToken = "";
-let nodeRuntimeInfo = null;
 let credentialStore = null;
+let shutdownPromise = null;
+let quitAfterShutdown = false;
 const desktopBridgeToken = randomBytes(32).toString("base64url");
+const smokeResultFile = process.env.LCA_DESKTOP_SMOKE_RESULT || "";
 
-const gotLock = app.requestSingleInstanceLock();
+const gotLock = Boolean(smokeResultFile) || app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
 
 app.on("second-instance", () => {
@@ -38,16 +39,36 @@ app.whenReady().then(async () => {
       safeStorage
     });
     installIpcHandlers();
-    nodeRuntimeInfo = await verifyNodeRuntime();
-    serverProcess = startServer(nodeRuntimeInfo.path);
+    studioInstance = startStudio(manifest, {
+      host,
+      port,
+      desktopBridgeToken,
+      nodeRuntime: {
+        executable: process.execPath,
+        source: "electron-embedded",
+        version: process.versions.node
+      }
+    });
+    await studioInstance.ready;
     await waitForHealth();
-    studioToken = await readStudioToken();
+    studioToken = studioInstance.state.security.token;
     await syncDesktopCredentials().catch((error) => {
       console.error(`[credentials] ${error instanceof Error ? error.message : String(error)}`);
     });
+    if (smokeResultFile) {
+      const managedServer = await runManagedServerSmoke();
+      await writeSmokeResult({ ok: true, packaged: app.isPackaged, asar: ROOT_DIR.includes("app.asar"), managedServer });
+      app.quit();
+      return;
+    }
     mainWindow = createWindow();
     await mainWindow.loadURL(baseUrl);
   } catch (error) {
+    if (smokeResultFile) {
+      await writeSmokeResult({ ok: false, error: error instanceof Error ? error.message : String(error) }).catch(() => {});
+      app.quit();
+      return;
+    }
     dialog.showErrorBox("Local Agent Studio failed to start", error instanceof Error ? error.message : String(error));
     app.quit();
   }
@@ -57,8 +78,11 @@ app.on("window-all-closed", () => {
   app.quit();
 });
 
-app.on("before-quit", () => {
-  stopServer();
+app.on("before-quit", (event) => {
+  if (quitAfterShutdown || !studioInstance) return;
+  event.preventDefault();
+  quitAfterShutdown = true;
+  void stopStudio().finally(() => app.quit());
 });
 
 function createWindow() {
@@ -138,31 +162,6 @@ function installIpcHandlers() {
       return { ok: false, status: 500, error: error instanceof Error ? error.message : String(error) };
     }
   });
-}
-
-function startServer(node) {
-  const child = spawn(node, ["server.mjs"], {
-    cwd: ROOT_DIR,
-    env: {
-      ...process.env,
-      LCA_STUDIO_HOST: host,
-      LCA_STUDIO_PORT: String(port),
-      LCA_DESKTOP: "1",
-      LCA_NODE_RUNTIME_SOURCE: nodeRuntimeInfo?.source || "unknown",
-      LCA_NODE_RUNTIME_VERSION: nodeRuntimeInfo?.version || "",
-      LCA_DESKTOP_BRIDGE_TOKEN: desktopBridgeToken
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true
-  });
-  child.stdout?.on("data", (chunk) => process.stdout.write(`[studio] ${chunk}`));
-  child.stderr?.on("data", (chunk) => process.stderr.write(`[studio] ${chunk}`));
-  child.on("exit", (code, signal) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("studio-server-exit", { code, signal });
-    }
-  });
-  return child;
 }
 
 async function handleDesktopCredentialAction(request) {
@@ -281,30 +280,6 @@ async function deleteLegacyVault(provider) {
   if (!response.ok) throw new Error(`Legacy vault cleanup failed (${response.status})`);
 }
 
-async function verifyNodeRuntime() {
-  return resolveNodeRuntime({
-    env: process.env,
-    manifest,
-    rootDir: ROOT_DIR,
-    resourcesPath: process.resourcesPath,
-    nodeVersion
-  });
-}
-
-function nodeVersion(node) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(node, ["--version"], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-    let output = "";
-    child.stdout.on("data", (chunk) => { output += chunk; });
-    child.stderr.on("data", (chunk) => { output += chunk; });
-    child.on("error", (error) => reject(new Error(`Unable to run Node.js runtime "${node}": ${error.message}`)));
-    child.on("exit", (code) => {
-      if (code !== 0) reject(new Error(`Unable to verify Node.js runtime "${node}": ${output.trim()}`));
-      else resolve(output.trim().replace(/^v/, ""));
-    });
-  });
-}
-
 async function waitForHealth() {
   const deadline = Date.now() + 20_000;
   let lastError = null;
@@ -321,28 +296,69 @@ async function waitForHealth() {
   throw lastError || new Error("Local Agent Studio server did not start.");
 }
 
-async function readStudioToken() {
-  const response = await fetch(`${baseUrl}/`);
-  if (!response.ok) throw new Error(`Unable to read Studio session token: ${response.status}`);
-  const html = await response.text();
-  const token =
-    html.match(/<meta name="lca-studio-token" content="([A-Za-z0-9_-]+)" \/>/)?.[1] ||
-    html.match(/const STUDIO_TOKEN="([A-Za-z0-9_-]+)"/)?.[1];
-  if (!token) throw new Error("Studio session token was not found in same-origin HTML.");
-  return token;
+async function writeSmokeResult(result) {
+  let health = null;
+  try {
+    const response = await fetch(`${baseUrl}/api/health`);
+    health = response.ok ? await response.json() : { ok: false, status: response.status };
+  } catch (error) {
+    health = { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+  await writeFile(smokeResultFile, JSON.stringify({ ...result, health }, null, 2), "utf8");
 }
 
-function stopServer() {
-  if (!serverProcess || serverProcess.killed) return;
-  const pid = serverProcess.pid;
-  serverProcess = null;
-  if (process.platform === "win32" && pid) {
-    spawn("taskkill.exe", ["/pid", String(pid), "/t", "/f"], { stdio: "ignore", windowsHide: true });
-    return;
-  }
+async function runManagedServerSmoke() {
+  const mcpPort = Number(process.env.LCA_DESKTOP_SMOKE_MCP_PORT || 0);
+  const dashboardPort = Number(process.env.LCA_DESKTOP_SMOKE_DASHBOARD_PORT || 0);
+  if (!mcpPort || !dashboardPort) return null;
+  const workspace = studioInstance?.state?.repoRoot;
+  if (!workspace) throw new Error("Packaged smoke could not locate the Local Coding Agent repository.");
+  const started = await studioJson("/api/server/start", {
+    workspace,
+    port: mcpPort,
+    dashboardPort,
+    mode: "safe",
+    policy: "balanced",
+    intent: { action: "mcp-server:start", confirm: "mcp-server:start" }
+  });
   try {
-    process.kill(pid, "SIGTERM");
-  } catch {}
+    const response = await fetch(`http://127.0.0.1:${mcpPort}/healthz`);
+    if (!response.ok) throw new Error(`Managed MCP health failed (${response.status}).`);
+    const health = await response.json();
+    return {
+      started: Boolean(started.running),
+      managed: Boolean(started.managed),
+      pid: started.pid || null,
+      health: health.status || null
+    };
+  } finally {
+    await studioJson("/api/server/stop", {
+      intent: { action: "mcp-server:stop", confirm: "mcp-server:stop" }
+    }).catch(() => {});
+  }
+}
+
+async function studioJson(path, body) {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-lca-studio-token": studioToken
+    },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Studio request failed (${response.status}).`);
+  return data;
+}
+
+function stopStudio() {
+  if (shutdownPromise) return shutdownPromise;
+  const current = studioInstance;
+  studioInstance = null;
+  studioToken = "";
+  shutdownPromise = current?.close?.() || Promise.resolve();
+  return shutdownPromise;
 }
 
 function isTrustedLocalUrl(value) {

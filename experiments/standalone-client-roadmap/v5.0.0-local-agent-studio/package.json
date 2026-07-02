@@ -11,13 +11,14 @@
   "main": "desktop/main.mjs",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check server.mjs && node --check standalone-app.mjs && node --check desktop/main.mjs && node --check desktop/preload.mjs && node --check desktop/privileged-actions.mjs && node --check desktop/runtime-resolver.mjs && node --check desktop/credential-store.mjs && node --check scripts/verify-runtime-bundle.mjs && node --check scripts/generate-update-manifest.mjs && node --check scripts/verify-platform-signature.mjs && node --check scripts/smoke-safe-storage.mjs && node --check core/security.mjs && node --check core/permission-broker.mjs && node --check core/platform-signature.mjs && node --check core/redaction.mjs && node --check core/thread-store.mjs && node --check core/secret-store.mjs && node --check core/license-service.mjs && node --check core/integrity-service.mjs && node --check core/update-service.mjs && tsc --noEmit",
+    "check": "node --check server.mjs && node --check standalone-app.mjs && node --check desktop/main.mjs && node --check desktop/preload.mjs && node --check desktop/privileged-actions.mjs && node --check desktop/credential-store.mjs && node --check scripts/generate-update-manifest.mjs && node --check scripts/verify-platform-signature.mjs && node --check scripts/smoke-desktop.mjs && node --check scripts/smoke-safe-storage.mjs && node --check core/security.mjs && node --check core/permission-broker.mjs && node --check core/platform-signature.mjs && node --check core/redaction.mjs && node --check core/thread-store.mjs && node --check core/secret-store.mjs && node --check core/license-service.mjs && node --check core/integrity-service.mjs && node --check core/update-service.mjs && tsc --noEmit",
     "ui:build": "vite build",
     "desktop:dev": "electron .",
     "desktop:pack": "npm run ui:build && electron-builder --dir",
     "desktop:dist": "npm run ui:build && electron-builder",
+    "desktop:smoke": "node scripts/smoke-desktop.mjs",
+    "desktop:smoke:packaged": "node scripts/smoke-desktop.mjs --artifact \"dist/win-unpacked/Local Agent Studio.exe\"",
     "test": "node --test test/*.test.mjs",
-    "runtime:verify": "node scripts/verify-runtime-bundle.mjs",
     "credential:smoke": "electron scripts/smoke-safe-storage.mjs",
     "signature:verify": "node scripts/verify-platform-signature.mjs",
     "update:manifest": "node scripts/generate-update-manifest.mjs",
@@ -27,15 +28,12 @@
   "build": {
     "appId": "dev.localcodingagent.studio",
     "productName": "Local Agent Studio",
-    "asar": false,
+    "asar": true,
     "files": [
       "core/**/*",
       "desktop/**/*",
       "dist/ui/**/*",
-      "runtimes/**/*",
-      "scripts/**/*",
       "standalone-app.mjs",
-      "server.mjs",
       "version-manifest.json",
       "license-public-key.pem",
       "release-public-key.pem",
@@ -44,29 +42,39 @@
       "package.json"
     ],
     "win": {
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable"
+      ]
     },
     "mac": {
-      "target": ["dmg"]
+      "target": [
+        "dmg"
+      ]
     },
     "linux": {
-      "target": ["AppImage"]
+      "target": [
+        "AppImage"
+      ]
     }
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.20.0",
-    "@tanstack/react-virtual": "^3.14.5",
-    "lucide-react": "^1.23.0",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "@modelcontextprotocol/sdk": "^1.20.0"
   },
   "devDependencies": {
+    "@tanstack/react-virtual": "^3.14.5",
     "@types/react": "^19.2.4",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "electron": "^43.0.0",
     "electron-builder": "^26.15.3",
+    "lucide-react": "^1.23.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "typescript": "^5.9.2",
     "vite": "^8.1.2"
+  },
+  "allowScripts": {
+    "electron-winstaller": false
   }
 }

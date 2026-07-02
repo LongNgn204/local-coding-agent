@@ -39,9 +39,9 @@ The Preview implements these baseline controls:
 12. Support bundles recursively redact credentials and omit raw tool arguments
     and results from the event list.
 13. SQLite persists threads without putting API credentials in the database.
-14. The desktop launcher resolves Node.js from `LCA_NODE_PATH`, packaged
-    runtimes, source-tree runtimes, then system Node. Release CI can require a
-    bundled runtime with `npm run runtime:verify -- --require-bundled`.
+14. The Studio HTTP server and SQLite store run inside Electron's main process.
+    Customer packages need no external Node.js. Managed MCP and maintenance
+    scripts reuse the Electron executable with `ELECTRON_RUN_AS_NODE=1`.
 15. Signed update artifacts can be streamed into private staging only after
     signature verification. HTTPS, exact size, SHA-256, OS/arch, rollback, and
     minimum-app-version checks are enforced. Windows Authenticode
@@ -53,7 +53,7 @@ The Preview implements these baseline controls:
 This is defense in depth, not an operating-system sandbox. Before customer
 release, the Stable desktop app still needs typed IPC coverage for every
 privileged workflow, OS-enforced workspace boundaries, network allowlists,
-signed installers, signed update manifests, bundled runtime artifacts for every
+signed installers, signed update manifests, packaged smoke tests for every
 supported OS/arch, and platform code signing.
 
 ### Commercial License Design
@@ -88,8 +88,10 @@ The release pipeline must:
 
 1. Install dependencies from the lockfile with `npm ci`.
 2. Reject install/prepare lifecycle scripts unless explicitly reviewed.
-3. Place verified Node runtime artifacts in `runtimes/node/<platform>-<arch>/`.
-4. Run `npm run runtime:verify -- --require-bundled` for each release target.
+3. Package the reviewed app into ASAR with only required production files.
+4. Run development and packaged desktop smoke tests; require
+   `electron-embedded`, `app.asar`, SQLite, Studio health, and managed MCP
+   health to pass for each release target.
 5. Run syntax checks, unit tests, HTTP security tests, dependency audit, and
    `security:audit` on Windows, macOS, and Linux.
 6. Generate a SHA-256 integrity manifest for production runtime files.
@@ -159,9 +161,9 @@ Preview hiện có các lớp bảo vệ cơ bản:
     sau khi secure activation thành công.
 12. Support Bundle redaction đệ quy và bỏ raw tool args/results khỏi event list.
 13. SQLite lưu thread nhưng không lưu API credential.
-14. Desktop launcher resolve Node.js từ `LCA_NODE_PATH`, packaged runtime,
-    source-tree runtime rồi mới tới system Node. Release CI có thể bắt buộc
-    bundled runtime bằng `npm run runtime:verify -- --require-bundled`.
+14. Studio HTTP server và SQLite store chạy ngay trong Electron main process.
+    Package khách hàng không cần Node.js ngoài. Managed MCP và maintenance
+    script dùng lại Electron executable với `ELECTRON_RUN_AS_NODE=1`.
 15. Signed update artifact chỉ được stream vào private staging sau khi verify
     chữ ký. App kiểm tra HTTPS, exact size, SHA-256, OS/arch, rollback và minimum
     app version. Policy publisher/thumbprint Authenticode trên Windows và
@@ -172,8 +174,8 @@ Preview hiện có các lớp bảo vệ cơ bản:
 Đây là defense in depth, chưa phải sandbox cấp hệ điều hành. Trước khi phát hành
 Stable cho khách, desktop app vẫn cần typed IPC cho toàn bộ workflow có quyền
 cao, workspace boundary do hệ điều hành cưỡng chế, network allowlist, signed
-installer, signed update manifest, runtime bundle cho mọi OS/arch được hỗ trợ và
-platform code signing.
+installer, signed update manifest, packaged smoke test cho mọi OS/arch được hỗ
+trợ và platform code signing.
 
 ### Thiết Kế License Thương Mại
 
@@ -206,8 +208,10 @@ Release pipeline phải:
 
 1. Cài dependency từ lockfile bằng `npm ci`.
 2. Từ chối install/prepare lifecycle script nếu chưa review rõ ràng.
-3. Đặt Node runtime đã verify vào `runtimes/node/<platform>-<arch>/`.
-4. Chạy `npm run runtime:verify -- --require-bundled` cho từng release target.
+3. Đóng app đã review vào ASAR và chỉ gồm file production cần thiết.
+4. Chạy development và packaged desktop smoke; bắt buộc
+   `electron-embedded`, `app.asar`, SQLite, Studio health và managed MCP health
+   cùng đạt trên từng release target.
 5. Chạy syntax check, unit test, HTTP security test, dependency audit và
    `security:audit` trên Windows, macOS và Linux.
 6. Tạo SHA-256 integrity manifest cho các file runtime production.

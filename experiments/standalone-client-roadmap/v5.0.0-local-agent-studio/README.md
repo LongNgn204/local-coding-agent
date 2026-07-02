@@ -57,42 +57,31 @@ npm run ui:build
 npm run desktop:dev
 ```
 
-The desktop app starts the v5 Studio server as a local child process and opens
-the app UI in Electron. The current Preview launcher uses the system `node`
-binary, so Node.js 22.5+ is required because the thread store uses the built-in
-SQLite module.
+The desktop app runs the v5 Studio server inside the Electron main process and
+opens the local UI in a sandboxed renderer. Packaged customers do not need to
+install Node.js: SQLite, the HTTP runtime, and maintenance scripts use the Node
+runtime embedded in Electron. Managed MCP processes run through the same signed
+executable with `ELECTRON_RUN_AS_NODE=1`.
 
-Production packaging should bundle or verify the runtime so customers do not
-need to install Node.js manually.
+## Self-Contained Desktop Runtime
 
-## Runtime Packaging
-
-The desktop launcher resolves Node.js in this order:
-
-1. `LCA_NODE_PATH`
-2. packaged runtime under Electron resources
-3. source-tree runtime under `runtimes/node/<platform>-<arch>/`
-4. system `node`
-
-Expected bundled layout:
-
-```text
-runtimes/node/win32-x64/node.exe
-runtimes/node/darwin-arm64/node
-runtimes/node/linux-x64/node
-```
-
-Check the selected runtime:
+Production files are packed into Electron ASAR. Release packaging excludes
+development scripts, the standalone CLI entry point, and external Node runtime
+folders from the customer artifact. Verify both the runtime and archive path:
 
 ```powershell
-npm run runtime:verify
+npm run desktop:smoke
+npm run desktop:pack
+npm run desktop:smoke:packaged
 ```
 
-Release CI should place the runtime files and run:
+The packaged smoke starts the Studio API, opens SQLite, launches the managed MCP
+server with the embedded runtime, checks `/healthz`, stops the process tree, and
+asserts that the app ran from `app.asar`.
 
-```powershell
-npm run runtime:verify -- --require-bundled
-```
+The original cross-platform application icon and its provenance notes live in
+`build/`. Electron Builder derives the native Windows, macOS, and Linux icon
+formats from that master PNG.
 
 ## Signed Release Updates
 
@@ -193,8 +182,8 @@ For release artifacts:
 npm run desktop:dist
 ```
 
-Stable release builds still need a real publisher certificate, runtime
-bundling, and installation testing on each target OS before customer release.
+Stable release builds still need a real publisher certificate and installation
+testing on each target OS before customer release.
 
 ## Preview Licensing
 
@@ -283,41 +272,31 @@ npm run ui:build
 npm run desktop:dev
 ```
 
-Desktop app sẽ start v5 Studio server như một local child process và mở UI trong
-Electron. Launcher Preview hiện dùng binary `node` của máy, nên cần Node.js
-22.5+ vì thread store dùng SQLite tích hợp của Node.
+Desktop app chạy v5 Studio server ngay trong Electron main process và mở local
+UI bằng renderer đã sandbox. Khách dùng bản đóng gói không cần cài Node.js:
+SQLite, HTTP runtime và maintenance script dùng Node runtime nhúng trong
+Electron. Managed MCP process chạy bằng cùng executable đã ký với
+`ELECTRON_RUN_AS_NODE=1`.
 
-Bản production nên bundle hoặc kiểm tra runtime để khách hàng không phải tự cài
-Node.js.
+## Desktop Runtime Tự Chứa
 
-## Runtime Packaging
-
-Desktop launcher resolve Node.js theo thứ tự:
-
-1. `LCA_NODE_PATH`
-2. packaged runtime trong Electron resources
-3. source-tree runtime ở `runtimes/node/<platform>-<arch>/`
-4. system `node`
-
-Layout runtime đi kèm:
-
-```text
-runtimes/node/win32-x64/node.exe
-runtimes/node/darwin-arm64/node
-runtimes/node/linux-x64/node
-```
-
-Kiểm tra runtime đang được chọn:
+File production được đóng vào Electron ASAR. Package khách hàng không chứa
+development script, standalone CLI entry point hoặc thư mục Node runtime ngoài.
+Kiểm tra cả runtime và đường dẫn archive bằng:
 
 ```powershell
-npm run runtime:verify
+npm run desktop:smoke
+npm run desktop:pack
+npm run desktop:smoke:packaged
 ```
 
-Release CI nên đặt runtime file vào đúng layout rồi chạy:
+Packaged smoke khởi động Studio API, mở SQLite, chạy managed MCP server bằng
+runtime nhúng, kiểm tra `/healthz`, dừng process tree và xác nhận app chạy từ
+`app.asar`.
 
-```powershell
-npm run runtime:verify -- --require-bundled
-```
+Icon ứng dụng cross-platform nguyên bản và ghi chú provenance nằm trong
+`build/`. Electron Builder tạo icon native Windows, macOS và Linux từ PNG
+master này.
 
 ## Signed Release Updates
 
@@ -417,8 +396,8 @@ npm run desktop:pack
 npm run desktop:dist
 ```
 
-Bản Stable vẫn cần chứng thư publisher thật, bundle runtime và kiểm thử cài đặt
-trên từng hệ điều hành trước khi phát hành cho khách hàng.
+Bản Stable vẫn cần chứng thư publisher thật và kiểm thử cài đặt trên từng hệ
+điều hành trước khi phát hành cho khách hàng.
 
 ## License Preview
 

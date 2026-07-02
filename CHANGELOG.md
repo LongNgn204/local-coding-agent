@@ -39,10 +39,9 @@ follows [Semantic Versioning](https://semver.org/).
   Electron main process maps renderer requests through a small allowlist,
   injects the local session token and structured intent, and rejects untrusted
   renderer origins.
-- Studio v5 desktop now has a Node runtime resolver for release packaging. It
-  supports `LCA_NODE_PATH`, packaged runtimes under `runtimes/node/<platform>`,
-  source-tree runtimes for preview testing, and system Node fallback, with
-  `runtime:verify` checks for release CI.
+- Studio v5 desktop now runs its HTTP server and SQLite store inside Electron's
+  main process. Customer packages no longer need system Node.js; managed MCP
+  and maintenance scripts use Electron's embedded Node mode.
 - Studio v5 now verifies signed release update manifests with Ed25519, artifact
   SHA-256 metadata, channel/product checks, and rollback protection. Release CI
   can generate envelopes with `npm run update:manifest`.
@@ -61,6 +60,14 @@ follows [Semantic Versioning](https://semver.org/).
   and macOS code-signing TeamIdentifier metadata after download and before an
   artifact leaves private staging. Stable Windows/macOS manifests fail closed
   when no platform-signature policy is present.
+- Studio v5 production files are now packed into ASAR with development scripts,
+  CLI entry points, and external runtime folders excluded. Development and
+  packaged smoke tests verify Studio health, SQLite, the embedded runtime,
+  managed MCP startup/shutdown, and the actual `app.asar` execution path.
+- Studio v5 now ships an original cross-platform application icon with local
+  provenance notes instead of the default Electron icon. UI-only React packages
+  moved to development dependencies, shrinking ASAR from about 41.3 MB to
+  12.7 MB, and the unused Winstaller lifecycle script is explicitly denied.
 
 ## [4.4.0-pro] - 2026-07-01
 

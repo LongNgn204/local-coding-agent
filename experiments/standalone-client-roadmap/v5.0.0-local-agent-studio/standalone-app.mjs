@@ -28,10 +28,10 @@ const DEFAULT_PROVIDER = process.env.LCA_MODEL_PROVIDER || "openai";
 const MAX_TOOL_LOOPS = Number(process.env.LCA_STUDIO_MAX_TOOL_LOOPS || 8);
 let mcpSdkPromise = null;
 
-export function startStudio(manifest) {
-  const host = process.env.LCA_STUDIO_HOST || "127.0.0.1";
-  const port = Number(process.env.LCA_STUDIO_PORT || manifest.defaultPort || 5177);
-  const storageDir = getStorageDir(manifest.version);
+export function startStudio(manifest, options = {}) {
+  const host = options.host || process.env.LCA_STUDIO_HOST || "127.0.0.1";
+  const port = Number(options.port || process.env.LCA_STUDIO_PORT || manifest.defaultPort || 5177);
+  const storageDir = options.storageDir || getStorageDir(manifest.version);
   const security = createStudioSecurity({ host, port });
   const threadStore = new ThreadStore(join(storageDir, "studio.db"));
   const secretStore = new SecretStore(storageDir);
@@ -55,7 +55,7 @@ export function startStudio(manifest) {
   const state = {
     manifest,
     storageDir,
-    repoRoot: findRepoRoot(process.cwd()),
+    repoRoot: Object.hasOwn(options, "repoRoot") ? options.repoRoot : findRepoRoot(options.cwd || process.cwd()),
     mcpEndpoint: process.env.MCP_ENDPOINT || manifest.defaultMcpEndpoint || DEFAULT_MCP_URL,
     dashboardUrl: process.env.LCA_DASHBOARD_URL || "http://127.0.0.1:8790",
     client: null,
@@ -71,7 +71,12 @@ export function startStudio(manifest) {
     updateService,
     licenseService,
     integrityService,
-    desktopBridgeToken: process.env.LCA_DESKTOP_BRIDGE_TOKEN || ""
+    desktopBridgeToken: options.desktopBridgeToken || process.env.LCA_DESKTOP_BRIDGE_TOKEN || "",
+    nodeRuntime: options.nodeRuntime || {
+      executable: process.execPath,
+      source: process.versions.electron ? "electron-embedded" : "direct",
+      version: process.versions.node
+    }
   };
 
   const server = createServer(async (req, res) => {
@@ -98,16 +103,56 @@ export function startStudio(manifest) {
     return sendJson(res, 404, { error: "Not found" });
   });
 
-  server.listen(port, host, () => {
-    console.log(`${manifest.productName} ${manifest.version} listening on http://${host}:${port}`);
-    console.log(`MCP endpoint default: ${state.mcpEndpoint}`);
-    console.log(`Local data: ${storageDir}`);
-  });
-
-  server.on("close", () => {
+  let threadStoreClosed = false;
+  const closeThreadStore = () => {
+    if (threadStoreClosed) return;
+    threadStoreClosed = true;
     try { threadStore.close(); } catch {}
+  };
+  const ready = new Promise((resolveReady, rejectReady) => {
+    const onError = (error) => {
+      closeThreadStore();
+      rejectReady(error);
+    };
+    server.once("error", onError);
+    server.listen(port, host, () => {
+      server.off("error", onError);
+      console.log(`${manifest.productName} ${manifest.version} listening on http://${host}:${port}`);
+      console.log(`MCP endpoint default: ${state.mcpEndpoint}`);
+      console.log(`Local data: ${storageDir}`);
+      resolveReady();
+    });
   });
-  return { server, state };
+  server.on("close", () => {
+    closeThreadStore();
+  });
+  let closePromise = null;
+  const close = () => {
+    if (closePromise) return closePromise;
+    closePromise = (async () => {
+      if (state.serverProcess) await stopManagedServer(state).catch(() => {});
+      if (state.client) {
+        await state.client.close().catch(() => {});
+        state.client = null;
+        state.tools = [];
+      }
+      if (!server.listening) {
+        closeThreadStore();
+        return;
+      }
+      await new Promise((resolveClose) => {
+        const forceTimer = setTimeout(() => server.closeAllConnections?.(), 5_000);
+        forceTimer.unref?.();
+        server.close(() => {
+          clearTimeout(forceTimer);
+          resolveClose();
+        });
+        server.closeIdleConnections?.();
+      });
+    })();
+    return closePromise;
+  };
+  return { server, state, ready, close };
 }
 
 async function handleApi(req, res, url, state) {
@@ -403,9 +448,9 @@ function healthPayload(state) {
     repo_root: state.repoRoot,
     managed_server_pid: state.serverProcess?.pid || null,
     node_runtime: {
-      executable: process.execPath,
-      source: process.env.LCA_NODE_RUNTIME_SOURCE || "direct",
-      version: process.env.LCA_NODE_RUNTIME_VERSION || process.versions.node
+      executable: state.nodeRuntime.executable,
+      source: state.nodeRuntime.source,
+      version: state.nodeRuntime.version
     },
     security: {
       loopback_only: true,
@@ -735,7 +780,8 @@ async function startManagedServer(state, body) {
       AGENT_WORKSPACE: workspace,
       AGENT_EXTRA_ROOTS_JSON: JSON.stringify(body.extraRoots || profile.extraRoots || []),
       AGENT_MODE: body.mode || profile.mode || "safe",
-      AGENT_POLICY: body.policy || profile.policy || "balanced"
+      AGENT_POLICY: body.policy || profile.policy || "balanced",
+      ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {})
     },
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"]
@@ -1097,6 +1143,10 @@ async function runChild(fileName, args, cwd, timeoutMs = 5 * 60_000) {
   return new Promise((resolveRun) => {
     const child = spawn(fileName, args, {
       cwd,
+      env: {
+        ...process.env,
+        ...(fileName === process.execPath && process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {})
+      },
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"]
     });

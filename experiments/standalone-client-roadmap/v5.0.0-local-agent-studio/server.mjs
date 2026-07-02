@@ -6,4 +6,12 @@ import { readFile } from "node:fs/promises";
 import { startStudio } from "./standalone-app.mjs";
 
 const manifest = JSON.parse(await readFile(new URL("./version-manifest.json", import.meta.url), "utf8"));
-startStudio(manifest);
+const studio = startStudio(manifest);
+await studio.ready;
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, async () => {
+    await studio.close().catch(() => {});
+    process.exit(0);
+  });
+}
