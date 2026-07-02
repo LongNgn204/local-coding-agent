@@ -79,6 +79,11 @@ before sharing outside your organization.
 - TCP 443 failure: firewall is blocking outbound HTTPS to that host.
 - TLS failure or certificate errors: corporate SSL inspection or custom CA may
   be interfering.
+- If Node.js reports `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` but the tunnel status
+  is `connected`, the network path works. Node.js and the tunnel client are
+  using different CA trust stores. Configure `NODE_EXTRA_CA_CERTS` with the
+  approved organization/antivirus CA only when Node-based clients need direct
+  HTTPS access. Do not disable TLS verification.
 - HTTPS to `api.openai.com` returns `401`: the network path works, but the key
   is missing or invalid.
 - HTTPS to `api.openai.com` times out or resets: network/proxy/firewall issue.
@@ -87,6 +92,10 @@ before sharing outside your organization.
   TLS inspection, or another network policy.
 - `tunnel_active_organization_required`: provide the OpenAI organization ID
   that owns the tunnel.
+- `smoke_status: connected`: local MCP initialization, control-plane metadata,
+  and at least one polling cycle all succeeded. A non-zero process exit caused
+  by the doctor's timed shutdown is expected when `terminated_by_doctor` is
+  `true`.
 
 ## Proxy Environments
 

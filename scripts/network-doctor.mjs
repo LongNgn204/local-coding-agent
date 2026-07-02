@@ -313,6 +313,7 @@ async function tunnelSmoke(opts) {
   return timed("tunnel-smoke", () => new Promise((resolveTest) => {
     let stdout = "";
     let stderr = "";
+    let terminatedByDoctor = false;
     const child = spawn(opts.tunnelBin, args, {
       cwd: dirname(resolve(opts.tunnelBin)),
       env,
@@ -329,6 +330,7 @@ async function tunnelSmoke(opts) {
     collect(child.stderr, (chunk) => { stderr += chunk; stderr = stderr.slice(-12000); });
 
     const timer = setTimeout(() => {
+      terminatedByDoctor = true;
       try {
         if (process.platform === "win32") {
           spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
@@ -342,10 +344,13 @@ async function tunnelSmoke(opts) {
       clearTimeout(timer);
       rmSync(tempDir, { recursive: true, force: true });
       const raw = `${stdout}\n${stderr}`;
+      const status = summarizeTunnelLog(raw);
       resolveTest({
         exit_code: code,
         signal: signal || "",
         duration_seconds: opts.duration,
+        terminated_by_doctor: terminatedByDoctor,
+        ...status,
         diagnosis_hints: diagnoseTunnelLog(raw),
         log_tail: redact(raw).split(/\r?\n/).filter(Boolean).slice(-80)
       });
@@ -368,19 +373,41 @@ function diagnoseTunnelLog(raw) {
   if (text.includes("certificate") || text.includes("unable to verify") || text.includes("self signed")) {
     hints.push("Certificate/TLS verification issue: corporate SSL inspection or custom CA may be interfering.");
   }
-  if (text.includes("proxy")) {
-    hints.push("Proxy mentioned in logs. Check HTTP_PROXY/HTTPS_PROXY and corporate proxy policy.");
+  if (/\b(?:proxyconnect|proxy error|proxy authentication|proxy required|using proxy|http_proxy|https_proxy)\b|\b407\b/.test(text)) {
+    hints.push("An explicit proxy setting or proxy error was detected. Check HTTP_PROXY/HTTPS_PROXY and corporate proxy policy.");
   }
   if (text.includes("enotfound") || text.includes("getaddrinfo")) {
     hints.push("DNS lookup failure: corporate DNS may block or misresolve the endpoint.");
   }
-  if (text.includes("401") || text.includes("unauthorized")) {
+  if (/\b401\b|\bunauthorized\b/.test(text)) {
     hints.push("Authentication failed: check Runtime API key, not Admin key.");
   }
-  if (text.includes("403") || text.includes("forbidden")) {
+  if (/\b403\b|\bforbidden\b/.test(text)) {
     hints.push("Forbidden: check organization/project access or network policy.");
   }
   return hints;
+}
+
+function summarizeTunnelLog(raw) {
+  const text = raw.toLowerCase();
+  const mcpInitialized = text.includes("mcp session initialized");
+  const metadataFetched = text.includes("tunnel metadata fetched");
+  const pollSucceeded = text.includes("poll cycle complete");
+  const pollFailed = text.includes("poll failed") || text.includes("backing off");
+  let smokeStatus = "started";
+  if (pollSucceeded && mcpInitialized) smokeStatus = "connected";
+  else if (metadataFetched || pollSucceeded) smokeStatus = "control-plane-reachable";
+  else if (pollFailed) smokeStatus = "blocked";
+  else if (mcpInitialized) smokeStatus = "local-mcp-only";
+
+  return {
+    smoke_status: smokeStatus,
+    mcp_initialized: mcpInitialized,
+    control_plane_reachable: metadataFetched || pollSucceeded,
+    metadata_fetched: metadataFetched,
+    poll_succeeded: pollSucceeded,
+    poll_failed: pollFailed
+  };
 }
 
 function envSummary(opts) {
@@ -431,21 +458,37 @@ function renderReport(report) {
 
 function quickDiagnosis(results) {
   const hints = [];
-  const failedDns = results.network.filter((r) => r.name.startsWith("dns:") && !r.ok);
-  const failedTcp = results.network.filter((r) => r.name.startsWith("tcp:") && !r.ok);
-  const failedTls = results.network.filter((r) => r.name.startsWith("tls:") && !r.ok);
-  const openaiHttp = results.http.find((r) => r.name.includes("https://api.openai.com/v1/models"));
-  const localHealth = results.local.find((r) => r.name.includes("/healthz"));
+  const network = Array.isArray(results.network) ? results.network : [];
+  const httpResults = Array.isArray(results.http) ? results.http : [];
+  const local = Array.isArray(results.local) ? results.local : [];
+  const failedDns = network.filter((r) => r.name.startsWith("dns:") && !r.ok);
+  const failedTcp = network.filter((r) => r.name.startsWith("tcp:") && !r.ok);
+  const failedTls = network.filter((r) => r.name.startsWith("tls:") && !r.ok);
+  const openaiHttp = httpResults.find((r) => r.name.includes("https://api.openai.com/v1/models"));
+  const localHealth = local.find((r) => r.name.includes("/healthz"));
+  const tunnelConnected = ["connected", "control-plane-reachable"].includes(results.tunnel?.smoke_status);
+  const nodeTrustFailure = failedTls.length > 0 && failedTls.every((r) =>
+    ["UNABLE_TO_GET_ISSUER_CERT_LOCALLY", "SELF_SIGNED_CERT_IN_CHAIN", "DEPTH_ZERO_SELF_SIGNED_CERT"].includes(r.error)
+  );
   if (failedDns.length) hints.push(`DNS failures: ${failedDns.map((r) => r.name.replace("dns:", "")).join(", ")}.`);
   if (failedTcp.length) hints.push(`TCP 443 failures: ${failedTcp.map((r) => r.name.replace("tcp:", "")).join(", ")}.`);
-  if (failedTls.length) hints.push(`TLS handshake failures: ${failedTls.map((r) => r.name.replace("tls:", "")).join(", ")}.`);
-  if (openaiHttp && !openaiHttp.ok) hints.push(`HTTPS request to OpenAI API failed: ${openaiHttp.error || ""} ${openaiHttp.message || ""}`.trim());
+  if (nodeTrustFailure && tunnelConnected) {
+    hints.push("Tunnel connected successfully, but Node.js could not validate the local certificate issuer. The tunnel client and Node.js are using different CA trust stores.");
+  } else if (failedTls.length) {
+    hints.push(`TLS handshake failures: ${failedTls.map((r) => r.name.replace("tls:", "")).join(", ")}.`);
+  }
+  if (openaiHttp && !openaiHttp.ok && !(nodeTrustFailure && tunnelConnected)) {
+    hints.push(`HTTPS request to OpenAI API failed: ${openaiHttp.error || ""} ${openaiHttp.message || ""}`.trim());
+  }
   if (openaiHttp?.ok && [401, 403].includes(openaiHttp.status)) {
     hints.push(`OpenAI API was reachable but returned HTTP ${openaiHttp.status}; network path works, credentials/org may still need checking.`);
   } else if (openaiHttp?.ok && openaiHttp.status && openaiHttp.status < 500) {
     hints.push(`OpenAI API was reachable with HTTP ${openaiHttp.status}.`);
   }
   if (localHealth && !localHealth.ok) hints.push("Local MCP health endpoint is not reachable. Start the local server before testing tunnel end-to-end.");
+  if (results.tunnel?.smoke_status === "connected") {
+    hints.push("Tunnel smoke test connected: local MCP initialized, control-plane metadata loaded, and polling completed.");
+  }
   const tunnelHints = results.tunnel?.diagnosis_hints || [];
   hints.push(...tunnelHints);
   return [...new Set(hints)];
@@ -498,7 +541,11 @@ async function main() {
   for (const line of report.quickDiagnosis) console.log(`- ${line}`);
 }
 
-main().catch((error) => {
-  console.error(`ERROR: ${error?.message || error}`);
-  process.exit(1);
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`ERROR: ${error?.message || error}`);
+    process.exit(1);
+  });
+}
+
+export { diagnoseTunnelLog, quickDiagnosis, summarizeTunnelLog };

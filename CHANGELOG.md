@@ -73,6 +73,10 @@ follows [Semantic Versioning](https://semver.org/).
   compaction, and model tool-policy modes (`read-only`, `workspace`, `full`) so
   long conversations stay responsive and model-requested tools cannot bypass
   the server permission boundary.
+- Network doctor now summarizes tunnel smoke-test phases, marks expected
+  doctor-terminated runs, avoids false proxy/403 matches from log timestamps,
+  and explains the common Node.js CA trust-store mismatch separately from a
+  blocked tunnel.
 
 ## [4.4.0-pro] - 2026-07-01
 
