@@ -485,7 +485,7 @@ function startAgentTurn(state, body) {
     error.status = 409;
     throw error;
   }
-  const turn = state.threadStore.startTurn(thread.id);
+  const turn = state.threadStore.startTurn(thread.id, { provider, model, toolPolicy });
   state.threadStore.appendItem(thread.id, { turnId: turn.id, role: "user", content: message });
   state.turnManager.create({ id: turn.id, threadId: thread.id, provider, model, toolPolicy });
   state.turnManager.emit(turn.id, "turn.started", {
@@ -526,6 +526,7 @@ async function executeAgentTurn(state, request) {
             isError: event.isError,
             blocked: Boolean(event.blocked),
             policy: event.policy || null,
+            level: event.level || null,
             ms: event.ms
           }
         });
@@ -1132,6 +1133,7 @@ async function writeSupportBundle(state) {
     approvals: redactForSupport(approvals),
     workspaceDoctor: redactForSupport(doctor),
     networkDoctor: redactForSupport(networkDoctor),
+    agentSessions: redactForSupport(agentSessionDiagnostics(state)),
     events: state.events.slice(-50).map((event) => ({
       at: event.at,
       tool: event.tool,
@@ -1145,6 +1147,45 @@ async function writeSupportBundle(state) {
   };
   await writeFile(file, JSON.stringify(report, null, 2), "utf8");
   return { ok: true, path: file, report };
+}
+
+function agentSessionDiagnostics(state) {
+  const threads = state.threadStore.listThreads({ limit: 10, includeArchived: true });
+  return {
+    activeTurns: state.turnManager.listActive(),
+    threads: threads.map((thread) => {
+      const turns = state.threadStore.listTurns(thread.id, { limit: 10 });
+      const items = state.threadStore.listItems(thread.id, { limit: 80 });
+      return {
+        id: thread.id,
+        title: thread.title,
+        status: thread.status,
+        provider: thread.provider,
+        model: thread.model,
+        workspace: thread.workspace,
+        summarySeq: thread.summarySeq,
+        createdAt: thread.createdAt,
+        updatedAt: thread.updatedAt,
+        turns,
+        recentItems: items.map((item) => ({
+          seq: item.seq,
+          turnId: item.turnId,
+          type: item.type,
+          role: item.role,
+          createdAt: item.createdAt,
+          contentPreview: supportPreview(item.content, item.type === "tool" ? 2_000 : 360),
+          metadata: item.type === "tool" ? {
+            tool: item.metadata?.tool,
+            isError: Boolean(item.metadata?.isError),
+            blocked: Boolean(item.metadata?.blocked),
+            policy: item.metadata?.policy || null,
+            level: item.metadata?.level || null,
+            ms: item.metadata?.ms ?? null
+          } : undefined
+        }))
+      };
+    })
+  };
 }
 
 function assertFeature(manifest, name) {
@@ -1455,6 +1496,12 @@ function appendBoundedOutput(current, chunk, limit = 2_000_000) {
   if (current.length >= limit) return current;
   const next = current + String(chunk);
   return next.length <= limit ? next : `${next.slice(0, limit)}\n[OUTPUT TRUNCATED]`;
+}
+
+function supportPreview(value, limit = 360) {
+  const text = String(value || "");
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}\n[SUPPORT PREVIEW TRUNCATED]`;
 }
 
 function publicLicenseStatus(status) {

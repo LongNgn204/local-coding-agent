@@ -25,6 +25,9 @@ export class ThreadStore {
       CREATE TABLE IF NOT EXISTS turns (
         id TEXT PRIMARY KEY,
         thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL DEFAULT '',
+        model TEXT NOT NULL DEFAULT '',
+        tool_policy TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL,
         error TEXT,
         created_at TEXT NOT NULL,
@@ -46,6 +49,9 @@ export class ThreadStore {
       CREATE INDEX IF NOT EXISTS idx_items_thread_seq ON items(thread_id, seq);
     `);
     this.ensureColumn("threads", "summary_seq", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("turns", "provider", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("turns", "model", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("turns", "tool_policy", "TEXT NOT NULL DEFAULT ''");
     const recoveredAt = new Date().toISOString();
     this.db.prepare(`UPDATE turns SET status='interrupted', error='Studio stopped before this turn completed.', completed_at=? WHERE status='running'`)
       .run(recoveredAt);
@@ -77,13 +83,14 @@ export class ThreadStore {
     return this.getThread(id);
   }
 
-  startTurn(threadId) {
+  startTurn(threadId, { provider = "", model = "", toolPolicy = "" } = {}) {
     this.requireThread(threadId);
     const id = `turn_${randomUUID().replaceAll("-", "")}`;
     const now = new Date().toISOString();
-    this.db.prepare(`INSERT INTO turns (id,thread_id,status,created_at) VALUES (?,?,'running',?)`).run(id, threadId, now);
+    this.db.prepare(`INSERT INTO turns (id,thread_id,provider,model,tool_policy,status,created_at) VALUES (?,?,?,?,?,'running',?)`)
+      .run(id, threadId, String(provider), String(model), String(toolPolicy), now);
     this.touch(threadId, now);
-    return { id, threadId, status: "running", createdAt: now };
+    return { id, threadId, provider: String(provider), model: String(model), toolPolicy: String(toolPolicy), status: "running", createdAt: now };
   }
 
   finishTurn(turnId, { status = "completed", error = null } = {}) {
@@ -101,6 +108,13 @@ export class ThreadStore {
     this.requireThread(threadId);
     const row = this.db.prepare(`SELECT * FROM turns WHERE thread_id=? AND status='running' ORDER BY created_at DESC LIMIT 1`).get(threadId);
     return row ? mapTurn(row) : null;
+  }
+
+  listTurns(threadId, { limit = 50 } = {}) {
+    this.requireThread(threadId);
+    const size = Math.max(1, Math.min(Number(limit) || 50, 200));
+    return this.db.prepare(`SELECT * FROM turns WHERE thread_id=? ORDER BY created_at DESC LIMIT ?`)
+      .all(threadId, size).map(mapTurn);
   }
 
   appendItem(threadId, { turnId = null, type = "message", role = null, content = "", metadata = {} } = {}) {
@@ -184,6 +198,9 @@ function mapTurn(row) {
   return {
     id: row.id,
     threadId: row.thread_id,
+    provider: row.provider,
+    model: row.model,
+    toolPolicy: row.tool_policy,
     status: row.status,
     error: row.error,
     createdAt: row.created_at,

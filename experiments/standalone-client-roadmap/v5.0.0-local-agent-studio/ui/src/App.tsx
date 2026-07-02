@@ -254,6 +254,9 @@ export function App() {
           args: item.metadata?.args as Record<string, unknown>,
           result: item.content || "",
           isError: Boolean(item.metadata?.isError),
+          blocked: Boolean(item.metadata?.blocked),
+          policy: String(item.metadata?.policy || ""),
+          level: String(item.metadata?.level || ""),
           ms: Number(item.metadata?.ms || 0)
         }))
         .reverse()
@@ -710,7 +713,7 @@ function VirtualMessages({ items }: { items: ThreadItem[] }) {
             >
               <div className="message-meta">
                 <strong>{item.type === "tool" ? String(item.metadata?.tool || "tool") : item.role || "message"}</strong>
-                <span>{formatAge(item.created_at)}</span>
+                <span>{item.type === "tool" ? toolItemLabel(item) : formatAge(item.created_at)}</span>
               </div>
               <pre>{item.content || ""}</pre>
             </article>
@@ -729,14 +732,35 @@ function Timeline({ events }: { events: TimelineEvent[] }) {
         <div className={event.isError ? "timeline-event error" : "timeline-event"} key={`${event.tool}-${index}`}>
           <div>
             <strong>{event.tool || "tool"}</strong>
-            <span>{event.ms || 0}ms</span>
+            <span>{timelineLabel(event)}</span>
           </div>
           <pre>{preview(JSON.stringify(event.args || {}, null, 2), 300)}</pre>
+          {(event.result || event.blocked) && <pre>{preview(event.result || "Blocked by policy", 700)}</pre>}
         </div>
       ))}
       {!events.length && <div className="empty">No tool calls yet.</div>}
     </div>
   );
+}
+
+function toolItemLabel(item: ThreadItem) {
+  const parts = [
+    item.metadata?.blocked ? "blocked" : item.metadata?.isError ? "error" : "ok",
+    item.metadata?.policy ? String(item.metadata.policy) : "",
+    item.metadata?.level ? String(item.metadata.level) : "",
+    item.metadata?.ms != null ? `${Number(item.metadata.ms || 0)}ms` : "",
+    formatAge(item.created_at)
+  ].filter(Boolean);
+  return parts.join(" / ");
+}
+
+function timelineLabel(event: TimelineEvent) {
+  return [
+    event.blocked ? "blocked" : event.isError ? "error" : "ok",
+    event.policy || "",
+    event.level || "",
+    `${event.ms || 0}ms`
+  ].filter(Boolean).join(" / ");
 }
 
 async function quickPanel(path: string, setNotice: (value: string) => void) {

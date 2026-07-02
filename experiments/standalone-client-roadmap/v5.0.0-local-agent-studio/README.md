@@ -31,8 +31,10 @@ workspace controls, diagnostics, and commercial-release guardrails.
   mutations, and support-bundle exports require structured intent confirmation
   and produce redacted audit metadata.
 - Durable SQLite threads, turns, messages, and tool events.
-- Recursive redaction for support bundles. Raw tool arguments/results are not
-  exported in the event list.
+- Recursive redaction for support bundles. Bundles include bounded previews of
+  recent thread items, persistent turn status, and tool policy outcomes for
+  customer diagnostics; the global event list still omits raw arguments and
+  results.
 - Ed25519 commercial license verification. Preview builds run without a key;
   Stable builds fail closed.
 - Separate Ed25519 release-integrity verification and anti-backdoor source audit.
@@ -285,7 +287,9 @@ workspace controls, diagnostics và các lớp kiểm soát để phát hành th
   mutation và support-bundle export đều cần structured intent confirmation và
   tạo audit metadata đã rút gọn.
 - SQLite lưu bền thread, turn, message và tool event.
-- Support bundle có redaction đệ quy. Event list không xuất raw tool args/results.
+- Support bundle có redaction đệ quy, kèm preview giới hạn của thread gần đây,
+  trạng thái turn và kết quả tool policy để hỗ trợ khách hàng. Event list tổng
+  vẫn không xuất raw tool args/results.
 - Xác minh license thương mại bằng Ed25519. Bản Preview chạy không cần key; bản
   Stable sẽ fail closed.
 - Xác minh release integrity bằng Ed25519 riêng và có anti-backdoor source audit.

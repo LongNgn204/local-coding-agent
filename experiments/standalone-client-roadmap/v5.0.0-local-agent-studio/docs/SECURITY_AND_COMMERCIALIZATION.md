@@ -36,8 +36,8 @@ The Preview implements these baseline controls:
 11. Admin-issued Stable license tokens use the same OS-backed store. The server
     verifies them in memory through the desktop-only bridge and removes legacy
     plaintext `license.json` after secure activation.
-12. Support bundles recursively redact credentials and omit raw tool arguments
-    and results from the event list.
+12. Support bundles recursively redact credentials, bound agent-session content
+    to short previews, and omit raw tool arguments from the global event list.
 13. SQLite persists threads without putting API credentials in the database.
 14. The Studio HTTP server and SQLite store run inside Electron's main process.
     Customer packages need no external Node.js. Managed MCP and maintenance
@@ -167,7 +167,8 @@ Preview hiện có các lớp bảo vệ cơ bản:
 11. Stable license token do admin cấp dùng cùng OS-backed store. Server verify
     token trong RAM qua desktop-only bridge và dọn plaintext `license.json` cũ
     sau khi secure activation thành công.
-12. Support Bundle redaction đệ quy và bỏ raw tool args/results khỏi event list.
+12. Support Bundle redaction credential đệ quy, giới hạn agent-session content
+    thành preview ngắn và bỏ raw tool args khỏi event list tổng.
 13. SQLite lưu thread nhưng không lưu API credential.
 14. Studio HTTP server và SQLite store chạy ngay trong Electron main process.
     Package khách hàng không cần Node.js ngoài. Managed MCP và maintenance

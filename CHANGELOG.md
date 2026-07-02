@@ -87,6 +87,9 @@ follows [Semantic Versioning](https://semver.org/).
 - Studio v5 now includes `license:keygen` for admin-only Ed25519 license keypair
   creation with overwrite protection, making the commercial-key setup flow
   repeatable without committing private keys.
+- Studio v5 support bundles now include redacted, bounded agent-session
+  diagnostics: recent thread items, persisted turn provider/model/tool policy,
+  blocked-tool evidence, and turn failures for customer troubleshooting.
 
 ## [4.4.0-pro] - 2026-07-01
 
