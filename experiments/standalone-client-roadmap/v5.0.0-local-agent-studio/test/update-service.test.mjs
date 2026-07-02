@@ -72,6 +72,12 @@ test("update service rejects tampered signatures and unsafe artifacts", () => {
       privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" })
     });
     assert.throws(() => service.verifyEnvelope(requiresNewerApp), /requires app v6\.0\.0/);
+
+    const missingPlatformPolicy = createUpdateEnvelope({
+      payload: updatePayload({ buildNumber: 500400, version: "v5.0.4", signature: null }),
+      privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" })
+    });
+    assert.throws(() => service.verifyEnvelope(missingPlatformPolicy), /require a platform signature policy/);
   } finally {
     rmSync(storage, { recursive: true, force: true });
   }
@@ -81,11 +87,18 @@ test("update service streams, hashes, and stages a signed artifact without execu
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const storage = mkdtempSync(join(tmpdir(), "lca-update-stage-"));
   const bytes = Buffer.from("verified update artifact bytes");
+  const signatureCalls = [];
   try {
     const service = new UpdateService({
       storageDir: storage,
       manifest,
-      publicKeyPem: publicKey.export({ type: "spki", format: "pem" })
+      publicKeyPem: publicKey.export({ type: "spki", format: "pem" }),
+      signatureVerifier: {
+        verify: async (request) => {
+          signatureCalls.push(request);
+          return { required: true, verified: true, platform: request.platform, type: "authenticode" };
+        }
+      }
     });
     const envelope = createUpdateEnvelope({
       payload: updatePayload({
@@ -109,9 +122,53 @@ test("update service streams, hashes, and stages a signed artifact without execu
     });
     assert.equal(staged.verified, true);
     assert.equal(staged.installReady, false);
+    assert.equal(staged.platformSignature.verified, true);
+    assert.equal(signatureCalls.length, 1);
+    assert.equal(signatureCalls[0].file.includes(".partial-"), true);
     assert.equal(readFileSync(staged.path).equals(bytes), true);
     assert.equal(service.status().lastVerified.buildNumber, 500100);
     assert.equal(service.readState().lastStaged.installReady, false);
+  } finally {
+    rmSync(storage, { recursive: true, force: true });
+  }
+});
+
+test("update staging rejects an invalid platform signature and removes the artifact", async () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const storage = mkdtempSync(join(tmpdir(), "lca-update-signature-fail-"));
+  const bytes = Buffer.from("correctly hashed but unsigned artifact");
+  try {
+    const service = new UpdateService({
+      storageDir: storage,
+      manifest,
+      publicKeyPem: publicKey.export({ type: "spki", format: "pem" }),
+      signatureVerifier: { verify: async () => { throw new Error("Authenticode signature is not valid: NotSigned."); } }
+    });
+    const envelope = createUpdateEnvelope({
+      payload: updatePayload({
+        buildNumber: 500100,
+        version: "v5.0.1",
+        size: bytes.length,
+        sha256: createHash("sha256").update(bytes).digest("hex")
+      }),
+      privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" })
+    });
+
+    await assert.rejects(() => service.stageArtifact(envelope, {
+      platform: "win32",
+      arch: "x64",
+      fetchImpl: async (url) => ({
+        ok: true,
+        status: 200,
+        url,
+        headers: { get: () => String(bytes.length) },
+        body: Readable.from([bytes])
+      })
+    }), /NotSigned/);
+
+    const dir = join(storage, "updates", "staging");
+    assert.equal(readdirSync(dir).length, 0);
+    assert.equal(service.readState().lastStaged, undefined);
   } finally {
     rmSync(storage, { recursive: true, force: true });
   }
@@ -156,7 +213,12 @@ function updatePayload({
   url = "https://downloads.example.com/LocalAgentStudio.exe",
   sha256 = "a".repeat(64),
   size = 123456,
-  minAppVersion = "v5.0.0"
+  minAppVersion = "v5.0.0",
+  signature = {
+    type: "authenticode",
+    publisher: "Local Coding Agent",
+    thumbprints: ["A1".repeat(20)]
+  }
 }) {
   return {
     channel: "local-agent-studio",
@@ -170,7 +232,8 @@ function updatePayload({
       arch: "x64",
       url,
       sha256,
-      size
+      size,
+      signature
     }]
   };
 }

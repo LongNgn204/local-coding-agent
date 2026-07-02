@@ -44,7 +44,10 @@ The Preview implements these baseline controls:
     bundled runtime with `npm run runtime:verify -- --require-bundled`.
 15. Signed update artifacts can be streamed into private staging only after
     signature verification. HTTPS, exact size, SHA-256, OS/arch, rollback, and
-    minimum-app-version checks are enforced. Preview never executes a staged
+    minimum-app-version checks are enforced. Windows Authenticode
+    publisher/thumbprint policy and macOS TeamIdentifier policy are checked
+    before the partial file becomes a staged artifact. Stable Windows/macOS
+    manifests fail closed without this policy. Preview never executes a staged
     installer automatically.
 
 This is defense in depth, not an operating-system sandbox. Before customer
@@ -95,8 +98,10 @@ The release pipeline must:
 9. Generate an SBOM and provenance attestation.
 10. Sign Windows, macOS, and Linux release artifacts with platform-appropriate
     signing identities.
-11. Publish checksums and verify them before installation/update.
-12. Require a separately signed update manifest and support rollback.
+11. Verify the native signature with `npm run signature:verify`, then hash the
+    final signed artifact and generate the separately signed update manifest.
+12. Publish checksums, verify them before installation/update, and support
+    rollback. Never modify an artifact after its manifest is signed.
 
 Pattern scanning cannot prove that software has no backdoor. Review, least
 privilege, reproducible inputs, signed provenance, platform code signing,
@@ -159,7 +164,10 @@ Preview hiện có các lớp bảo vệ cơ bản:
     bundled runtime bằng `npm run runtime:verify -- --require-bundled`.
 15. Signed update artifact chỉ được stream vào private staging sau khi verify
     chữ ký. App kiểm tra HTTPS, exact size, SHA-256, OS/arch, rollback và minimum
-    app version. Preview không tự execute installer đã stage.
+    app version. Policy publisher/thumbprint Authenticode trên Windows và
+    TeamIdentifier trên macOS được kiểm tra trước khi partial file trở thành
+    staged artifact. Manifest Stable Windows/macOS thiếu policy này sẽ bị từ
+    chối. Preview không tự execute installer đã stage.
 
 Đây là defense in depth, chưa phải sandbox cấp hệ điều hành. Trước khi phát hành
 Stable cho khách, desktop app vẫn cần typed IPC cho toàn bộ workflow có quyền
@@ -207,8 +215,10 @@ Release pipeline phải:
 8. Build trong CI runner cô lập từ commit đã review.
 9. Tạo SBOM và provenance attestation.
 10. Ký artifact Windows, macOS và Linux bằng signing identity phù hợp từng nền tảng.
-11. Công bố checksum và verify trước khi install/update.
-12. Yêu cầu update manifest được ký riêng và hỗ trợ rollback.
+11. Verify chữ ký native bằng `npm run signature:verify`, sau đó mới hash
+    artifact cuối cùng đã ký và tạo update manifest có chữ ký riêng.
+12. Công bố checksum, verify trước khi install/update và hỗ trợ rollback. Không
+    được sửa artifact sau khi manifest của nó đã được ký.
 
 Pattern scanner không thể tự chứng minh app không có backdoor. Cần kết hợp code
 review, least privilege, input build có thể truy vết, signed provenance,

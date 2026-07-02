@@ -13,6 +13,11 @@ if (!privateKeyPem) {
   throw new Error("Set LCA_UPDATE_SIGNING_PRIVATE_KEY_FILE or LCA_RELEASE_SIGNING_PRIVATE_KEY_FILE. Private keys must never be committed or bundled.");
 }
 const artifactPath = requireArg(args, "artifact");
+const platform = requireArg(args, "platform");
+const platformSignature = signatureMetadata(args);
+if ((platform === "win32" || platform === "darwin") && !platformSignature) {
+  throw new Error("Windows/macOS release manifests require --publisher/--thumbprint or --team-id.");
+}
 const payload = {
   channel: args.channel || appManifest.channel || "local-agent-studio",
   version: requireArg(args, "version"),
@@ -21,11 +26,12 @@ const payload = {
   publishedAt: args["published-at"] || new Date().toISOString(),
   releaseNotesUrl: args["release-notes-url"] || "",
   artifacts: [{
-    platform: requireArg(args, "platform"),
+    platform,
     arch: requireArg(args, "arch"),
     url: requireArg(args, "url"),
     sha256: sha256File(artifactPath),
-    size: statSync(artifactPath).size
+    size: statSync(artifactPath).size,
+    signature: platformSignature
   }]
 };
 
@@ -76,4 +82,18 @@ function loadPrivateKey() {
 function sha256File(file) {
   if (!existsSync(file)) throw new Error(`Artifact not found: ${file}`);
   return createHash("sha256").update(readFileSync(file)).digest("hex");
+}
+
+function signatureMetadata(args) {
+  if (args.platform === "win32" && (args.publisher || args.thumbprint)) {
+    return {
+      type: "authenticode",
+      publisher: args.publisher || "",
+      thumbprints: String(args.thumbprint || "").split(",").map((value) => value.trim()).filter(Boolean)
+    };
+  }
+  if (args.platform === "darwin" && args["team-id"]) {
+    return { type: "apple-codesign", teamId: args["team-id"] };
+  }
+  return null;
 }

@@ -104,20 +104,34 @@ installs a new app version. The verifier checks:
 - product and channel match.
 - HTTPS artifact URLs.
 - SHA-256 artifact hashes.
+- Windows Authenticode publisher/certificate policy or macOS TeamIdentifier.
 - build number is not older than the current app or a previously verified build.
 - minimum app version compatibility.
 
 The Updates panel can download a signed artifact into private staging. Download
-is streamed, bounded by the signed size, hashed during write, and deleted if any
-check fails. A staged artifact always reports `installReady: false`; Preview
-does not execute installers automatically.
+is streamed, bounded by the signed size, hashed during write, checked with the
+native OS signature verifier, and deleted if any check fails. Stable Windows
+and macOS manifests must include a platform-signature policy. A staged artifact
+always reports `installReady: false`; Preview does not execute installers
+automatically.
+
+Sign the installer first, verify its platform signature, and only then generate
+the update manifest. For Windows Authenticode:
+
+```powershell
+npm run signature:verify -- --artifact "dist\\Local Agent Studio.exe" --publisher "Local Coding Agent" --thumbprint CERTIFICATE_THUMBPRINT
+```
 
 Generate a signed update manifest outside the app:
 
 ```powershell
 $env:LCA_UPDATE_SIGNING_PRIVATE_KEY_FILE="C:\\secure\\update-private-key.pem"
-npm run update:manifest -- --version v5.0.1 --build-number 500100 --platform win32 --arch x64 --artifact dist\\LocalAgentStudio.exe --url https://example.com/LocalAgentStudio.exe --out update-manifest.json
+npm run update:manifest -- --version v5.0.1 --build-number 500100 --platform win32 --arch x64 --artifact "dist\\Local Agent Studio.exe" --url https://example.com/LocalAgentStudio.exe --publisher "Local Coding Agent" --thumbprint CERTIFICATE_THUMBPRINT --out update-manifest.json
 ```
+
+For macOS, use `--team-id YOURTEAMID` with both commands. The current Preview
+EXE is intentionally reported as unsigned until a real publisher certificate
+is configured; it is not a production installer.
 
 The private update signing key must never be committed, bundled, logged, or sent
 to customers.
@@ -179,8 +193,8 @@ For release artifacts:
 npm run desktop:dist
 ```
 
-Stable release builds still need signed installers, signed update manifests,
-runtime bundling, and platform-specific code signing before customer release.
+Stable release builds still need a real publisher certificate, runtime
+bundling, and installation testing on each target OS before customer release.
 
 ## Preview Licensing
 
@@ -315,20 +329,33 @@ mới. Verifier kiểm tra:
 - Product và channel phải khớp.
 - Artifact URL phải dùng HTTPS.
 - Artifact phải có SHA-256 hash.
+- Policy publisher/chứng thư Authenticode trên Windows hoặc TeamIdentifier trên macOS.
 - Build number không được cũ hơn app hiện tại hoặc build đã verify trước đó.
 - Minimum app version phải tương thích.
 
 Panel Updates có thể tải signed artifact vào private staging. Download được
-stream theo chunk, giới hạn bằng signed size, hash trong lúc ghi và bị xóa nếu
-bất kỳ check nào fail. Artifact đã stage luôn có `installReady: false`; Preview
-không tự chạy installer.
+stream theo chunk, giới hạn bằng signed size, hash trong lúc ghi, kiểm tra bằng
+trình xác minh chữ ký native của hệ điều hành và bị xóa nếu bất kỳ check nào
+fail. Manifest Stable cho Windows và macOS bắt buộc có policy chữ ký platform.
+Artifact đã stage luôn có `installReady: false`; Preview không tự chạy installer.
+
+Phải ký installer trước, kiểm tra chữ ký platform, rồi mới tạo update manifest.
+Với Windows Authenticode:
+
+```powershell
+npm run signature:verify -- --artifact "dist\\Local Agent Studio.exe" --publisher "Local Coding Agent" --thumbprint CERTIFICATE_THUMBPRINT
+```
 
 Tạo signed update manifest ở bên ngoài app:
 
 ```powershell
 $env:LCA_UPDATE_SIGNING_PRIVATE_KEY_FILE="C:\\secure\\update-private-key.pem"
-npm run update:manifest -- --version v5.0.1 --build-number 500100 --platform win32 --arch x64 --artifact dist\\LocalAgentStudio.exe --url https://example.com/LocalAgentStudio.exe --out update-manifest.json
+npm run update:manifest -- --version v5.0.1 --build-number 500100 --platform win32 --arch x64 --artifact "dist\\Local Agent Studio.exe" --url https://example.com/LocalAgentStudio.exe --publisher "Local Coding Agent" --thumbprint CERTIFICATE_THUMBPRINT --out update-manifest.json
 ```
+
+Với macOS, dùng `--team-id YOURTEAMID` trong cả hai lệnh. EXE Preview hiện tại
+được báo rõ là chưa ký cho đến khi cấu hình chứng thư publisher thật; đây chưa
+phải installer production.
 
 Private key ký update tuyệt đối không được commit, bundle, ghi vào log hoặc gửi
 cho khách hàng.
@@ -390,8 +417,8 @@ npm run desktop:pack
 npm run desktop:dist
 ```
 
-Bản Stable vẫn cần signed installer, signed update manifest, bundle runtime và
-ký code theo từng hệ điều hành trước khi phát hành cho khách hàng.
+Bản Stable vẫn cần chứng thư publisher thật, bundle runtime và kiểm thử cài đặt
+trên từng hệ điều hành trước khi phát hành cho khách hàng.
 
 ## License Preview
 

@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { IntegrityService, loadReleasePublicKey } from "./core/integrity-service.mjs";
 import { LicenseService, loadLicensePublicKey } from "./core/license-service.mjs";
 import { PermissionBroker, PermissionDeniedError } from "./core/permission-broker.mjs";
+import { PlatformSignatureVerifier } from "./core/platform-signature.mjs";
 import { redactForSupport } from "./core/redaction.mjs";
 import { createStudioSecurity } from "./core/security.mjs";
 import { SecretStore, assertProvider } from "./core/secret-store.mjs";
@@ -38,7 +39,8 @@ export function startStudio(manifest) {
   const updateService = new UpdateService({
     storageDir,
     manifest,
-    publicKeyPem: loadUpdatePublicKey(APP_DIR)
+    publicKeyPem: loadUpdatePublicKey(APP_DIR),
+    signatureVerifier: new PlatformSignatureVerifier()
   });
   const licenseService = new LicenseService({
     storageDir,

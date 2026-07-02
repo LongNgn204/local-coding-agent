@@ -57,6 +57,10 @@ follows [Semantic Versioning](https://semver.org/).
   enforce HTTPS, exact signed size, SHA-256, target OS/arch, and minimum app
   version, remove partial files on failure, and deliberately refuse automatic
   execution until installer signing is complete.
+- Studio v5 now verifies Windows Authenticode publisher/certificate policies
+  and macOS code-signing TeamIdentifier metadata after download and before an
+  artifact leaves private staging. Stable Windows/macOS manifests fail closed
+  when no platform-signature policy is present.
 
 ## [4.4.0-pro] - 2026-07-01
 

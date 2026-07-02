@@ -3,16 +3,18 @@ import { once } from "node:events";
 import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, rename, rm } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
+import { validateSignatureMetadata } from "./platform-signature.mjs";
 
 const MAX_ARTIFACT_BYTES = 5_000_000_000;
 const ALLOWED_EXTENSIONS = new Set([".exe", ".msi", ".zip", ".dmg", ".pkg", ".appimage", ".deb", ".rpm"]);
 
 export class UpdateService {
-  constructor({ storageDir, manifest, publicKeyPem = "", now = () => Date.now() }) {
+  constructor({ storageDir, manifest, publicKeyPem = "", signatureVerifier = null, now = () => Date.now() }) {
     this.stateFile = join(storageDir, "update-state.json");
     this.stagingDir = join(storageDir, "updates", "staging");
     this.manifest = manifest;
     this.publicKeyPem = publicKeyPem;
+    this.signatureVerifier = signatureVerifier;
     this.now = now;
     this.preview = manifest.releaseStage !== "stable";
   }
@@ -106,6 +108,9 @@ export class UpdateService {
       if (contentLength && contentLength !== artifact.size) throw new Error("Update artifact Content-Length does not match signed manifest size.");
       if (!response.body) throw new Error("Update artifact response body is missing.");
       const downloaded = await writeVerifiedStream(response.body, tempPath, artifact);
+      const platformSignature = artifact.signature
+        ? await verifyPlatformSignature(this.signatureVerifier, tempPath, platform, artifact.signature)
+        : { required: false, verified: false, platform, reason: "No platform signature requirement in signed manifest." };
       await rm(finalPath, { force: true });
       await rename(tempPath, finalPath);
       const state = this.readState();
@@ -120,6 +125,7 @@ export class UpdateService {
           path: finalPath,
           sha256: downloaded.sha256,
           size: downloaded.size,
+          platformSignature,
           installReady: false
         }
       });
@@ -134,6 +140,7 @@ export class UpdateService {
         arch,
         sha256: downloaded.sha256,
         size: downloaded.size,
+        platformSignature,
         reason: "Artifact is staged and verified but will not be executed automatically."
       };
     } catch (error) {
@@ -210,7 +217,8 @@ function normalizePayload(payload) {
       arch: artifact.arch,
       url: artifact.url,
       sha256: artifact.sha256.toLowerCase(),
-      size: Number(artifact.size || 0)
+      size: Number(artifact.size || 0),
+      signature: validateSignatureMetadata(artifact.signature, artifact.platform)
     })).sort((a, b) => `${a.platform}-${a.arch}`.localeCompare(`${b.platform}-${b.arch}`))
   };
 }
@@ -237,6 +245,10 @@ function validateUpdatePayload(payload, manifest) {
     if (!Number.isInteger(Number(artifact.size || 0)) || Number(artifact.size || 0) < 1 || Number(artifact.size || 0) > MAX_ARTIFACT_BYTES) {
       throw new Error("Update artifact size is invalid.");
     }
+    const signature = validateSignatureMetadata(artifact.signature, artifact.platform);
+    if (manifest.releaseStage === "stable" && artifact.platform !== "linux" && !signature) {
+      throw new Error("Stable Windows and macOS updates require a platform signature policy.");
+    }
   }
 }
 
@@ -255,7 +267,8 @@ function publicUpdatePayload(payload, currentBuild) {
       arch: artifact.arch,
       url: artifact.url,
       sha256: artifact.sha256.toLowerCase(),
-      size: Number(artifact.size || 0)
+      size: Number(artifact.size || 0),
+      signature: validateSignatureMetadata(artifact.signature, artifact.platform)
     }))
   };
 }
@@ -274,6 +287,7 @@ function publicStagedState(value) {
     arch: value.arch || null,
     sha256: value.sha256 || null,
     size: value.size || 0,
+    platformSignature: value.platformSignature || null,
     installReady: false
   };
 }
@@ -317,4 +331,11 @@ function stagedFileName(version, buildNumber, url) {
   const extension = ALLOWED_EXTENSIONS.has(rawExtension) ? rawExtension : ".bin";
   const safeVersion = String(version).replace(/[^a-z0-9._-]+/gi, "-");
   return `local-agent-studio-${safeVersion}-${buildNumber}${extension}`;
+}
+
+async function verifyPlatformSignature(verifier, file, platform, signature) {
+  if (!verifier || typeof verifier.verify !== "function") throw new Error("Platform signature verifier is unavailable.");
+  const result = await verifier.verify({ file, platform, signature });
+  if (!result?.verified) throw new Error(result?.reason || "Platform signature verification failed.");
+  return result;
 }
