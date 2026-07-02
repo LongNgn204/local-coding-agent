@@ -214,6 +214,17 @@ The app contains only the public verification key. The admin private key must
 never be committed, bundled, passed on a command line, placed in CI logs, or
 sent to customers.
 
+Issue a customer token from an admin machine:
+
+```powershell
+$env:LCA_LICENSE_SIGNING_PRIVATE_KEY_FILE="C:\\secure\\license-private-key.pem"
+npm run license:issue -- --license-id lic_customer_001 --customer-id customer_001 --edition pro --expires-at 2027-01-01T00:00:00Z --feature agent --feature updates --out license-customer-001.json
+```
+
+Copy only the public counterpart into `license-public-key.pem` for Stable
+builds. The private signing key stays outside this repo and outside customer
+packages.
+
 Release integrity uses a different signing key from customer licensing. See
 `docs/SECURITY_AND_COMMERCIALIZATION.md` for the threat model and release gates.
 
@@ -446,6 +457,16 @@ Khi `releaseStage` là `preview`, app chưa cần key thương mại.
 Bản Stable chỉ chấp nhận license token do admin ký ở bên ngoài app. App chỉ chứa
 public verification key. Admin private key tuyệt đối không được commit, bundle,
 truyền qua command line, đặt trong CI log hoặc gửi cho khách hàng.
+
+Tạo token cho khách trên máy admin:
+
+```powershell
+$env:LCA_LICENSE_SIGNING_PRIVATE_KEY_FILE="C:\\secure\\license-private-key.pem"
+npm run license:issue -- --license-id lic_customer_001 --customer-id customer_001 --edition pro --expires-at 2027-01-01T00:00:00Z --feature agent --feature updates --out license-customer-001.json
+```
+
+Chỉ copy public key tương ứng vào `license-public-key.pem` cho bản Stable.
+Private signing key phải nằm ngoài repo và ngoài package gửi khách.
 
 Release integrity dùng khóa ký riêng với customer licensing. Xem
 `docs/SECURITY_AND_COMMERCIALIZATION.md` để biết threat model và release gates.

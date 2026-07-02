@@ -12,6 +12,7 @@ const REQUIRED_SCRIPTS = [
   "desktop:pack",
   "desktop:smoke:packaged",
   "credential:smoke",
+  "license:issue",
   "signature:verify",
   "release:doctor",
   "integrity:generate",

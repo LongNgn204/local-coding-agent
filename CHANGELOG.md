@@ -81,6 +81,9 @@ follows [Semantic Versioning](https://semver.org/).
   explicit warnings, but fails Stable readiness unless release-stage, public
   keys, integrity manifest, packaged artifact, and platform signing evidence
   are all present.
+- Studio v5 now includes an admin-side `license:issue` tool that signs
+  customer-specific commercial license tokens from an external Ed25519 private
+  key file and self-verifies the output against the matching public key.
 
 ## [4.4.0-pro] - 2026-07-01
 
