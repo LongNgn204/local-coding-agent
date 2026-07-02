@@ -242,8 +242,8 @@ pre {
 .model-row {
   display: grid;
   gap: 8px;
-  grid-template-columns: 160px 132px minmax(180px, 1fr);
-  width: min(720px, 100%);
+  grid-template-columns: 150px 118px minmax(180px, 1fr) 132px;
+  width: min(850px, 100%);
 }
 
 .top-actions {
@@ -332,6 +332,11 @@ pre {
   color: #061016;
   height: 44px;
   margin-top: auto;
+}
+
+.send.stop {
+  background: var(--bad);
+  color: #18080a;
 }
 
 .inspector section {

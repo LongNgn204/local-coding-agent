@@ -68,6 +68,11 @@ follows [Semantic Versioning](https://semver.org/).
   provenance notes instead of the default Electron icon. UI-only React packages
   moved to development dependencies, shrinking ASAR from about 41.3 MB to
   12.7 MB, and the unused Winstaller lifecycle script is explicitly denied.
+- Studio v5 now runs agent turns through a streaming TurnManager with buffered
+  SSE replay, cancellation, interrupted-turn recovery, bounded context
+  compaction, and model tool-policy modes (`read-only`, `workspace`, `full`) so
+  long conversations stay responsive and model-requested tools cannot bypass
+  the server permission boundary.
 
 ## [4.4.0-pro] - 2026-07-01
 

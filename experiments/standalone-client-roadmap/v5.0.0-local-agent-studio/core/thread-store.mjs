@@ -18,6 +18,7 @@ export class ThreadStore {
         model TEXT NOT NULL,
         workspace TEXT NOT NULL DEFAULT '',
         summary TEXT NOT NULL DEFAULT '',
+        summary_seq INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -44,6 +45,10 @@ export class ThreadStore {
       CREATE INDEX IF NOT EXISTS idx_threads_updated ON threads(updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_items_thread_seq ON items(thread_id, seq);
     `);
+    this.ensureColumn("threads", "summary_seq", "INTEGER NOT NULL DEFAULT 0");
+    const recoveredAt = new Date().toISOString();
+    this.db.prepare(`UPDATE turns SET status='interrupted', error='Studio stopped before this turn completed.', completed_at=? WHERE status='running'`)
+      .run(recoveredAt);
   }
 
   createThread({ title = "New thread", provider = "openai", model = "", workspace = "" } = {}) {
@@ -87,6 +92,17 @@ export class ThreadStore {
     return this.db.prepare(`SELECT * FROM turns WHERE id=?`).get(turnId) || null;
   }
 
+  getTurn(turnId) {
+    const row = this.db.prepare(`SELECT * FROM turns WHERE id=?`).get(turnId);
+    return row ? mapTurn(row) : null;
+  }
+
+  getActiveTurn(threadId) {
+    this.requireThread(threadId);
+    const row = this.db.prepare(`SELECT * FROM turns WHERE thread_id=? AND status='running' ORDER BY created_at DESC LIMIT 1`).get(threadId);
+    return row ? mapTurn(row) : null;
+  }
+
   appendItem(threadId, { turnId = null, type = "message", role = null, content = "", metadata = {} } = {}) {
     this.requireThread(threadId);
     const id = `item_${randomUUID().replaceAll("-", "")}`;
@@ -113,9 +129,17 @@ export class ThreadStore {
       .all(threadId, size).reverse().map(mapItem);
   }
 
-  setSummary(threadId, summary) {
+  messagesAfter(threadId, afterSeq = 0, limit = 500) {
     this.requireThread(threadId);
-    this.db.prepare(`UPDATE threads SET summary=?, updated_at=? WHERE id=?`).run(String(summary || ""), new Date().toISOString(), threadId);
+    const size = Math.max(1, Math.min(Number(limit) || 500, 1_000));
+    return this.db.prepare(`SELECT * FROM items WHERE thread_id=? AND type='message' AND role IN ('user','assistant') AND seq>? ORDER BY seq ASC LIMIT ?`)
+      .all(threadId, Math.max(0, Number(afterSeq) || 0), size).map(mapItem);
+  }
+
+  setSummary(threadId, summary, { throughSeq = 0 } = {}) {
+    this.requireThread(threadId);
+    this.db.prepare(`UPDATE threads SET summary=?, summary_seq=MAX(summary_seq,?), updated_at=? WHERE id=?`)
+      .run(String(summary || ""), Math.max(0, Number(throughSeq) || 0), new Date().toISOString(), threadId);
     return this.getThread(threadId);
   }
 
@@ -132,6 +156,13 @@ export class ThreadStore {
   touch(id, at = new Date().toISOString()) {
     this.db.prepare(`UPDATE threads SET updated_at=? WHERE id=?`).run(at, id);
   }
+
+  ensureColumn(table, column, definition) {
+    const columns = this.db.prepare(`PRAGMA table_info(${table})`).all();
+    if (columns.some((entry) => entry.name === column)) return;
+    if (!/^[a-z_]+$/i.test(table) || !/^[a-z_]+$/i.test(column)) throw new Error("Unsafe database migration identifier.");
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }
 
 function mapThread(row) {
@@ -143,8 +174,20 @@ function mapThread(row) {
     model: row.model,
     workspace: row.workspace,
     summary: row.summary,
+    summarySeq: Number(row.summary_seq || 0),
     createdAt: row.created_at,
     updatedAt: row.updated_at
+  };
+}
+
+function mapTurn(row) {
+  return {
+    id: row.id,
+    threadId: row.thread_id,
+    status: row.status,
+    error: row.error,
+    createdAt: row.created_at,
+    completedAt: row.completed_at
   };
 }
 

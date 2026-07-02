@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 type Role = "user" | "assistant" | "system" | "tool";
+type ToolPolicy = "read-only" | "workspace" | "full";
 
 type ThreadSummary = {
   id: string;
@@ -47,7 +48,24 @@ type TimelineEvent = {
   args?: Record<string, unknown>;
   result?: string;
   isError?: boolean;
+  blocked?: boolean;
+  policy?: string;
+  level?: string;
   ms?: number;
+};
+
+type TurnEvent = {
+  seq?: number;
+  type?: string;
+  error?: string;
+  reason?: string;
+  result?: { text?: string; threadId?: string; turnId?: string };
+  event?: TimelineEvent;
+  tool?: string;
+  context?: { estimatedTokens?: number; keptMessages?: number; summarizedMessages?: number };
+  estimatedTokens?: number;
+  keptMessages?: number;
+  summarizedMessages?: number;
 };
 
 type HealthPayload = {
@@ -59,6 +77,8 @@ type HealthPayload = {
   features?: string[];
   providers?: ProviderStatus[];
   updates?: UpdateStatus;
+  agent_tool_policies?: ToolPolicy[];
+  active_turns?: unknown[];
   openai_key_present?: boolean;
   anthropic_key_present?: boolean;
 };
@@ -126,6 +146,33 @@ async function privilegedApi<T>(action: string, payload: Record<string, unknown>
   return response.data as T;
 }
 
+async function readTurnEvents(turnId: string, after: number, signal: AbortSignal, onEvent: (event: TurnEvent) => void | Promise<void>) {
+  const response = await fetch(`/api/turns/${encodeURIComponent(turnId)}/events?after=${after}`, {
+    headers: { "x-lca-studio-token": token },
+    signal
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(text || response.statusText);
+  }
+  if (!response.body) throw new Error("Turn event stream is not readable.");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const frames = buffer.split(/\r?\n\r?\n/);
+    buffer = frames.pop() || "";
+    for (const frame of frames) {
+      const dataLine = frame.split(/\r?\n/).find((line) => line.startsWith("data:"));
+      if (!dataLine) continue;
+      await onEvent(JSON.parse(dataLine.slice(5).trim()) as TurnEvent);
+    }
+    if (done) break;
+  }
+}
+
 function itemKey(item: ThreadItem, index: number) {
   return item.id || `${item.role || item.type || "item"}-${index}`;
 }
@@ -158,11 +205,14 @@ export function App() {
   const [endpoint, setEndpoint] = useState("http://127.0.0.1:8787/mcp");
   const [provider, setProvider] = useState("openai");
   const [model, setModel] = useState("gpt-4.1-mini");
+  const [toolPolicy, setToolPolicy] = useState<ToolPolicy>("read-only");
   const [presets, setPresets] = useState<ModelPreset[]>([]);
   const [providerKeys, setProviderKeys] = useState<Record<string, ProviderStatus>>({});
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [notice, setNotice] = useState("Ready");
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   const features = new Set(health?.features || []);
 
@@ -238,30 +288,86 @@ export function App() {
   async function sendMessage() {
     const text = message.trim();
     if (!text || busy) return;
+    if (toolPolicy === "full" && !window.confirm("Full tool mode can run command-like MCP tools for this turn. Continue?")) return;
     setBusy(true);
     setMessage("");
+    const localAssistantId = `local-assistant-${Date.now()}`;
     setItems((current) => [
       ...current,
       { role: "user", type: "message", content: text },
-      { role: "assistant", type: "message", content: "Thinking..." }
+      { id: localAssistantId, role: "assistant", type: "message", content: "Starting turn..." }
     ]);
     try {
-      const data = await api<{ text?: string; threadId: string; timeline?: TimelineEvent[] }>("/api/chat", {
+      const turnIntent = toolPolicy === "workspace" ? intent("agent-turn:workspace") : toolPolicy === "full" ? intent("agent-turn:full") : undefined;
+      const started = await api<{ turnId: string; threadId: string; toolPolicy: ToolPolicy }>("/api/turns", {
         method: "POST",
-        body: JSON.stringify({ threadId: activeThreadId, message: text, provider, model })
+        body: JSON.stringify({ threadId: activeThreadId, message: text, provider, model, toolPolicy, intent: turnIntent })
       });
-      setActiveThreadId(data.threadId);
-      setTimeline((current) => [...(data.timeline || []).reverse(), ...current]);
+      setActiveTurnId(started.turnId);
+      setActiveThreadId(started.threadId);
+      setNotice(`Turn running / ${started.toolPolicy}`);
+      await streamTurn(started.turnId, localAssistantId);
       await refreshThreads();
-      await openThread(data.threadId);
-      setNotice("Turn complete");
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       setItems((current) => current.map((item, index) => index === current.length - 1 ? { ...item, content: `Error: ${msg}` } : item));
       setNotice(msg);
     } finally {
+      streamAbortRef.current = null;
+      setActiveTurnId(null);
       setBusy(false);
     }
+  }
+
+  async function streamTurn(turnId: string, assistantItemId: string) {
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    let lastSeq = 0;
+    await readTurnEvents(turnId, 0, controller.signal, async (event) => {
+      lastSeq = Number(event.seq || lastSeq);
+      if (event.type === "context.ready") {
+        const tokens = Number(event.estimatedTokens || event.context?.estimatedTokens || 0);
+        setNotice(tokens ? `Context ready / ~${tokens.toLocaleString()} tokens` : "Context ready");
+      } else if (event.type === "tool.started") {
+        setNotice(`Running ${event.tool || "tool"}...`);
+      } else if (event.type === "tool.blocked") {
+        setNotice(event.reason || "Tool blocked by policy");
+      } else if (event.type === "tool.completed") {
+        if (event.event) setTimeline((current) => [event.event as TimelineEvent, ...current]);
+      } else if (event.type === "turn.completed") {
+        const text = event.result?.text || "(no text)";
+        setItems((current) => current.map((item) => item.id === assistantItemId ? { ...item, content: text } : item));
+        setNotice("Turn complete");
+        if (event.result?.threadId) await openThread(event.result.threadId);
+      } else if (event.type === "turn.failed") {
+        setItems((current) => current.map((item) => item.id === assistantItemId ? { ...item, content: `Error: ${event.error || "Turn failed"}` } : item));
+        setNotice(event.error || "Turn failed");
+      } else if (event.type === "turn.cancel_requested") {
+        setItems((current) => current.map((item) => item.id === assistantItemId ? { ...item, content: "Cancelling..." } : item));
+        setNotice(event.reason || "Cancelling...");
+      } else if (event.type === "turn.cancelled") {
+        setItems((current) => current.map((item) => item.id === assistantItemId ? { ...item, content: `Cancelled: ${event.error || "Turn cancelled"}` } : item));
+        setNotice("Turn cancelled");
+      }
+    });
+    if (lastSeq === 0) {
+      const snapshot = await api<{ turn?: { status?: string; error?: string }; events?: TurnEvent[] }>(`/api/turns/${encodeURIComponent(turnId)}`);
+      const terminal = [...(snapshot.events || [])].reverse().find((event) => event.type?.startsWith("turn."));
+      if (terminal?.type === "turn.completed") {
+        setItems((current) => current.map((item) => item.id === assistantItemId ? { ...item, content: terminal.result?.text || "(no text)" } : item));
+      } else if (snapshot.turn?.status === "failed" || snapshot.turn?.status === "cancelled") {
+        setItems((current) => current.map((item) => item.id === assistantItemId ? { ...item, content: `${snapshot.turn?.status}: ${snapshot.turn?.error || ""}` } : item));
+      }
+    }
+  }
+
+  async function cancelTurn() {
+    if (!activeTurnId) return;
+    setNotice("Cancelling turn...");
+    await api(`/api/turns/${encodeURIComponent(activeTurnId)}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ intent: intent("turn:cancel") })
+    });
   }
 
   async function startServer() {
@@ -445,6 +551,9 @@ export function App() {
               {(health?.features ? ["openai", "anthropic", "ollama"] : ["openai"]).map((entry) => <option key={entry} value={entry}>{entry}</option>)}
             </select>
             <input value={model} onChange={(event) => setModel(event.target.value)} aria-label="Model" />
+            <select value={toolPolicy} onChange={(event) => setToolPolicy(event.target.value as ToolPolicy)} aria-label="Tool policy">
+              {(health?.agent_tool_policies?.length ? health.agent_tool_policies : ["read-only", "workspace", "full"]).map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+            </select>
           </div>
           <div className="top-actions">
             {features.has("serverSupervisor") && <button title="Start MCP" onClick={() => void startServer()}><Play size={16} /></button>}
@@ -470,9 +579,15 @@ export function App() {
               if ((event.ctrlKey || event.metaKey) && event.key === "Enter") void sendMessage();
             }}
           />
-          <button className="send" disabled={busy || !message.trim()} title="Send">
-            <Send size={18} />
-          </button>
+          {busy ? (
+            <button type="button" className="send stop" disabled={!activeTurnId} title="Cancel turn" onClick={() => void cancelTurn()}>
+              <Square size={18} />
+            </button>
+          ) : (
+            <button className="send" disabled={!message.trim()} title="Send">
+              <Send size={18} />
+            </button>
+          )}
         </form>
       </main>
 

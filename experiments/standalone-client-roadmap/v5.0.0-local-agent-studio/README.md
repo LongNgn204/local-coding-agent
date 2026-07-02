@@ -10,6 +10,9 @@ workspace controls, diagnostics, and commercial-release guardrails.
 - OpenAI, Anthropic, and Ollama provider adapters.
 - MCP server connect, tool listing, tool execution, and managed start/stop/status.
 - React + Vite renderer with virtualized chat messages for long threads.
+- Agent turns stream through `/api/turns/:id/events`, can be cancelled from the
+  UI, recover interrupted turns on restart, compact older context into a bounded
+  summary, and expose per-turn tool policies: `read-only`, `workspace`, `full`.
 - Electron desktop shell with `nodeIntegration=false`, `contextIsolation=true`,
   renderer sandboxing, denied permission prompts, and local-only navigation.
 - Typed desktop IPC bridge for privileged actions. The renderer can request only
@@ -227,6 +230,9 @@ workspace controls, diagnostics và các lớp kiểm soát để phát hành th
 - Adapter cho OpenAI, Anthropic và Ollama.
 - Kết nối MCP server, liệt kê tool, chạy tool, start/stop/status server do app quản lý.
 - Renderer React + Vite với chat message được virtualize để thread dài không kéo lag.
+- Agent turn stream qua `/api/turns/:id/events`, có thể Cancel ngay trong UI,
+  tự đánh dấu turn bị gián đoạn khi app restart, compact context cũ thành
+  summary có giới hạn, và có policy theo từng turn: `read-only`, `workspace`, `full`.
 - Electron desktop shell với `nodeIntegration=false`, `contextIsolation=true`,
   renderer sandbox, từ chối permission prompt và chỉ cho điều hướng local.
 - Typed desktop IPC bridge cho action có quyền cao. Renderer chỉ được yêu cầu

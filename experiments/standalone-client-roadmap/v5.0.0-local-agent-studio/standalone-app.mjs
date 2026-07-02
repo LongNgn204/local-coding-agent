@@ -10,6 +10,8 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { evaluateAgentTool, normalizeAgentToolPolicy, publicToolPolicyModes } from "./core/agent-tool-policy.mjs";
+import { compactContext } from "./core/context-compactor.mjs";
 import { IntegrityService, loadReleasePublicKey } from "./core/integrity-service.mjs";
 import { LicenseService, loadLicensePublicKey } from "./core/license-service.mjs";
 import { PermissionBroker, PermissionDeniedError } from "./core/permission-broker.mjs";
@@ -18,6 +20,7 @@ import { redactForSupport } from "./core/redaction.mjs";
 import { createStudioSecurity } from "./core/security.mjs";
 import { SecretStore, assertProvider } from "./core/secret-store.mjs";
 import { ThreadStore } from "./core/thread-store.mjs";
+import { isAbortError, TurnManager } from "./core/turn-manager.mjs";
 import { UpdateService, loadUpdatePublicKey } from "./core/update-service.mjs";
 
 const APP_DIR = dirname(fileURLToPath(import.meta.url));
@@ -34,6 +37,7 @@ export function startStudio(manifest, options = {}) {
   const storageDir = options.storageDir || getStorageDir(manifest.version);
   const security = createStudioSecurity({ host, port });
   const threadStore = new ThreadStore(join(storageDir, "studio.db"));
+  const turnManager = new TurnManager();
   const secretStore = new SecretStore(storageDir);
   const permissionBroker = new PermissionBroker({ strict: process.env.LCA_PERMISSION_BROKER !== "off" });
   const updateService = new UpdateService({
@@ -66,6 +70,7 @@ export function startStudio(manifest, options = {}) {
     serverLogs: [],
     security,
     threadStore,
+    turnManager,
     secretStore,
     permissionBroker,
     updateService,
@@ -130,6 +135,7 @@ export function startStudio(manifest, options = {}) {
   const close = () => {
     if (closePromise) return closePromise;
     closePromise = (async () => {
+      turnManager.close();
       if (state.serverProcess) await stopManagedServer(state).catch(() => {});
       if (state.client) {
         await state.client.close().catch(() => {});
@@ -252,6 +258,40 @@ async function handleApi(req, res, url, state) {
       state.permissionBroker.require("license:activate", body, { route: url.pathname, method: req.method });
       return sendJson(res, 200, state.licenseService.activate(body.token));
     }
+    if (url.pathname === "/api/turns" && req.method === "POST") {
+      const body = await readJson(req);
+      const readiness = agentReadiness(state);
+      if (!readiness.ok) return sendJson(res, readiness.status, readiness.body);
+      return sendJson(res, 202, startAgentTurn(state, body));
+    }
+    const turnEventsMatch = url.pathname.match(/^\/api\/turns\/([^/]+)\/events$/);
+    if (turnEventsMatch && req.method === "GET") {
+      const turnId = decodeURIComponent(turnEventsMatch[1]);
+      return streamTurnEvents(req, res, url, state, turnId);
+    }
+    const turnCancelMatch = url.pathname.match(/^\/api\/turns\/([^/]+)\/cancel$/);
+    if (turnCancelMatch && req.method === "POST") {
+      const turnId = decodeURIComponent(turnCancelMatch[1]);
+      const body = await readJson(req);
+      state.permissionBroker.require("turn:cancel", body, { route: url.pathname, method: req.method, target: turnId });
+      return sendJson(res, 200, { turn: state.turnManager.requestCancel(turnId) });
+    }
+    const turnMatch = url.pathname.match(/^\/api\/turns\/([^/]+)$/);
+    if (turnMatch && req.method === "GET") {
+      const turnId = decodeURIComponent(turnMatch[1]);
+      const turn = state.turnManager.get(turnId);
+      if (!turn) return sendJson(res, 404, { error: "Turn not found." });
+      return sendJson(res, 200, {
+        turn,
+        events: state.turnManager.getEvents(turnId, { after: url.searchParams.get("after") || 0 })
+      });
+    }
+    const activeTurnMatch = url.pathname.match(/^\/api\/threads\/([^/]+)\/active-turn$/);
+    if (activeTurnMatch && req.method === "GET") {
+      const threadId = decodeURIComponent(activeTurnMatch[1]);
+      state.threadStore.requireThread(threadId);
+      return sendJson(res, 200, { turn: state.turnManager.getActiveByThread(threadId) });
+    }
     if (url.pathname === "/api/threads") {
       if (req.method === "GET") {
         return sendJson(res, 200, { threads: state.threadStore.listThreads({ limit: url.searchParams.get("limit") }) });
@@ -299,41 +339,14 @@ async function handleApi(req, res, url, state) {
     }
     if (url.pathname === "/api/chat" && req.method === "POST") {
       const body = await readJson(req);
-      if (!body.message) throw new Error("message is required");
-      const license = state.licenseService.status();
-      if (!license.allowed) return sendJson(res, 402, { error: license.reason, license });
-      const integrity = state.integrityService.status();
-      if (!integrity.allowed) return sendJson(res, 503, { error: integrity.reason, integrity });
-      const provider = body.provider || DEFAULT_PROVIDER;
-      const model = body.model || DEFAULT_MODEL;
-      const thread = body.threadId
-        ? state.threadStore.requireThread(body.threadId)
-        : state.threadStore.createThread({
-          title: body.message,
-          provider,
-          model,
-          workspace: state.activeProfile?.workspace || ""
-        });
-      const turn = state.threadStore.startTurn(thread.id);
-      state.threadStore.appendItem(thread.id, { turnId: turn.id, role: "user", content: body.message });
-      try {
-        const history = state.threadStore.recentMessages(thread.id, 60);
-        const result = await chatWithTools(state, { message: body.message, model, provider, history });
-        for (const event of result.timeline || []) {
-          state.threadStore.appendItem(thread.id, {
-            turnId: turn.id,
-            type: "tool",
-            content: event.result || "",
-            metadata: { tool: event.tool, args: event.args, isError: event.isError, ms: event.ms }
-          });
-        }
-        state.threadStore.appendItem(thread.id, { turnId: turn.id, role: "assistant", content: result.text || "" });
-        state.threadStore.finishTurn(turn.id);
-        return sendJson(res, 200, { ...result, threadId: thread.id, turnId: turn.id });
-      } catch (error) {
-        state.threadStore.finishTurn(turn.id, { status: "failed", error: error?.message || String(error) });
-        throw error;
-      }
+      const readiness = agentReadiness(state);
+      if (!readiness.ok) return sendJson(res, readiness.status, readiness.body);
+      const started = startAgentTurn(state, body);
+      const settled = await state.turnManager.wait(started.turnId);
+      if (settled.status === "completed") return sendJson(res, 200, settled.result);
+      const error = new Error(settled.error || `Turn ${settled.status}.`);
+      error.status = settled.status === "cancelled" ? 409 : 500;
+      throw error;
     }
     if (url.pathname === "/api/events") {
       return sendJson(res, 200, { events: state.events.slice(-150) });
@@ -428,7 +441,182 @@ async function handleApi(req, res, url, state) {
     if (error instanceof PermissionDeniedError) {
       return sendJson(res, error.status, { error: error.message, action: error.action, risk: error.risk });
     }
-    return sendJson(res, 500, { error: error?.message || String(error) });
+    const status = Number(error?.status || 500);
+    return sendJson(res, status >= 400 && status <= 599 ? status : 500, { error: error?.message || String(error) });
+  }
+}
+
+function agentReadiness(state) {
+  const license = state.licenseService.status();
+  if (!license.allowed) return { ok: false, status: 402, body: { error: license.reason, license } };
+  const integrity = state.integrityService.status();
+  if (!integrity.allowed) return { ok: false, status: 503, body: { error: integrity.reason, integrity } };
+  return { ok: true };
+}
+
+function startAgentTurn(state, body) {
+  const message = String(body.message || "").trim();
+  if (!message) throw new Error("message is required");
+  if (message.length > 200_000) {
+    const error = new Error("message is too large");
+    error.status = 413;
+    throw error;
+  }
+  const provider = String(body.provider || DEFAULT_PROVIDER);
+  if (!["openai", "anthropic", "ollama"].includes(provider)) throw new Error("Unsupported model provider.");
+  const model = String(body.model || DEFAULT_MODEL).trim().slice(0, 160);
+  const toolPolicy = normalizeAgentToolPolicy(body.toolPolicy);
+  if (toolPolicy === "workspace") {
+    state.permissionBroker.require("agent-turn:workspace", body, { route: "/api/turns", method: "POST", target: model });
+  } else if (toolPolicy === "full") {
+    state.permissionBroker.require("agent-turn:full", body, { route: "/api/turns", method: "POST", target: model });
+  }
+  const thread = body.threadId
+    ? state.threadStore.requireThread(body.threadId)
+    : state.threadStore.createThread({
+      title: message,
+      provider,
+      model,
+      workspace: state.activeProfile?.workspace || ""
+    });
+  const active = state.turnManager.getActiveByThread(thread.id);
+  if (active) {
+    const error = new Error(`Thread already has an active turn: ${active.id}`);
+    error.status = 409;
+    throw error;
+  }
+  const turn = state.threadStore.startTurn(thread.id);
+  state.threadStore.appendItem(thread.id, { turnId: turn.id, role: "user", content: message });
+  state.turnManager.create({ id: turn.id, threadId: thread.id, provider, model, toolPolicy });
+  state.turnManager.emit(turn.id, "turn.started", {
+    turnId: turn.id,
+    threadId: thread.id,
+    provider,
+    model,
+    toolPolicy
+  });
+  queueMicrotask(() => {
+    void executeAgentTurn(state, { turn, thread, message, provider, model, toolPolicy });
+  });
+  return { turnId: turn.id, threadId: thread.id, status: "running", toolPolicy };
+}
+
+async function executeAgentTurn(state, request) {
+  const { turn, thread, message, provider, model, toolPolicy } = request;
+  const signal = state.turnManager.signal(turn.id);
+  try {
+    const currentThread = state.threadStore.requireThread(thread.id);
+    const messages = state.threadStore.messagesAfter(thread.id, currentThread.summarySeq, 1_000);
+    const context = compactContext({ thread: currentThread, messages });
+    if (context.summarySeq > currentThread.summarySeq) {
+      state.threadStore.setSummary(thread.id, context.summary, { throughSeq: context.summarySeq });
+    }
+    state.turnManager.emit(turn.id, "context.ready", context.stats);
+    const emit = (type, data = {}) => {
+      const safeData = redactForSupport(data);
+      if (type === "tool.completed" && data.event) {
+        const event = data.event;
+        state.threadStore.appendItem(thread.id, {
+          turnId: turn.id,
+          type: "tool",
+          content: event.result || "",
+          metadata: {
+            tool: event.tool,
+            args: redactForSupport(event.args),
+            isError: event.isError,
+            blocked: Boolean(event.blocked),
+            policy: event.policy || null,
+            ms: event.ms
+          }
+        });
+      }
+      state.turnManager.emit(turn.id, type, safeData);
+    };
+    const result = await chatWithTools(state, {
+      message,
+      model,
+      provider,
+      history: context.history,
+      contextSummary: context.summary,
+      toolPolicy,
+      signal,
+      emit
+    });
+    const publicResult = {
+      provider: result.provider,
+      text: result.text || "",
+      timeline: result.timeline || [],
+      threadId: thread.id,
+      turnId: turn.id,
+      context: context.stats,
+      toolPolicy
+    };
+    state.threadStore.appendItem(thread.id, { turnId: turn.id, role: "assistant", content: publicResult.text });
+    state.threadStore.finishTurn(turn.id);
+    state.turnManager.complete(turn.id, publicResult, {
+      eventResult: {
+        provider: publicResult.provider,
+        text: publicResult.text,
+        threadId: thread.id,
+        turnId: turn.id,
+        context: context.stats,
+        toolPolicy
+      }
+    });
+  } catch (error) {
+    if (isAbortError(error) || signal.aborted) {
+      const reason = signal.reason?.message || "Turn cancelled.";
+      state.threadStore.finishTurn(turn.id, { status: "cancelled", error: reason });
+      state.turnManager.cancelled(turn.id, reason);
+      return;
+    }
+    const messageText = error?.message || String(error);
+    state.threadStore.finishTurn(turn.id, { status: "failed", error: messageText });
+    state.turnManager.fail(turn.id, error);
+  }
+}
+
+function streamTurnEvents(req, res, url, state, turnId) {
+  const turn = state.turnManager.get(turnId);
+  if (!turn) return sendJson(res, 404, { error: "Turn not found." });
+  const after = Math.max(0, Number(url.searchParams.get("after") || 0));
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-store, no-transform",
+    connection: "keep-alive",
+    "x-accel-buffering": "no"
+  });
+  res.flushHeaders?.();
+  let closed = false;
+  let unsubscribe = () => {};
+  let heartbeat = null;
+  const closeStream = () => {
+    if (closed) return;
+    closed = true;
+    unsubscribe();
+    if (heartbeat) clearInterval(heartbeat);
+    if (!res.writableEnded) res.end();
+  };
+  const send = (event) => {
+    if (closed || res.writableEnded) return;
+    res.write(`id: ${event.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    if (["turn.completed", "turn.failed", "turn.cancelled"].includes(event.type)) {
+      queueMicrotask(closeStream);
+    }
+  };
+  unsubscribe = state.turnManager.subscribe(turnId, send, { after });
+  if (["completed", "failed", "cancelled"].includes(turn.status) && turn.lastSeq <= after) {
+    queueMicrotask(closeStream);
+  }
+  heartbeat = setInterval(() => {
+    if (!closed && !res.writableEnded) res.write(": keep-alive\n\n");
+  }, 15_000);
+  heartbeat.unref?.();
+  req.once("close", closeStream);
+  req.once("aborted", closeStream);
+  const latest = state.turnManager.get(turnId);
+  if (["completed", "failed", "cancelled"].includes(latest.status) && after >= latest.lastSeq) {
+    queueMicrotask(closeStream);
   }
 }
 
@@ -447,6 +635,8 @@ function healthPayload(state) {
     active_profile: state.activeProfile,
     repo_root: state.repoRoot,
     managed_server_pid: state.serverProcess?.pid || null,
+    active_turns: state.turnManager.listActive(),
+    agent_tool_policies: publicToolPolicyModes(),
     node_runtime: {
       executable: state.nodeRuntime.executable,
       source: state.nodeRuntime.source,
@@ -537,12 +727,19 @@ async function loadMcpSdk() {
   return mcpSdkPromise;
 }
 
-async function callMcpTool(state, name, args) {
+async function callMcpTool(state, name, args, options = {}) {
   const started = Date.now();
+  const { signal = null, onProgress = null } = options;
   let result;
   try {
-    result = await state.client.callTool({ name, arguments: args || {} });
+    throwIfAborted(signal);
+    const requestOptions = {
+      ...(signal ? { signal } : {}),
+      ...(onProgress ? { onprogress: onProgress, resetTimeoutOnProgress: true, timeout: 120_000 } : {})
+    };
+    result = await state.client.callTool({ name, arguments: args || {} }, undefined, requestOptions);
   } catch (error) {
+    if (isAbortError(error)) throw error;
     result = { isError: true, content: [{ type: "text", text: error?.message || String(error) }] };
   }
   const event = {
@@ -558,6 +755,48 @@ async function callMcpTool(state, name, args) {
   return { ok: !result.isError, ms: event.ms, result, event };
 }
 
+async function callAgentMcpTool(state, name, args, options = {}) {
+  const { toolPolicy = "read-only", signal = null, emit = () => {} } = options;
+  throwIfAborted(signal);
+  const tool = state.tools.find((item) => item.name === name || sanitizeToolName(item.name) === name);
+  const actualName = tool?.name || name;
+  const decision = evaluateAgentTool(tool || { name: actualName }, toolPolicy);
+  const safeArgs = redactForSupport(args || {});
+  if (!decision.allowed) {
+    const event = {
+      at: new Date().toISOString(),
+      tool: actualName,
+      args: safeArgs,
+      isError: true,
+      blocked: true,
+      policy: decision.mode,
+      level: decision.level,
+      ms: 0,
+      result: `Tool blocked by ${decision.mode} policy. ${decision.reason}`
+    };
+    state.events.push(event);
+    if (state.events.length > 300) state.events.splice(0, state.events.length - 300);
+    emit("tool.blocked", { event, reason: decision.reason });
+    emit("tool.completed", { event });
+    return {
+      ok: false,
+      ms: 0,
+      result: { isError: true, content: [{ type: "text", text: event.result }] },
+      event
+    };
+  }
+  emit("tool.started", { tool: actualName, args: safeArgs, policy: decision.mode, level: decision.level });
+  const result = await callMcpTool(state, actualName, args, {
+    signal,
+    onProgress: (progress) => emit("tool.progress", { tool: actualName, progress: redactForSupport(progress || {}) })
+  });
+  result.event.args = safeArgs;
+  result.event.policy = decision.mode;
+  result.event.level = decision.level;
+  emit("tool.completed", { event: result.event });
+  return result;
+}
+
 async function chatWithTools(state, request) {
   if (!state.client) await connectMcp(state, state.mcpEndpoint);
   if (request.provider === "anthropic") return chatAnthropic(state, request);
@@ -565,16 +804,17 @@ async function chatWithTools(state, request) {
   return chatOpenAI(state, request);
 }
 
-async function chatOpenAI(state, { message, model, history }) {
+async function chatOpenAI(state, { message, model, history, contextSummary = "", toolPolicy = "read-only", signal = null, emit = () => {} }) {
   const apiKey = await state.secretStore.get("openai");
   if (!apiKey) throw new Error("OpenAI API key is not configured. Add it in Provider Keys or set OPENAI_API_KEY.");
   const timeline = [];
   const input = [
-    { role: "system", content: systemPrompt(state.manifest) },
+    { role: "system", content: systemPrompt(state.manifest, { contextSummary, toolPolicy }) },
     ...providerMessages(history || [{ role: "user", content: message }])
   ];
   let response = null;
   for (let i = 0; i < MAX_TOOL_LOOPS; i++) {
+    throwIfAborted(signal);
     response = await httpJson("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
@@ -587,13 +827,14 @@ async function chatOpenAI(state, { message, model, history }) {
         tools: state.tools.map(openAiTool),
         tool_choice: "auto"
       })
-    });
+    }, { signal });
     const calls = (response.output || []).filter((item) => item.type === "function_call");
     if (!calls.length) return { provider: "openai", text: extractOpenAiText(response), timeline, raw: response };
     input.push(...response.output);
     for (const call of calls) {
+      throwIfAborted(signal);
       const args = parseJsonObject(call.arguments);
-      const result = await callMcpTool(state, originalToolName(state, call.name), args);
+      const result = await callAgentMcpTool(state, originalToolName(state, call.name), args, { toolPolicy, signal, emit });
       timeline.push(result.event);
       input.push({ type: "function_call_output", call_id: call.call_id, output: result.event.result });
     }
@@ -601,13 +842,14 @@ async function chatOpenAI(state, { message, model, history }) {
   return { provider: "openai", text: extractOpenAiText(response) || "Stopped after max tool loops.", timeline, raw: response };
 }
 
-async function chatAnthropic(state, { message, model, history }) {
+async function chatAnthropic(state, { message, model, history, contextSummary = "", toolPolicy = "read-only", signal = null, emit = () => {} }) {
   const apiKey = await state.secretStore.get("anthropic");
   if (!apiKey) throw new Error("Anthropic API key is not configured. Add it in Provider Keys or set ANTHROPIC_API_KEY.");
   const timeline = [];
   const messages = providerMessages(history || [{ role: "user", content: message }]);
   let response = null;
   for (let i = 0; i < MAX_TOOL_LOOPS; i++) {
+    throwIfAborted(signal);
     response = await httpJson("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -618,35 +860,36 @@ async function chatAnthropic(state, { message, model, history }) {
       body: JSON.stringify({
         model: model || "claude-3-5-sonnet-latest",
         max_tokens: 4096,
-        system: systemPrompt(state.manifest),
+        system: systemPrompt(state.manifest, { contextSummary, toolPolicy }),
         messages,
         tools: state.tools.map(anthropicTool)
       })
-    });
+    }, { signal });
     const uses = (response.content || []).filter((item) => item.type === "tool_use");
     if (!uses.length) return { provider: "anthropic", text: anthropicText(response), timeline, raw: response };
     messages.push({ role: "assistant", content: response.content });
-    messages.push({
-      role: "user",
-      content: await Promise.all(uses.map(async (use) => {
-        const result = await callMcpTool(state, use.name, use.input || {});
-        timeline.push(result.event);
-        return { type: "tool_result", tool_use_id: use.id, content: result.event.result, is_error: !result.ok };
-      }))
-    });
+    const toolResults = [];
+    for (const use of uses) {
+      throwIfAborted(signal);
+      const result = await callAgentMcpTool(state, use.name, use.input || {}, { toolPolicy, signal, emit });
+      timeline.push(result.event);
+      toolResults.push({ type: "tool_result", tool_use_id: use.id, content: result.event.result, is_error: !result.ok });
+    }
+    messages.push({ role: "user", content: toolResults });
   }
   return { provider: "anthropic", text: anthropicText(response) || "Stopped after max tool loops.", timeline, raw: response };
 }
 
-async function chatOllama(state, { message, model, history }) {
+async function chatOllama(state, { message, model, history, contextSummary = "", toolPolicy = "read-only", signal = null, emit = () => {} }) {
   const base = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
   const timeline = [];
   const messages = [
-    { role: "system", content: systemPrompt(state.manifest) },
+    { role: "system", content: systemPrompt(state.manifest, { contextSummary, toolPolicy }) },
     ...providerMessages(history || [{ role: "user", content: message }])
   ];
   let response = null;
   for (let i = 0; i < MAX_TOOL_LOOPS; i++) {
+    throwIfAborted(signal);
     response = await httpJson(`${base}/api/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -656,14 +899,15 @@ async function chatOllama(state, { message, model, history }) {
         messages,
         tools: state.tools.map(ollamaTool)
       })
-    });
+    }, { signal });
     const msg = response.message || {};
     const calls = msg.tool_calls || [];
     if (!calls.length) return { provider: "ollama", text: msg.content || "", timeline, raw: response };
     messages.push(msg);
     for (const call of calls) {
+      throwIfAborted(signal);
       const fn = call.function || {};
-      const result = await callMcpTool(state, fn.name, parseJsonObject(fn.arguments));
+      const result = await callAgentMcpTool(state, fn.name, parseJsonObject(fn.arguments), { toolPolicy, signal, emit });
       timeline.push(result.event);
       messages.push({ role: "tool", content: result.event.result, name: fn.name });
     }
@@ -909,10 +1153,12 @@ function assertFeature(manifest, name) {
 
 async function httpJson(url, options = {}, config = {}) {
   const retries = Number(config.retries ?? 2);
+  const signal = options.signal || config.signal || null;
   let lastError = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, options);
+      throwIfAborted(signal);
+      const res = await fetch(url, { ...options, ...(signal ? { signal } : {}) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const error = new Error(data?.error?.message || data?.error || `${res.status} ${res.statusText}`);
@@ -921,10 +1167,11 @@ async function httpJson(url, options = {}, config = {}) {
       }
       return data;
     } catch (error) {
+      if (isAbortError(error)) throw error;
       lastError = error;
       const retryable = !error?.status || error.status === 429 || error.status >= 500;
       if (attempt >= retries || !retryable) break;
-      await sleep(300 * (2 ** attempt));
+      await sleep(300 * (2 ** attempt), signal);
     }
   }
   throw lastError;
@@ -966,7 +1213,13 @@ function publicTools(tools, schema = false) {
   }));
 }
 
-function systemPrompt(manifest) {
+function systemPrompt(manifest, options = {}) {
+  const { contextSummary = "", toolPolicy = "read-only" } = options;
+  const policyText = {
+    "read-only": "This turn is read-only: inspect, search, summarize, and plan. Mutating, command, network, and unknown tools are blocked.",
+    workspace: "This turn may edit workspace files with approved file-edit tools. Commands, destructive actions, network-like actions, and unknown tools are blocked.",
+    full: "This turn is in full tool mode by explicit user choice. Prefer safe MCP tools first, explain risky actions, and keep every action scoped to the user's request."
+  }[toolPolicy] || "This turn uses the default read-only tool policy.";
   return `You are ${manifest.productName} ${manifest.version}, a standalone local AI coding assistant connected to a Local Coding Agent MCP server.
 
 Rules:
@@ -976,7 +1229,10 @@ Rules:
 - Keep edits scoped to the user request.
 - Explain risky actions before mutating files or running commands.
 - After changing code, run the most relevant checks available.
-- If a tool call is denied by policy, explain what approval or safer alternative is needed.`;
+- If a tool call is denied by policy, explain what approval or safer alternative is needed.
+
+Current tool policy:
+${policyText}${contextSummary ? `\n\nConversation summary before the recent window:\n${contextSummary}` : ""}`;
 }
 
 function extractOpenAiText(response) {
@@ -1172,8 +1428,27 @@ async function runChild(fileName, args, cwd, timeoutMs = 5 * 60_000) {
   });
 }
 
-function sleep(ms) {
-  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+function sleep(ms, signal = null) {
+  return new Promise((resolveSleep, rejectSleep) => {
+    if (signal?.aborted) return rejectSleep(signal.reason || abortError("Operation cancelled."));
+    const timer = setTimeout(resolveSleep, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      rejectSleep(signal.reason || abortError("Operation cancelled."));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function throwIfAborted(signal) {
+  if (!signal?.aborted) return;
+  throw signal.reason || abortError("Operation cancelled.");
+}
+
+function abortError(message) {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
 }
 
 function appendBoundedOutput(current, chunk, limit = 2_000_000) {
