@@ -17,8 +17,9 @@ workspace controls, diagnostics, and commercial-release guardrails.
   injects structured intent, and rejects untrusted renderer origins.
 - Workspace profiles, Skills controls, dashboard metrics, approvals, file
   preview, Git diff, support bundle export, and guarded customer update flow.
-- Provider key setup from the app UI for OpenAI and Anthropic, backed by a local
-  encrypted vault. The API returns only metadata, never the saved key value.
+- Provider key setup from the app UI for OpenAI and Anthropic. Desktop uses
+  Electron `safeStorage`; browser Preview uses the local encrypted vault. APIs
+  return only metadata, never the saved key value.
 - Loopback-only API boundary with Host/Origin validation, random per-process
   capability token, JSON-only mutation requests, CSP, no-sniff, anti-framing,
   restrictive permissions policy, and remote-MCP opt-in.
@@ -117,16 +118,26 @@ to customers.
 
 ## Provider Keys
 
-Preview can use provider keys from either environment variables or the local
-encrypted vault:
+Preview can use provider keys from environment variables, desktop OS secure
+storage, or the browser-preview encrypted vault:
 
 - `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` remain supported.
 - Env keys are treated as readonly operator-managed secrets.
-- Keys saved in the app UI are encrypted locally under the Studio data directory.
+- Desktop keys are encrypted through Electron `safeStorage` and synchronized to
+  the server only in memory through a separate per-process bridge token.
+- Desktop save migrates away from the legacy AES vault copy after secure sync.
+- Linux Electron `basic_text` fallback is rejected instead of treated as secure.
+- Browser Preview keys use the AES-256-GCM vault under the Studio data directory.
 - `GET /api/secrets` and health/provider APIs return only status metadata.
 
-Stable should move this vault to the operating-system keychain or a platform
-credential manager before customer release.
+Stable still needs cross-platform installation testing for Windows DPAPI,
+macOS Keychain, and Linux secret-service backends before customer release.
+
+Check the actual Electron credential backend on the current machine:
+
+```powershell
+npm run credential:smoke
+```
 
 ## Permission Broker
 
@@ -208,8 +219,9 @@ workspace controls, diagnostics và các lớp kiểm soát để phát hành th
   tự gắn structured intent và từ chối renderer origin không tin cậy.
 - Workspace profiles, Skills controls, dashboard metrics, approvals, file
   preview, Git diff, support bundle export và guarded customer update flow.
-- Setup provider key ngay trong UI cho OpenAI và Anthropic, dùng local encrypted
-  vault. API chỉ trả metadata, không trả giá trị key đã lưu.
+- Setup provider key ngay trong UI cho OpenAI và Anthropic. Desktop dùng Electron
+  `safeStorage`; browser Preview dùng local encrypted vault. API chỉ trả metadata,
+  không trả giá trị key đã lưu.
 - API chỉ nghe loopback, kiểm tra Host/Origin, token ngẫu nhiên theo từng tiến
   trình, thao tác thay đổi chỉ nhận JSON, CSP, no-sniff, anti-framing,
   permissions policy chặt và remote MCP phải bật thủ công.
@@ -305,15 +317,26 @@ cho khách hàng.
 
 ## Provider Keys
 
-Preview có thể dùng provider key từ biến môi trường hoặc local encrypted vault:
+Preview có thể dùng provider key từ biến môi trường, desktop OS secure storage
+hoặc encrypted vault của browser preview:
 
 - Vẫn hỗ trợ `OPENAI_API_KEY` và `ANTHROPIC_API_KEY`.
 - Key từ env được xem là readonly secret do operator quản lý.
-- Key lưu trong UI được mã hóa cục bộ trong thư mục dữ liệu của Studio.
+- Desktop key được mã hóa qua Electron `safeStorage` và chỉ sync vào RAM của
+  server qua bridge token riêng theo từng tiến trình.
+- Khi desktop lưu key thành công, app dọn legacy AES vault copy.
+- Linux Electron `basic_text` fallback bị từ chối, không được xem là bảo mật.
+- Browser Preview vẫn dùng AES-256-GCM vault trong thư mục dữ liệu Studio.
 - `GET /api/secrets` và API health/provider chỉ trả metadata trạng thái.
 
-Bản Stable nên chuyển vault này sang OS keychain hoặc credential manager của
-từng nền tảng trước khi phát hành cho khách hàng.
+Bản Stable vẫn cần kiểm thử cài đặt thực tế trên Windows DPAPI, macOS Keychain
+và Linux secret-service trước khi phát hành cho khách hàng.
+
+Kiểm tra Electron credential backend thật trên máy hiện tại:
+
+```powershell
+npm run credential:smoke
+```
 
 ## Permission Broker
 

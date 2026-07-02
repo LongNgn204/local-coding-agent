@@ -58,3 +58,25 @@ test("environment provider keys remain readonly and override the vault", async (
     rmSync(storage, { recursive: true, force: true });
   }
 });
+
+test("runtime desktop secrets override the preview vault without being persisted", async () => {
+  const oldOpenAi = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  const storage = mkdtempSync(join(tmpdir(), "lca-studio-runtime-secret-"));
+  try {
+    const store = new SecretStore(storage);
+    await store.set("openai", "vault-value");
+    const status = store.setRuntime("openai", "desktop-value", { label: "OS credential" });
+    assert.equal(status.source, "os-safe-storage");
+    assert.equal(await store.get("openai"), "desktop-value");
+    assert.equal((await store.providerStatus("openai")).source, "os-safe-storage");
+    const vaultText = readFileSync(join(storage, "secrets", "vault.json"), "utf8");
+    assert.equal(vaultText.includes("desktop-value"), false);
+    store.deleteRuntime("openai");
+    assert.equal(await store.get("openai"), "vault-value");
+  } finally {
+    if (oldOpenAi === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = oldOpenAi;
+    rmSync(storage, { recursive: true, force: true });
+  }
+});

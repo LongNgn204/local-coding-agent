@@ -27,9 +27,12 @@ The Preview implements these baseline controls:
 9. Desktop privileged actions go through a typed IPC bridge. The Electron main
    process owns the Studio token, maps actions through an allowlist, injects
    structured intent, and validates the renderer origin before proxying.
-10. Provider keys can be stored in a local AES-256-GCM encrypted vault; APIs
-    return only metadata, and environment keys remain readonly operator-managed
-    overrides.
+10. Desktop provider keys use Electron `safeStorage`, remain encrypted at rest,
+    and are synchronized to the server only in memory through a separate
+    per-process desktop bridge token. Linux `basic_text` fallback is rejected.
+    Browser Preview retains the AES-256-GCM vault; APIs return only metadata.
+    `npm run credential:smoke` verifies the actual backend and encryption
+    round-trip on the current machine.
 11. Support bundles recursively redact credentials and omit raw tool arguments
     and results from the event list.
 12. SQLite persists threads without putting API credentials in the database.
@@ -98,8 +101,8 @@ runtime isolation, and transparent release evidence are all required.
   direct renderer access to localhost APIs.
 - One-time approvals backed by the permission broker for all destructive,
   network, install, and out-of-root actions.
-- OS keychain storage for provider credentials and license tokens, replacing
-  the Preview local encrypted vault.
+- Extend OS-backed storage to license tokens and complete installation testing
+  for Windows DPAPI, macOS Keychain, and Linux secret-service backends.
 - OS-enforced workspace write boundaries.
 - Network disabled by default for model-generated commands.
 - Device activation, revocation, offline grace periods, and privacy-preserving
@@ -133,8 +136,12 @@ Preview hiện có các lớp bảo vệ cơ bản:
 9. Desktop privileged action đi qua typed IPC bridge. Electron main process giữ
    Studio token, map action qua allowlist, tự gắn structured intent và kiểm tra
    renderer origin trước khi proxy.
-10. Provider key có thể lưu trong local vault mã hóa AES-256-GCM; API chỉ trả
-    metadata, còn key từ env vẫn là readonly override do operator quản lý.
+10. Desktop provider key dùng Electron `safeStorage`, được mã hóa khi lưu và chỉ
+    sync vào RAM server qua desktop bridge token riêng theo từng tiến trình.
+    Linux `basic_text` fallback bị từ chối. Browser Preview vẫn dùng AES vault;
+    API chỉ trả metadata.
+    `npm run credential:smoke` kiểm tra backend thật và encrypt/decrypt round-trip
+    trên máy hiện tại.
 11. Support Bundle redaction đệ quy và bỏ raw tool args/results khỏi event list.
 12. SQLite lưu thread nhưng không lưu API credential.
 13. Desktop launcher resolve Node.js từ `LCA_NODE_PATH`, packaged runtime,
@@ -200,8 +207,8 @@ platform code signing, runtime isolation và bằng chứng release minh bạch.
   quyền renderer gọi trực tiếp localhost APIs.
 - One-time approval dựa trên permission broker cho destructive, network,
   install và out-of-root actions.
-- OS keychain để lưu provider credential và license token, thay cho local
-  encrypted vault của Preview.
+- Mở rộng OS-backed storage cho license token và hoàn tất kiểm thử cài đặt với
+  Windows DPAPI, macOS Keychain và Linux secret-service.
 - Workspace write boundary do hệ điều hành cưỡng chế.
 - Tắt network mặc định cho command do model sinh ra.
 - Device activation, revocation, offline grace period và license refresh bảo vệ

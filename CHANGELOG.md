@@ -46,6 +46,10 @@ follows [Semantic Versioning](https://semver.org/).
 - Studio v5 now verifies signed release update manifests with Ed25519, artifact
   SHA-256 metadata, channel/product checks, and rollback protection. Release CI
   can generate envelopes with `npm run update:manifest`.
+- Studio v5 desktop now stores OpenAI and Anthropic credentials through
+  Electron `safeStorage`, syncs decrypted values to the server only in memory
+  through a separate per-process bridge token, removes legacy vault copies, and
+  rejects Linux `basic_text` fallback storage.
 
 ## [4.4.0-pro] - 2026-07-01
 

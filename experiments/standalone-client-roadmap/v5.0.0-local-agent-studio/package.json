@@ -11,13 +11,14 @@
   "main": "desktop/main.mjs",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check server.mjs && node --check standalone-app.mjs && node --check desktop/main.mjs && node --check desktop/preload.mjs && node --check desktop/privileged-actions.mjs && node --check desktop/runtime-resolver.mjs && node --check scripts/verify-runtime-bundle.mjs && node --check scripts/generate-update-manifest.mjs && node --check core/security.mjs && node --check core/permission-broker.mjs && node --check core/redaction.mjs && node --check core/thread-store.mjs && node --check core/secret-store.mjs && node --check core/license-service.mjs && node --check core/integrity-service.mjs && node --check core/update-service.mjs && tsc --noEmit",
+    "check": "node --check server.mjs && node --check standalone-app.mjs && node --check desktop/main.mjs && node --check desktop/preload.mjs && node --check desktop/privileged-actions.mjs && node --check desktop/runtime-resolver.mjs && node --check desktop/credential-store.mjs && node --check scripts/verify-runtime-bundle.mjs && node --check scripts/generate-update-manifest.mjs && node --check scripts/smoke-safe-storage.mjs && node --check core/security.mjs && node --check core/permission-broker.mjs && node --check core/redaction.mjs && node --check core/thread-store.mjs && node --check core/secret-store.mjs && node --check core/license-service.mjs && node --check core/integrity-service.mjs && node --check core/update-service.mjs && tsc --noEmit",
     "ui:build": "vite build",
     "desktop:dev": "electron .",
     "desktop:pack": "npm run ui:build && electron-builder --dir",
     "desktop:dist": "npm run ui:build && electron-builder",
     "test": "node --test test/*.test.mjs",
     "runtime:verify": "node scripts/verify-runtime-bundle.mjs",
+    "credential:smoke": "electron scripts/smoke-safe-storage.mjs",
     "update:manifest": "node scripts/generate-update-manifest.mjs",
     "security:audit": "node scripts/security-audit.mjs",
     "integrity:generate": "node scripts/generate-integrity-manifest.mjs"

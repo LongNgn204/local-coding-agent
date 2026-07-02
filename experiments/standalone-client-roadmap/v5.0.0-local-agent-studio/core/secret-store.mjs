@@ -12,6 +12,8 @@ export class SecretStore {
     this.keyFile = join(this.dir, "master.key");
     this.vaultFile = join(this.dir, "vault.json");
     this.masterKey = null;
+    this.runtimeSecrets = new Map();
+    this.runtimeMetadata = new Map();
   }
 
   async status() {
@@ -30,6 +32,7 @@ export class SecretStore {
     assertProvider(provider);
     const env = envSecret(provider);
     if (env) return env;
+    if (this.runtimeSecrets.has(provider)) return this.runtimeSecrets.get(provider);
     const vault = await this.readVault();
     const entry = vault.providers?.[provider];
     if (!entry) return "";
@@ -67,10 +70,36 @@ export class SecretStore {
     return { ok: true };
   }
 
+  setRuntime(provider, value, metadata = {}) {
+    assertProvider(provider);
+    const secret = String(value || "").trim();
+    if (!secret) throw new Error("Runtime secret value is required.");
+    if (secret.length > 20_000) throw new Error("Runtime secret value is too large.");
+    this.runtimeSecrets.set(provider, secret);
+    const entry = {
+      provider,
+      configured: true,
+      source: "os-safe-storage",
+      readonly: false,
+      label: safeLabel(metadata.label || provider),
+      updatedAt: new Date().toISOString()
+    };
+    this.runtimeMetadata.set(provider, entry);
+    return { ...entry };
+  }
+
+  deleteRuntime(provider) {
+    assertProvider(provider);
+    this.runtimeSecrets.delete(provider);
+    this.runtimeMetadata.delete(provider);
+    return { ok: true, provider };
+  }
+
   async providerStatus(provider) {
     assertProvider(provider);
     const env = envSecret(provider);
     if (env) return { configured: true, source: "env", provider, readonly: true };
+    if (this.runtimeMetadata.has(provider)) return { ...this.runtimeMetadata.get(provider) };
     const status = await this.status();
     return status[provider] || { configured: false, source: "none", provider, readonly: false };
   }

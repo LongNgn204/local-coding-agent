@@ -12,9 +12,17 @@ const VERSION_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 test("Studio HTTP boundary blocks CSRF and persists authenticated threads", async () => {
   const port = await freePort();
   const storage = mkdtempSync(join(tmpdir(), "lca-studio-http-"));
+  const desktopBridgeToken = "desktop-bridge-test-token";
   const child = spawn(process.execPath, ["server.mjs"], {
     cwd: VERSION_DIR,
-    env: { ...process.env, LCA_STUDIO_PORT: String(port), LOCALAPPDATA: storage },
+    env: {
+      ...process.env,
+      LCA_STUDIO_PORT: String(port),
+      LOCALAPPDATA: storage,
+      LCA_DESKTOP_BRIDGE_TOKEN: desktopBridgeToken,
+      OPENAI_API_KEY: "",
+      ANTHROPIC_API_KEY: ""
+    },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true
   });
@@ -49,6 +57,37 @@ test("Studio HTTP boundary blocks CSRF and persists authenticated threads", asyn
       body: JSON.stringify({ title: "blocked" })
     });
     assert.equal(simpleRequest.status, 415);
+
+    const desktopSecretWithoutBridge = await fetch(`http://127.0.0.1:${port}/api/desktop-secrets/anthropic`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-lca-studio-token": token },
+      body: JSON.stringify({
+        value: "sk-ant-runtime",
+        intent: { action: "provider-key:set", confirm: "provider-key:set" }
+      })
+    });
+    assert.equal(desktopSecretWithoutBridge.status, 403);
+
+    const desktopSecret = await fetch(`http://127.0.0.1:${port}/api/desktop-secrets/anthropic`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-lca-studio-token": token,
+        "x-lca-desktop-token": desktopBridgeToken
+      },
+      body: JSON.stringify({
+        value: "sk-ant-runtime",
+        label: "OS credential",
+        intent: { action: "provider-key:set", confirm: "provider-key:set" }
+      })
+    });
+    assert.equal(desktopSecret.status, 200);
+    assert.equal((await desktopSecret.json()).source, "os-safe-storage");
+
+    const anthropicStatus = await fetch(`http://127.0.0.1:${port}/api/secrets/anthropic`, {
+      headers: { "x-lca-studio-token": token }
+    });
+    assert.equal((await anthropicStatus.json()).source, "os-safe-storage");
 
     const fakeSecret = "sk-test-http-secret-123";
     const unconfirmedSecret = await fetch(`http://127.0.0.1:${port}/api/secrets/openai`, {

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createServer } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -67,7 +68,8 @@ export function startStudio(manifest) {
     permissionBroker,
     updateService,
     licenseService,
-    integrityService
+    integrityService,
+    desktopBridgeToken: process.env.LCA_DESKTOP_BRIDGE_TOKEN || ""
   };
 
   const server = createServer(async (req, res) => {
@@ -130,6 +132,21 @@ async function handleApi(req, res, url, state) {
       const body = await readJson(req);
       state.permissionBroker.require("release-update:verify", body, { route: url.pathname, method: req.method });
       return sendJson(res, 200, state.updateService.verifyEnvelope(body.envelope, { persist: body.persist !== false }));
+    }
+    const desktopSecretMatch = url.pathname.match(/^\/api\/desktop-secrets\/([^/]+)$/);
+    if (desktopSecretMatch) {
+      if (!authorizeDesktopBridge(req, state)) return sendJson(res, 403, { error: "Desktop secret bridge authorization failed." });
+      const provider = decodeURIComponent(desktopSecretMatch[1]);
+      assertProvider(provider);
+      const body = await readJson(req);
+      if (req.method === "POST") {
+        state.permissionBroker.require("provider-key:set", body, { route: url.pathname, method: req.method, target: provider });
+        return sendJson(res, 200, state.secretStore.setRuntime(provider, body.value, { label: body.label }));
+      }
+      if (req.method === "DELETE") {
+        state.permissionBroker.require("provider-key:delete", body, { route: url.pathname, method: req.method, target: provider });
+        return sendJson(res, 200, state.secretStore.deleteRuntime(provider));
+      }
     }
     if (url.pathname === "/api/secrets") {
       return sendJson(res, 200, {
@@ -362,7 +379,13 @@ function healthPayload(state) {
       source: process.env.LCA_NODE_RUNTIME_SOURCE || "direct",
       version: process.env.LCA_NODE_RUNTIME_VERSION || process.versions.node
     },
-    security: { loopback_only: true, session_token_required: true, origin_guard: true, permission_broker: state.permissionBroker.summary() },
+    security: {
+      loopback_only: true,
+      session_token_required: true,
+      origin_guard: true,
+      desktop_secret_bridge: Boolean(state.desktopBridgeToken),
+      permission_broker: state.permissionBroker.summary()
+    },
     license: publicLicenseStatus(state.licenseService.status()),
     integrity: state.integrityService.status(),
     updates: state.updateService.status(),
@@ -953,6 +976,13 @@ function parseJsonObject(value) {
   } catch {
     return {};
   }
+}
+
+function authorizeDesktopBridge(req, state) {
+  const expected = Buffer.from(String(state.desktopBridgeToken || ""));
+  const suppliedHeader = req.headers?.["x-lca-desktop-token"];
+  const supplied = Buffer.from(String(Array.isArray(suppliedHeader) ? suppliedHeader[0] || "" : suppliedHeader || ""));
+  return expected.length > 0 && supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
 async function readJson(req) {
