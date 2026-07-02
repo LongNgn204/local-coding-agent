@@ -42,6 +42,10 @@ The Preview implements these baseline controls:
 14. The desktop launcher resolves Node.js from `LCA_NODE_PATH`, packaged
     runtimes, source-tree runtimes, then system Node. Release CI can require a
     bundled runtime with `npm run runtime:verify -- --require-bundled`.
+15. Signed update artifacts can be streamed into private staging only after
+    signature verification. HTTPS, exact size, SHA-256, OS/arch, rollback, and
+    minimum-app-version checks are enforced. Preview never executes a staged
+    installer automatically.
 
 This is defense in depth, not an operating-system sandbox. Before customer
 release, the Stable desktop app still needs typed IPC coverage for every
@@ -153,6 +157,9 @@ Preview hiện có các lớp bảo vệ cơ bản:
 14. Desktop launcher resolve Node.js từ `LCA_NODE_PATH`, packaged runtime,
     source-tree runtime rồi mới tới system Node. Release CI có thể bắt buộc
     bundled runtime bằng `npm run runtime:verify -- --require-bundled`.
+15. Signed update artifact chỉ được stream vào private staging sau khi verify
+    chữ ký. App kiểm tra HTTPS, exact size, SHA-256, OS/arch, rollback và minimum
+    app version. Preview không tự execute installer đã stage.
 
 Đây là defense in depth, chưa phải sandbox cấp hệ điều hành. Trước khi phát hành
 Stable cho khách, desktop app vẫn cần typed IPC cho toàn bộ workflow có quyền

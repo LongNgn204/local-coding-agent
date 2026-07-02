@@ -11,6 +11,7 @@ const ACTIONS = new Map([
   ["approval:mutate", { risk: "high", confirmation: "approval:mutate" }],
   ["support-bundle:export", { risk: "sensitive", confirmation: "support-bundle:export" }],
   ["release-update:verify", { risk: "high", confirmation: "release-update:verify" }],
+  ["release-update:stage", { risk: "high", confirmation: "release-update:stage" }],
   ["customer-update:run", { risk: "high", confirmation: "customer-update:run" }]
 ]);
 

@@ -50,6 +50,14 @@ export function buildPrivilegedRequest(request = {}) {
         persist: payload.persist !== false,
         intent: intent("release-update:verify")
       });
+    case "releaseUpdate:stage":
+      if (!payload.envelope || typeof payload.envelope !== "object") throw new Error("Signed update envelope is required.");
+      return jsonRequest("POST", "/api/release-update/stage", {
+        envelope: payload.envelope,
+        platform: optionalPlatform(payload.platform),
+        arch: optionalArch(payload.arch),
+        intent: intent("release-update:stage")
+      });
     case "tool:call":
       return jsonRequest("POST", "/api/call-tool", {
         name: safeToolName(payload.name),
@@ -85,6 +93,7 @@ export function privilegedActionNames() {
     "mcpServer:stop",
     "supportBundle:export",
     "releaseUpdate:verify",
+    "releaseUpdate:stage",
     "tool:call",
     "approval:mutate",
     "customerUpdate:run"
@@ -114,6 +123,18 @@ function safeToolName(value) {
   const text = String(value || "");
   if (!/^[\w.-]{1,128}$/.test(text)) throw new Error("Invalid tool name.");
   return text;
+}
+
+function optionalPlatform(value) {
+  const platform = String(value || process.platform);
+  if (!/^(win32|darwin|linux)$/.test(platform)) throw new Error("Invalid update platform.");
+  return platform;
+}
+
+function optionalArch(value) {
+  const arch = String(value || process.arch);
+  if (!/^(x64|arm64)$/.test(arch)) throw new Error("Invalid update architecture.");
+  return arch;
 }
 
 function safeSegment(value, label) {

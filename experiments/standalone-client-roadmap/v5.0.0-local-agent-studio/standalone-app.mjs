@@ -133,6 +133,14 @@ async function handleApi(req, res, url, state) {
       state.permissionBroker.require("release-update:verify", body, { route: url.pathname, method: req.method });
       return sendJson(res, 200, state.updateService.verifyEnvelope(body.envelope, { persist: body.persist !== false }));
     }
+    if (url.pathname === "/api/release-update/stage" && req.method === "POST") {
+      const body = await readJson(req);
+      state.permissionBroker.require("release-update:stage", body, { route: url.pathname, method: req.method });
+      return sendJson(res, 200, await state.updateService.stageArtifact(body.envelope, {
+        platform: body.platform || process.platform,
+        arch: body.arch || process.arch
+      }));
+    }
     const desktopSecretMatch = url.pathname.match(/^\/api\/desktop-secrets\/([^/]+)$/);
     if (desktopSecretMatch) {
       if (!authorizeDesktopBridge(req, state)) return sendJson(res, 403, { error: "Desktop secret bridge authorization failed." });
@@ -1167,7 +1175,7 @@ function renderHtml(manifest, security) {
       ${features.has("fileViewer") ? `<button class="secondary" id="readFile">Read File</button> <button class="secondary" id="diff">Git Diff</button>` : ""}
       ${features.has("supportBundle") ? `<h2>Support</h2><button class="secondary" id="support">Export Support Bundle</button>` : ""}
       ${features.has("customerUpdateFlow") ? `<h2>Update</h2><button class="secondary" id="update">Run Guarded Update</button>` : ""}
-      ${features.has("signedUpdates") ? `<h2>Release Updates</h2><button class="secondary" id="updateStatus">Status</button> <button class="secondary" id="verifyUpdate">Verify Manifest</button>` : ""}
+      ${features.has("signedUpdates") ? `<h2>Release Updates</h2><button class="secondary" id="updateStatus">Status</button> <button class="secondary" id="verifyUpdate">Verify Manifest</button> <button class="secondary" id="stageUpdate">Stage Artifact</button>` : ""}
       <h2>Provider Keys</h2><button class="secondary" id="saveOpenAiKey">Save OpenAI</button> <button class="secondary" id="saveAnthropicKey">Save Anthropic</button> <button class="secondary" id="providerKeys">Status</button>
       <h2>License</h2><button class="secondary" id="license">Status / Activate</button>
       <h2>Tools</h2><div class="tools" id="tools"></div>
@@ -1219,6 +1227,7 @@ function renderHtml(manifest, security) {
     async function runUpdate(){if(prompt('Type "update" to run guarded repository update','')!=="update")return;const data=await api("/api/update",{method:"POST",body:JSON.stringify({confirm:"update",intent:intent("customer-update:run")})});addMessage("agent","Update "+(data.ok?"completed":"failed")+":\\n"+data.stdout+"\\n"+data.stderr)}
     async function releaseUpdateStatus(){const data=await api("/api/release-update/status");addMessage("agent","Release update status:\\n"+JSON.stringify(data,null,2))}
     async function verifyReleaseUpdate(){const raw=prompt("Paste signed update manifest JSON","");if(!raw)return;const envelope=JSON.parse(raw);const data=await api("/api/release-update/verify",{method:"POST",body:JSON.stringify({envelope,intent:intent("release-update:verify")})});addMessage("agent","Release update verified:\\n"+JSON.stringify(data,null,2))}
+    async function stageReleaseUpdate(){const raw=prompt("Paste signed update manifest JSON to download and stage","");if(!raw||!confirm("Download and verify this artifact? It will not be executed."))return;const envelope=JSON.parse(raw);const data=await api("/api/release-update/stage",{method:"POST",body:JSON.stringify({envelope,intent:intent("release-update:stage")})});addMessage("agent","Release update staged:\\n"+JSON.stringify(data,null,2))}
     async function saveProviderKey(provider){const value=prompt(provider+" API key","");if(!value)return;const data=await api("/api/secrets/"+encodeURIComponent(provider),{method:"POST",body:JSON.stringify({value,label:provider+" key",intent:intent("provider-key:set")})});addMessage("agent",provider+" key saved: "+JSON.stringify(data))}
     async function providerKeyStatus(){const data=await api("/api/secrets");addMessage("agent","Provider keys:\\n"+JSON.stringify(data,null,2))}
     async function license(){const status=await api("/api/license");if(status.allowed&&status.mode==="experimental"){addMessage("agent","License: Preview mode. Commercial key is not required yet.");return}const token=prompt(status.reason+"\nPaste the admin-provided signed license token, or Cancel:","");if(!token)return;const activated=await api("/api/license/activate",{method:"POST",body:JSON.stringify({token,intent:intent("license:activate")})});addMessage("agent","License activated: "+activated.edition)}
@@ -1228,7 +1237,7 @@ function renderHtml(manifest, security) {
     if($("metrics"))$("metrics").onclick=showMetrics;if($("approvals"))$("approvals").onclick=manageApprovals;if($("readFile"))$("readFile").onclick=readWorkspaceFile;if($("diff"))$("diff").onclick=showDiff;
     if($("startServer"))$("startServer").onclick=startServer;if($("stopServer"))$("stopServer").onclick=stopServer;if($("serverStatus"))$("serverStatus").onclick=serverStatus;
     if($("support"))$("support").onclick=supportBundle;if($("update"))$("update").onclick=runUpdate;
-    if($("updateStatus"))$("updateStatus").onclick=releaseUpdateStatus;if($("verifyUpdate"))$("verifyUpdate").onclick=verifyReleaseUpdate;
+    if($("updateStatus"))$("updateStatus").onclick=releaseUpdateStatus;if($("verifyUpdate"))$("verifyUpdate").onclick=verifyReleaseUpdate;if($("stageUpdate"))$("stageUpdate").onclick=stageReleaseUpdate;
     $("saveOpenAiKey").onclick=()=>saveProviderKey("openai");$("saveAnthropicKey").onclick=()=>saveProviderKey("anthropic");$("providerKeys").onclick=providerKeyStatus;
     $("newThread").onclick=newThread;$("loadThreads").onclick=loadThreads;$("license").onclick=license;health();
   </script>

@@ -355,6 +355,30 @@ export function App() {
     await boot();
   }
 
+  async function stageReleaseUpdate() {
+    const raw = window.prompt("Paste signed update manifest JSON to download and stage", "");
+    if (!raw) return;
+    let envelope: Record<string, unknown>;
+    try {
+      envelope = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      setNotice("Update manifest JSON is invalid");
+      return;
+    }
+    if (!window.confirm("Download and verify this signed update artifact? It will not be executed.")) return;
+    setNotice("Downloading signed update artifact...");
+    const result = await privilegedApi<{ path?: string; version?: string; size?: number }>(
+      "releaseUpdate:stage",
+      { envelope },
+      () => api("/api/release-update/stage", {
+        method: "POST",
+        body: JSON.stringify({ envelope, intent: intent("release-update:stage") })
+      })
+    );
+    setNotice(`Update ${result.version || "artifact"} staged (${result.size || 0} bytes): ${result.path || "verified"}`);
+    await boot();
+  }
+
   function applyPreset(id: string) {
     const preset = presets.find((entry) => entry.id === id);
     if (!preset) return;
@@ -487,6 +511,7 @@ export function App() {
               <span>verified {health?.updates?.highestVerifiedBuild || health?.updates?.currentBuild || 0}</span>
             </div>
             <button title="Verify signed update manifest" disabled={!health?.updates?.enabled} onClick={() => void verifyReleaseUpdate()}><ShieldCheck size={15} /></button>
+            <button title="Download and stage signed update" disabled={!health?.updates?.enabled} onClick={() => void stageReleaseUpdate()}><Download size={15} /></button>
           </div>
         </section>
 

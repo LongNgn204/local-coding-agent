@@ -53,6 +53,10 @@ follows [Semantic Versioning](https://semver.org/).
 - Studio v5 desktop now stores admin-issued commercial license tokens through
   the same OS-backed secure store, verifies them in server memory, removes
   legacy plaintext `license.json`, and reports only public license metadata.
+- Studio v5 can stream signed update artifacts into a private staging area,
+  enforce HTTPS, exact signed size, SHA-256, target OS/arch, and minimum app
+  version, remove partial files on failure, and deliberately refuse automatic
+  execution until installer signing is complete.
 
 ## [4.4.0-pro] - 2026-07-01
 

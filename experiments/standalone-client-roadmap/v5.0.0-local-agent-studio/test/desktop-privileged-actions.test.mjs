@@ -28,6 +28,7 @@ test("desktop privileged action mapping is a small explicit allowlist", () => {
     "providerKey:delete",
     "providerKey:set",
     "releaseUpdate:verify",
+    "releaseUpdate:stage",
     "supportBundle:export",
     "tool:call"
   ].sort());

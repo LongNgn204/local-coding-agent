@@ -105,6 +105,12 @@ installs a new app version. The verifier checks:
 - HTTPS artifact URLs.
 - SHA-256 artifact hashes.
 - build number is not older than the current app or a previously verified build.
+- minimum app version compatibility.
+
+The Updates panel can download a signed artifact into private staging. Download
+is streamed, bounded by the signed size, hashed during write, and deleted if any
+check fails. A staged artifact always reports `installReady: false`; Preview
+does not execute installers automatically.
 
 Generate a signed update manifest outside the app:
 
@@ -310,6 +316,12 @@ mới. Verifier kiểm tra:
 - Artifact URL phải dùng HTTPS.
 - Artifact phải có SHA-256 hash.
 - Build number không được cũ hơn app hiện tại hoặc build đã verify trước đó.
+- Minimum app version phải tương thích.
+
+Panel Updates có thể tải signed artifact vào private staging. Download được
+stream theo chunk, giới hạn bằng signed size, hash trong lúc ghi và bị xóa nếu
+bất kỳ check nào fail. Artifact đã stage luôn có `installReady: false`; Preview
+không tự chạy installer.
 
 Tạo signed update manifest ở bên ngoài app:
 

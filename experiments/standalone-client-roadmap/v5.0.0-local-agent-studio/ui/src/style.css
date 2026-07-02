@@ -374,7 +374,7 @@ pre {
   align-items: center;
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(0, 1fr) 34px 34px;
 }
 
 .update-row strong,
