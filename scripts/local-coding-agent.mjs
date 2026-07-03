@@ -73,6 +73,7 @@ Usage:
   node scripts/local-coding-agent.mjs update
   node scripts/local-coding-agent.mjs support
   node scripts/local-coding-agent.mjs skills list|json|validate
+  node scripts/local-coding-agent.mjs agents list|roles|spawn|clean   (v5 preview)
 
 Common options:
   --workspace <path>          Workspace root the agent may access
@@ -190,6 +191,21 @@ function parseArgs(argv) {
         break;
       case "--json":
         flags.json = true;
+        break;
+      case "--role":
+        flags.role = next();
+        break;
+      case "--task":
+        flags.task = next();
+        break;
+      case "--status":
+        flags.status = next();
+        break;
+      case "--days":
+        flags.days = next();
+        break;
+      case "--dry-run":
+        flags.dryRun = true;
         break;
       default:
         if (arg.startsWith("--")) throw new Error(`Unknown argument: ${arg}`);
@@ -832,6 +848,54 @@ async function skillsCommand(rest) {
   throw new Error("Usage: skills list|json|validate");
 }
 
+// v5.0.0-preview.2 Local Sub-Agent Manager CLI. Imports the same module the
+// server uses so CLI-spawned and MCP-spawned agents share one local store.
+async function agentsCommand(rest, flags) {
+  const mod = await import("../server/agent-manager.mjs");
+  const { AgentManager, ROLES, workspaceAgentsDir } = mod;
+  const opts = effectiveOptions(flags);
+  const workspace = opts.workspace || REPO_ROOT;
+  const dataDir = join(REPO_ROOT, "server", "data");
+  const agentsDir = workspaceAgentsDir(dataDir, workspace);
+  const mgr = new AgentManager({ agentsDir, defaultWorkspace: workspace, mode: opts.mode, policy: opts.policy });
+  await mgr.init();
+
+  const [sub = "list"] = rest;
+
+  if (sub === "roles") {
+    for (const r of Object.values(ROLES)) console.log(`${r.name} - ${r.description}`);
+    return;
+  }
+  if (sub === "list") {
+    const agents = mgr.list({ status: flags.status, limit: 100 });
+    if (flags.json) { console.log(JSON.stringify(agents, null, 2)); return; }
+    if (!agents.length) { console.log("No sub-agents yet. Try: agents spawn --role network_doctor_agent --task \"...\""); return; }
+    for (const a of agents) console.log(`${a.agent_id}  ${a.status.padEnd(9)} ${a.role.padEnd(22)} ${a.summary || ""}`);
+    return;
+  }
+  if (sub === "spawn") {
+    const role = flags.role || rest[1];
+    const task = flags.task || rest.slice(flags.role ? 1 : 2).join(" ");
+    if (!role || !task) throw new Error('Usage: agents spawn --role <role> --task "<task>" [--dry-run]');
+    const started = await mgr.spawn({ role, title: task.slice(0, 80), task, workspace_root: workspace, dry_run: Boolean(flags.dryRun) });
+    const settled = await mgr.settle(started.agent_id);
+    console.log(`agent_id: ${settled.agent_id}`);
+    console.log(`status:   ${settled.status}`);
+    console.log(`summary:  ${settled.summary || ""}`);
+    if (settled.report_path) console.log(`report:   ${settled.report_path}`);
+    if (settled.log_path) console.log(`log:      ${settled.log_path}`);
+    if (settled.error) console.log(`error:    ${settled.error}`);
+    return;
+  }
+  if (sub === "clean") {
+    const days = Number(flags.days || rest[1] || 7);
+    const removed = await mgr.clean({ olderThanMs: Math.max(0, days) * 24 * 3600 * 1000 });
+    console.log(`Removed ${removed} terminal sub-agent(s) older than ${days} day(s).`);
+    return;
+  }
+  throw new Error("Usage: agents list|roles|spawn|clean");
+}
+
 function openUrl(url) {
   const command =
     process.platform === "win32" ? "cmd" :
@@ -885,6 +949,7 @@ async function main() {
     return runChecked("network", process.execPath, [join(SCRIPT_DIR, "network-doctor.mjs"), ...rest], { cwd: REPO_ROOT });
   }
   if (command === "skills") return skillsCommand(rest);
+  if (command === "agents") return agentsCommand(rest, flags);
   throw new Error(`Unknown command: ${command}`);
 }
 

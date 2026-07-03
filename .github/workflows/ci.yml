@@ -37,6 +37,9 @@ jobs:
           node --check security-test.mjs
           node --check test-pro.mjs
           node --check test-hardening.mjs
+          node --check agent-manager.mjs
+          node --check test-agents.mjs
+          node --test test-agents.mjs
           node --check ../evals/run.mjs
           node --check ../scripts/local-coding-agent.mjs
           node --check ../scripts/network-doctor.mjs
@@ -49,6 +52,7 @@ jobs:
           node ../scripts/validate-skills.mjs
           node ../scripts/local-coding-agent.mjs skills validate
           node ../scripts/local-coding-agent.mjs skills json
+          node ../scripts/local-coding-agent.mjs agents roles
       - name: Parse PowerShell launchers
         run: |
           [void][scriptblock]::Create((Get-Content -Raw ../install.ps1))

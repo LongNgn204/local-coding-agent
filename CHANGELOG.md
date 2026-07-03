@@ -5,6 +5,42 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Added — v5.0.0-preview.2 (experimental, opt-in): Local Sub-Agent Manager
+
+Builds on preview.1's anti-lag store. ChatGPT Web does not run native
+sub-agents; it calls MCP tools and the server runs/tracks specialist sub-agent
+tasks locally, keeping heavy logs/reports on disk and returning compact
+summaries. All new tools/UI are gated behind `AGENT_V5_PREVIEW`; stable v4
+behavior is unchanged by default. `PREVIEW_VERSION` is now `5.0.0-preview.2`
+(stable `VERSION` stays `4.4.0-pro`).
+
+- New `server/agent-manager.mjs` module (Node-only, unit-testable): `AgentManager`
+  with create/list/status/result/cancel/clean, states
+  `queued|running|done|failed|cancelled`, workspace-scoped persistence under
+  `server/data/workspaces/<id>/agents/`, and helpers `generateAgentId`,
+  `redactSecrets`, `truncateForChat`, `makeLocalReportPath`, `detectProviders`.
+- Six specialist roles: `repo_setup_agent`, `bug_fix_agent`,
+  `network_doctor_agent`, `release_agent`, `readme_agent`,
+  `security_review_agent` (each with description, allowed task type, safety
+  notes, default output).
+- Provider abstraction: `script_runner` implemented (local deterministic planner,
+  no network/subprocess); `claude_cli`/`codex_cli`/`openai_api` are safely
+  detected but not executed (roadmap in `docs/V5_SUBAGENTS.md`).
+- Opt-in MCP tools: `spawn_agent`, `list_agents`, `get_agent_status`,
+  `get_agent_result` (compact, `max_chars`), `cancel_agent`. Outputs are compact
+  by default; full logs/reports stay local. `preview_status` now reports roles +
+  provider availability.
+- Dashboard: loopback `GET /api/agents` and `GET /api/agent`, plus a **Local
+  sub-agents** panel with status badges and a truncated per-agent viewer.
+- CLI: `agents list|roles|spawn|clean` in `scripts/local-coding-agent.mjs`,
+  sharing the same workspace-scoped store as the server.
+- Reports/logs are redacted (keys, tokens, tunnel ids, secret fields, opaque
+  blobs) before writing. New `server/test-agents.mjs` (18 unit tests) covers id
+  generation, the full lifecycle, truncation, redaction, invalid role, and
+  missing report/log handling.
+- Docs: `docs/V5_SUBAGENTS.md` (English + Vietnamese) and README subsections in
+  both languages.
+
 ### Added — v5.0.0-preview.1 (experimental, opt-in)
 
 Experimental "local-first anti-lag" preview. It reduces ChatGPT Web lag on large

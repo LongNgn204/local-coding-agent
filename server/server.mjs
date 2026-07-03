@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import { AgentManager, ROLES, detectProviders, AGENT_ID_RE } from "./agent-manager.mjs";
 
 // ----------------------------------------------------------------------------
 // Configuration (all overridable via environment variables)
@@ -34,7 +35,7 @@ const PRODUCT_TIER = "pro";
 // v5.0.0-preview.1 — experimental "local-first anti-lag" channel. The stable v4
 // server behavior is unchanged by default; the preview tools/store only load
 // when AGENT_V5_PREVIEW is truthy so we never break the current stable version.
-const PREVIEW_VERSION = "5.0.0-preview.1";
+const PREVIEW_VERSION = "5.0.0-preview.2";
 const PREVIEW_ENABLED = /^(1|true|on|yes)$/i.test(String(process.env.AGENT_V5_PREVIEW || ""));
 const PORT = Number(process.env.PORT || 8787);
 // Bind to loopback by default. The local OpenAI tunnel-client forwards to this,
@@ -105,6 +106,11 @@ const REPORTS_DIR = path.resolve(WORKSPACE_DATA_DIR, "reports");
 const REPORTS_INDEX_PATH = path.resolve(REPORTS_DIR, "index.json");
 const MAX_REPORTS = boundedNumber(process.env.AGENT_MAX_REPORTS, 200, 10, 5000);
 const REPORT_ID_RE = /^r_[0-9a-f]{8,32}$/;
+
+// v5.0.0-preview.2 Local Sub-Agent Manager. Heavy agent logs/reports live here
+// (workspace-scoped, loopback dashboard only, never tunneled); ChatGPT only ever
+// gets compact summaries. Mirrors workspaceAgentsDir() in agent-manager.mjs.
+const AGENTS_DIR = path.resolve(WORKSPACE_DATA_DIR, "agents");
 
 // v2.5 Planner state
 const AGENT_STATE_DIR = path.join(PRIMARY_ROOT, ".agent", "state");
@@ -216,6 +222,18 @@ await mkdir(PRIMARY_ROOT, { recursive: true });
 await mkdir(BACKUPS_DIR, { recursive: true });
 await mkdir(APPROVALS_DIR, { recursive: true });
 await mkdir(AGENT_STATE_DIR, { recursive: true });
+
+// v5.0.0-preview.2: the sub-agent manager is opt-in with the rest of the preview.
+let agentManager = null;
+if (PREVIEW_ENABLED) {
+  agentManager = new AgentManager({
+    agentsDir: AGENTS_DIR,
+    defaultWorkspace: PRIMARY_ROOT,
+    mode: MODE,
+    policy: AGENT_POLICY
+  });
+  await agentManager.init();
+}
 
 let metrics = loadMetrics();
 
@@ -331,6 +349,8 @@ if (DASHBOARD_PORT > 0) {
       if (url.pathname === "/api/clear-metrics" && req.method === "POST") return void dashApiClearMetrics(res);
       if (url.pathname === "/api/v5") return void dashApiV5(url, res);
       if (url.pathname === "/api/report" && req.method === "GET") return void dashApiReport(url, res);
+      if (url.pathname === "/api/agents" && req.method === "GET") return void dashApiAgents(url, res);
+      if (url.pathname === "/api/agent" && req.method === "GET") return void dashApiAgent(url, res);
       if (url.pathname === "/") {
         res.writeHead(302, { Location: "/ui" });
         return res.end();
@@ -2857,6 +2877,55 @@ async function dashApiV5(url, res) {
   }
 }
 
+// v5.0.0-preview.2: local-only dashboard list of sub-agent tasks (metadata only).
+function dashApiAgents(url, res) {
+  try {
+    if (!agentManager) return sendJson(res, 200, { enabled: false, agents: [], roles: [] });
+    const status = url.searchParams.get("status") || undefined;
+    const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 100), 1), 200);
+    return sendJson(res, 200, {
+      enabled: true,
+      preview_version: PREVIEW_VERSION,
+      roles: Object.values(ROLES).map((r) => r.name),
+      providers: detectProviders(),
+      agents: agentManager.list({ status, limit })
+    });
+  } catch (error) {
+    return sendJson(res, 500, { error: error?.message || "error" });
+  }
+}
+
+// Serve one sub-agent's compact result to the loopback dashboard (truncated).
+async function dashApiAgent(url, res) {
+  try {
+    if (!agentManager) return sendJson(res, 404, { error: "preview_disabled" });
+    const id = url.searchParams.get("id") || "";
+    if (!AGENT_ID_RE.test(id)) return sendJson(res, 400, { error: "invalid agent id" });
+    const maxChars = Math.min(Math.max(Number(url.searchParams.get("max_chars") || 8000), 200), 50000);
+    const meta = agentManager.get(id);
+    if (!meta) return sendJson(res, 404, { error: "not_found" });
+    const result = await agentManager.result(id, maxChars);
+    return sendJson(res, 200, {
+      agent_id: meta.agent_id,
+      role: meta.role,
+      title: meta.title,
+      status: meta.status,
+      created_at: meta.created_at,
+      updated_at: meta.updated_at,
+      workspace_root: meta.workspace_root,
+      summary: meta.summary || "",
+      report_path: meta.report_path || null,
+      log_path: meta.log_path || null,
+      truncated: result.truncated,
+      total_chars: result.total_chars,
+      content: result.content,
+      error: meta.error || null
+    });
+  } catch (error) {
+    return sendJson(res, 500, { error: error?.message || "error" });
+  }
+}
+
 // Serve a slice of one stored report to the loopback dashboard (paginated).
 async function dashApiReport(url, res) {
   try {
@@ -3052,6 +3121,13 @@ function dashboardHtml() {
         <span class="dim" id="v5pageinfo" style="margin-left:8px"></span>
       </div>
       <div class="note">Reports paginate (max 20/page) so the dashboard never renders thousands of DOM rows at once. Open a stored report with the CLI/report path; local only, never tunneled.</div>
+    </div>
+    <div class="panel" style="margin:12px 0 0">
+      <h3>Local sub-agents <span class="pill" style="background:#7c2d12;color:#fed7aa">EXPERIMENTAL</span> <span class="dim" id="v5agcount"></span></h3>
+      <div class="note">ChatGPT khong chay sub-agent that o day; no goi tool MCP, server chay va theo doi sub-agent cuc bo. / ChatGPT does not run native sub-agents; it calls MCP tools and the server runs/tracks them locally.</div>
+      <table id="v5agents" style="margin-top:8px"></table>
+      <div id="v5agentview" class="dim" style="margin-top:8px">Click an agent id to load its latest 200 lines (local only).</div>
+      <pre class="ide-body" id="v5agentbody" style="display:none;max-height:280px;overflow:auto"></pre>
     </div>
   </div>
 
@@ -3284,7 +3360,36 @@ function v5Page(dir){
   v5Off=n; loadV5();
 }
 loadTree();
+function agBadge(s){
+  var c={queued:'#64748b',running:'#0ea5e9',done:'#22c55e',failed:'#ef4444',cancelled:'#a855f7'}[s]||'#64748b';
+  return '<span style="background:'+c+';color:#04121a;padding:1px 7px;border-radius:9px;font-size:11px;font-weight:700">'+esc(s)+'</span>';
+}
+async function loadAgents(){
+  try{
+    var r=await fetch('/api/agents?limit=100',{cache:'no-store'}); var d=await r.json();
+    if(!d.enabled){ document.getElementById('v5agents').innerHTML='<tr><td class="dim">Set AGENT_V5_PREVIEW=1 to enable sub-agents.</td></tr>'; return; }
+    document.getElementById('v5agcount').textContent='('+(d.agents?d.agents.length:0)+')';
+    var th='<tr><th style="text-align:left">agent</th><th style="text-align:left">role</th><th>status</th><th style="text-align:left">summary</th></tr>';
+    (d.agents||[]).forEach(function(a){
+      th+='<tr><td><span class="btn" onclick="loadAgent(\''+esc(a.agent_id)+'\')">'+esc(a.agent_id)+'</span></td>'+
+          '<td>'+esc(a.role)+'</td><td style="text-align:center">'+agBadge(a.status)+'</td>'+
+          '<td class="dim">'+esc((a.summary||'').slice(0,90))+'</td></tr>';
+    });
+    document.getElementById('v5agents').innerHTML=(d.agents&&d.agents.length)?th:'<tr><td class="dim">No sub-agents yet. Ask ChatGPT to call spawn_agent, or use the CLI.</td></tr>';
+  }catch(e){}
+}
+async function loadAgent(id){
+  try{
+    var r=await fetch('/api/agent?id='+encodeURIComponent(id)+'&max_chars=20000',{cache:'no-store'}); var d=await r.json();
+    var body=document.getElementById('v5agentbody');
+    if(d.error){ body.style.display='block'; body.textContent='Error: '+d.error; return; }
+    document.getElementById('v5agentview').textContent=d.title+' - '+d.status+(d.report_path?(' - report: '+d.report_path):'');
+    body.style.display='block';
+    body.textContent=(d.content||'(no output)')+(d.truncated?('\n...[truncated '+d.total_chars+' chars - open the local report path]'):'');
+  }catch(e){}
+}
 loadV5(); setInterval(loadV5,5000);
+loadAgents(); setInterval(loadAgents,5000);
 tick(); setInterval(tick,2500);
 </script>
 </body>
@@ -5410,8 +5515,14 @@ function registerPreviewTools(mcp) {
         reports_dir: REPORTS_DIR,
         reports_count: index.length,
         recent_errors: recentErrors,
+        agents: {
+          agents_dir: AGENTS_DIR,
+          count: agentManager ? agentManager.list({ limit: 500 }).length : 0,
+          roles: Object.values(ROLES).map((r) => ({ name: r.name, description: r.description })),
+          providers: detectProviders()
+        },
         workflow_hint:
-          "For long logs/output, call save_report(title, content) instead of pasting it into chat. Share the returned id and the dashboard link; use read_report(id) to page through it only if needed."
+          "For long logs/output, call save_report(title, content) instead of pasting it into chat. For multi-step specialist work, call spawn_agent(role, task) and read compact results with get_agent_result. Full output stays local."
       });
     }
   );
@@ -5507,6 +5618,134 @@ function registerPreviewTools(mcp) {
         dashboard_url: dashboardUrl,
         reports: index.slice(0, limit).map((e) => ({ id: e.id, title: e.title, kind: e.kind, bytes: e.bytes, lines: e.lines, created_at: e.created_at }))
       });
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // v5.0.0-preview.2 Local Sub-Agent Manager tools.
+  // ChatGPT Web does NOT run native sub-agents. It calls these tools; the server
+  // runs and tracks sub-agent tasks locally and returns compact summaries.
+  // --------------------------------------------------------------------------
+  const ROLE_NAMES = Object.keys(ROLES);
+  const agentsHint = "Full logs/reports stay local; use get_agent_result (compact) or the dashboard v5 Agents panel.";
+
+  reg(
+    mcp,
+    "spawn_agent",
+    {
+      title: "Spawn local sub-agent",
+      description:
+        "Start a local specialist sub-agent task. The server runs and tracks it locally and stores heavy output on disk; ChatGPT only gets a compact status. Roles: " +
+        ROLE_NAMES.join(", ") + ".",
+      inputSchema: {
+        role: z.enum(ROLE_NAMES).describe("Specialist role."),
+        title: z.string().max(200).optional().describe("Short title for the task."),
+        task: z.string().min(1).max(8000).describe("What the sub-agent should do."),
+        workspace_root: z.string().optional().describe("Workspace root (defaults to the server's primary root)."),
+        max_runtime_ms: z.number().int().min(1000).max(600000).optional().describe("Optional runtime bound."),
+        dry_run: z.boolean().optional().describe("Validate + plan without executing work.")
+      }
+    },
+    async ({ role, title, task, workspace_root, max_runtime_ms, dry_run }) => {
+      const rootOk = workspace_root ? ROOTS.some((r) => comparePath(workspace_root).startsWith(comparePath(r))) : true;
+      if (!rootOk) throw new Error("workspace_root must be inside the configured roots.");
+      const res = await agentManager.spawn({ role, title, task, workspace_root, max_runtime_ms, dry_run });
+      return jsonResult({
+        agent_id: res.agent_id,
+        role: res.role,
+        status: res.status,
+        dashboard_url: dashboardUrl,
+        message: `Sub-agent ${res.status}. ${agentsHint} Check with get_agent_status/get_agent_result(agent_id=${res.agent_id}).`
+      });
+    }
+  );
+
+  reg(
+    mcp,
+    "list_agents",
+    {
+      title: "List local sub-agents",
+      description: "List local sub-agent tasks (metadata only, most recent first).",
+      inputSchema: {
+        status: z.enum(["queued", "running", "done", "failed", "cancelled"]).optional().describe("Filter by status."),
+        limit: z.number().int().min(1).max(200).optional().describe("Max entries (default 20).")
+      }
+    },
+    async ({ status, limit = 20 }) => {
+      const agents = agentManager.list({ status, limit });
+      return jsonResult({ count: agents.length, dashboard_url: dashboardUrl, agents });
+    }
+  );
+
+  reg(
+    mcp,
+    "get_agent_status",
+    {
+      title: "Get sub-agent status",
+      description: "Return the full status metadata for one local sub-agent (no heavy output).",
+      inputSchema: { agent_id: z.string().regex(AGENT_ID_RE, "Invalid agent id.") }
+    },
+    async ({ agent_id }) => {
+      const meta = agentManager.get(agent_id);
+      if (!meta) throw new Error(`No agent with id ${agent_id}. Use list_agents.`);
+      return jsonResult({
+        agent_id: meta.agent_id,
+        role: meta.role,
+        title: meta.title,
+        status: meta.status,
+        created_at: meta.created_at,
+        updated_at: meta.updated_at,
+        workspace_root: meta.workspace_root,
+        mode: meta.mode,
+        policy: meta.policy,
+        summary: meta.summary || "",
+        has_report: Boolean(meta.report_path),
+        has_log: Boolean(meta.log_path),
+        error: meta.error || null
+      });
+    }
+  );
+
+  reg(
+    mcp,
+    "get_agent_result",
+    {
+      title: "Get sub-agent result (compact)",
+      description:
+        "Return a COMPACT sub-agent result: summary + local report/log paths + a truncated slice. Full output stays local to keep the ChatGPT thread fast.",
+      inputSchema: {
+        agent_id: z.string().regex(AGENT_ID_RE, "Invalid agent id."),
+        max_chars: z.number().int().min(200).max(50000).optional().describe("Cap on returned content (default 2000).")
+      }
+    },
+    async ({ agent_id, max_chars = 2000 }) => {
+      const res = await agentManager.result(agent_id, max_chars);
+      return jsonResult({
+        agent_id: res.agent_id,
+        status: res.status,
+        summary: res.summary,
+        report_path: res.report_path,
+        log_path: res.log_path,
+        dashboard_url: dashboardUrl,
+        truncated: res.truncated,
+        total_chars: res.total_chars,
+        content: res.content,
+        error: res.error
+      });
+    }
+  );
+
+  reg(
+    mcp,
+    "cancel_agent",
+    {
+      title: "Cancel local sub-agent",
+      description: "Cancel a queued/running local sub-agent. Terminal agents are returned unchanged.",
+      inputSchema: { agent_id: z.string().regex(AGENT_ID_RE, "Invalid agent id.") }
+    },
+    async ({ agent_id }) => {
+      const res = await agentManager.cancel(agent_id);
+      return jsonResult(res);
     }
   );
 }

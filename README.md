@@ -255,6 +255,29 @@ Stable v4 behavior is unchanged when the flag is off.
 
 Full guide: [docs/V5_PREVIEW.md](docs/V5_PREVIEW.md).
 
+#### v5.0.0-preview.2: Local Sub-Agent Manager
+
+> **ChatGPT Web does not run native sub-agents here. ChatGPT calls MCP tools;
+> Local Coding Agent runs and tracks sub-agent tasks locally.**
+
+When the preview is enabled, the server can run specialist "sub-agent" tasks
+locally and keep their heavy logs/reports on your machine. ChatGPT only receives
+a compact status + summary + a local path.
+
+- **MCP tools:** `spawn_agent`, `list_agents`, `get_agent_status`,
+  `get_agent_result` (compact, `max_chars`), `cancel_agent`.
+- **Roles:** `repo_setup_agent`, `bug_fix_agent`, `network_doctor_agent`,
+  `release_agent`, `readme_agent`, `security_review_agent`.
+- **Dashboard:** a **Local sub-agents** panel (status badges, roles, summaries,
+  click an id to load the latest lines locally).
+- **CLI:** `node scripts/local-coding-agent.mjs agents list|roles|spawn|clean`.
+
+Reports/logs are stored under `server/data/workspaces/<id>/agents/` and are
+redacted (keys, tokens, tunnel ids) before writing. Provider `script_runner` is
+implemented; `claude_cli`/`codex_cli`/`openai_api` are detected but not yet run.
+
+Full guide: [docs/V5_SUBAGENTS.md](docs/V5_SUBAGENTS.md).
+
 ### Features
 
 | Area | What it does |
@@ -544,6 +567,29 @@ Khi tắt cờ, hành vi ổn định của v4 không đổi.
    `read_report`.
 
 Hướng dẫn đầy đủ: [docs/V5_PREVIEW.md](docs/V5_PREVIEW.md).
+
+#### v5.0.0-preview.2: Trình quản lý sub-agent cục bộ
+
+> **ChatGPT Web không chạy sub-agent thật ở đây. ChatGPT gọi tool MCP; Local
+> Coding Agent chạy và theo dõi các tác vụ sub-agent cục bộ.**
+
+Khi bật preview, server có thể chạy các tác vụ "sub-agent" chuyên biệt ngay tại
+máy và giữ log/report nặng ở máy bạn. ChatGPT chỉ nhận trạng thái gọn + tóm tắt
++ đường dẫn cục bộ.
+
+- **Tool MCP:** `spawn_agent`, `list_agents`, `get_agent_status`,
+  `get_agent_result` (gọn, `max_chars`), `cancel_agent`.
+- **Vai trò:** `repo_setup_agent`, `bug_fix_agent`, `network_doctor_agent`,
+  `release_agent`, `readme_agent`, `security_review_agent`.
+- **Dashboard:** bảng **Local sub-agents** (huy hiệu trạng thái, vai trò, tóm
+  tắt, bấm id để tải các dòng mới nhất tại máy).
+- **CLI:** `node scripts/local-coding-agent.mjs agents list|roles|spawn|clean`.
+
+Report/log lưu tại `server/data/workspaces/<id>/agents/` và được redact (key,
+token, tunnel id) trước khi ghi. Provider `script_runner` đã có;
+`claude_cli`/`codex_cli`/`openai_api` được phát hiện nhưng chưa chạy.
+
+Hướng dẫn đầy đủ: [docs/V5_SUBAGENTS.md](docs/V5_SUBAGENTS.md).
 
 ### Tính Năng
 
