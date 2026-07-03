@@ -3406,7 +3406,7 @@ function renderAgFilter(){
   ['all','running','queued','done','failed','cancelled'].forEach(function(k){
     if(k!=='all'&&!counts[k]) return;
     var on=(agFilter===k);
-    html+='<span class="btn" onclick="agSetFilter(\''+k+'\')" style="'+(on?'background:#134e4a;border-color:#2dd4bf;color:#5eead4':'')+'">'+k+' '+counts[k]+'</span>';
+    html+='<span class="btn agchip" data-k="'+k+'" style="'+(on?'background:#134e4a;border-color:#2dd4bf;color:#5eead4':'')+'">'+k+' '+counts[k]+'</span>';
   });
   document.getElementById('v5agfilter').innerHTML=html;
 }
@@ -3415,7 +3415,7 @@ function renderAgTable(){
   var rows=agAll.filter(function(a){ return agFilter==='all'||a.status===agFilter; });
   var th='<tr><th style="text-align:left">agent</th><th style="text-align:left">role</th><th style="text-align:left">title</th><th>status</th><th>time</th></tr>';
   rows.forEach(function(a){
-    th+='<tr><td><span class="btn" onclick="agOpen(\''+esc(a.agent_id)+'\')">'+esc(a.agent_id.slice(0,10))+'</span></td>'+
+    th+='<tr><td><span class="btn agopen" data-id="'+esc(a.agent_id)+'">'+esc(a.agent_id.slice(0,10))+'</span></td>'+
         '<td>'+esc(a.role)+'</td>'+
         '<td class="dim">'+esc((a.title||'').slice(0,46))+'</td>'+
         '<td style="text-align:center">'+agBadge(a.status)+'</td>'+
@@ -3452,6 +3452,8 @@ async function agFetch(){
     document.getElementById('v5agmeta').textContent='lines '+(v.offset+1)+'-'+(v.offset+v.returned_lines)+' of '+v.total_lines+(v.has_more?' (more below)':'');
   }catch(e){ body.textContent='offline'; }
 }
+document.getElementById('v5agfilter').addEventListener('click',function(e){ var k=e.target.getAttribute('data-k'); if(k) agSetFilter(k); });
+document.getElementById('v5agents').addEventListener('click',function(e){ var id=e.target.getAttribute('data-id'); if(id) agOpen(id); });
 loadV5(); setInterval(loadV5,5000);
 loadAgents(); setInterval(loadAgents,5000);
 tick(); setInterval(tick,2500);
