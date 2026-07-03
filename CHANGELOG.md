@@ -27,6 +27,10 @@ Improves the dashboard Local sub-agents panel (still gated behind
   now state plainly that the tools run a local deterministic planner and do NOT
   execute shell commands, spawn processes, or access the network. The manager,
   dashboard, and CLI are unchanged.
+- Renamed roles to plain, benign names for the same reason (dropped `_agent`,
+  softened `doctor`/`security`): `repo_setup`, `bug_fix`, `network_check`,
+  `release_prep`, `docs_update`, `safety_review`. `create_local_task`'s
+  description was shortened to a short, boring line.
 - Fixed a dashboard blank-page bug: agents filter/rows built `onclick` handlers
   with `\'` inside the HTML template literal, producing invalid browser JS that
   broke the whole inline script. Switched to `data-*` attributes + delegated

@@ -52,12 +52,12 @@ full content.
 
 | Role | What it does |
 |---|---|
-| `repo_setup_agent` | Install / verify / diagnose setup problems |
-| `bug_fix_agent` | Investigate errors, point at files, propose a focused fix plan |
-| `network_doctor_agent` | Network / customer diagnostics, redacted report |
-| `release_agent` | Changelog, version notes, build checklist, readiness report |
-| `readme_agent` | Bilingual VI/EN doc updates with matching content |
-| `security_review_agent` | Permission risks, token leaks, unsafe commands, tunnel exposure, redaction |
+| `repo_setup` | Install / verify / diagnose setup problems |
+| `bug_fix` | Investigate errors, point at files, propose a focused fix plan |
+| `network_check` | Network / customer diagnostics, redacted report |
+| `release_prep` | Changelog, version notes, build checklist, readiness report |
+| `docs_update` | Bilingual VI/EN doc updates with matching content |
+| `safety_review` | Permission risks, token leaks, unsafe commands, tunnel exposure, redaction |
 
 ### Agent states
 
@@ -87,7 +87,7 @@ sub-agents** panel:
 
 ```bash
 node scripts/local-coding-agent.mjs agents roles
-node scripts/local-coding-agent.mjs agents spawn --role network_doctor_agent --task "diagnose office network"
+node scripts/local-coding-agent.mjs agents spawn --role network_check --task "diagnose office network"
 node scripts/local-coding-agent.mjs agents list
 node scripts/local-coding-agent.mjs agents clean --days 7
 ```
@@ -178,12 +178,12 @@ Mọi tool **gọn mặc định**. `get_local_task_result` cắt theo `max_char
 
 | Vai trò | Làm gì |
 |---|---|
-| `repo_setup_agent` | Cài / kiểm tra / chẩn đoán lỗi setup |
-| `bug_fix_agent` | Điều tra lỗi, chỉ ra file, đề xuất kế hoạch sửa gọn |
-| `network_doctor_agent` | Chẩn đoán mạng / khách, report đã redact |
-| `release_agent` | Changelog, ghi chú phiên bản, checklist build, báo cáo sẵn sàng |
-| `readme_agent` | Cập nhật tài liệu song ngữ VI/EN khớp nội dung |
-| `security_review_agent` | Rủi ro quyền, lộ token, lệnh nguy hiểm, expose tunnel, redaction |
+| `repo_setup` | Cài / kiểm tra / chẩn đoán lỗi setup |
+| `bug_fix` | Điều tra lỗi, chỉ ra file, đề xuất kế hoạch sửa gọn |
+| `network_check` | Chẩn đoán mạng / khách, report đã redact |
+| `release_prep` | Changelog, ghi chú phiên bản, checklist build, báo cáo sẵn sàng |
+| `docs_update` | Cập nhật tài liệu song ngữ VI/EN khớp nội dung |
+| `safety_review` | Rủi ro quyền, lộ token, lệnh nguy hiểm, expose tunnel, redaction |
 
 ### Trạng thái agent
 
@@ -212,7 +212,7 @@ Mở `http://127.0.0.1:8790/ui`, kéo tới bảng **v5 preview → Local sub-ag
 
 ```bash
 node scripts/local-coding-agent.mjs agents roles
-node scripts/local-coding-agent.mjs agents spawn --role network_doctor_agent --task "chan doan mang cong ty"
+node scripts/local-coding-agent.mjs agents spawn --role network_check --task "chan doan mang cong ty"
 node scripts/local-coding-agent.mjs agents list
 node scripts/local-coding-agent.mjs agents clean --days 7
 ```

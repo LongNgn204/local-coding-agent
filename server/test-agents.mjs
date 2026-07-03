@@ -67,7 +67,7 @@ test("truncateForChat caps long text and flags truncation", () => {
 });
 
 test("getRole validates roles", () => {
-  assert.equal(getRole("bug_fix_agent").name, "bug_fix_agent");
+  assert.equal(getRole("bug_fix").name, "bug_fix");
   assert.throws(() => getRole("nope_agent"), /Unknown role/);
   assert.equal(Object.keys(ROLES).length, 6);
 });
@@ -81,7 +81,7 @@ test("makeLocalReportPath rejects bad ids", () => {
 
 test("spawn -> settle produces a done agent with local files", async () => {
   const { mgr } = await freshManager();
-  const spawned = await mgr.spawn({ role: "repo_setup_agent", title: "setup check", task: "verify install" });
+  const spawned = await mgr.spawn({ role: "repo_setup", title: "setup check", task: "verify install" });
   assert.match(spawned.agent_id, AGENT_ID_RE);
   assert.ok(["running", "queued"].includes(spawned.status));
   const settled = await mgr.settle(spawned.agent_id);
@@ -97,13 +97,13 @@ test("invalid role rejected at spawn", async () => {
 
 test("missing task rejected", async () => {
   const { mgr } = await freshManager();
-  await assert.rejects(() => mgr.spawn({ role: "readme_agent", title: "x", task: "   " }), /task is required/);
+  await assert.rejects(() => mgr.spawn({ role: "docs_update", title: "x", task: "   " }), /task is required/);
 });
 
 test("list filters by status and limit", async () => {
   const { mgr } = await freshManager();
-  const a = await mgr.spawn({ role: "readme_agent", title: "a", task: "t1" });
-  const b = await mgr.spawn({ role: "release_agent", title: "b", task: "t2" });
+  const a = await mgr.spawn({ role: "docs_update", title: "a", task: "t1" });
+  const b = await mgr.spawn({ role: "release_prep", title: "b", task: "t2" });
   await mgr.settle(a.agent_id);
   await mgr.settle(b.agent_id);
   const all = mgr.list({ limit: 10 });
@@ -116,15 +116,15 @@ test("list filters by status and limit", async () => {
 
 test("get returns metadata; unknown returns null", async () => {
   const { mgr } = await freshManager();
-  const s = await mgr.spawn({ role: "bug_fix_agent", title: "bug", task: "npe" });
+  const s = await mgr.spawn({ role: "bug_fix", title: "bug", task: "npe" });
   await mgr.settle(s.agent_id);
-  assert.equal(mgr.get(s.agent_id).role, "bug_fix_agent");
+  assert.equal(mgr.get(s.agent_id).role, "bug_fix");
   assert.equal(mgr.get("a_0000000000000000"), null);
 });
 
 test("result truncates and reads the local report", async () => {
   const { mgr } = await freshManager();
-  const s = await mgr.spawn({ role: "network_doctor_agent", title: "net", task: "diagnose office network" });
+  const s = await mgr.spawn({ role: "network_check", title: "net", task: "diagnose office network" });
   await mgr.settle(s.agent_id);
   const full = await mgr.result(s.agent_id, 100000);
   assert.equal(full.source, "report");
@@ -138,7 +138,7 @@ test("result truncates and reads the local report", async () => {
 test("reports redact secrets embedded in the task", async () => {
   const { mgr } = await freshManager();
   const secret = "sk-proj-DEADBEEF1234567890";
-  const s = await mgr.spawn({ role: "bug_fix_agent", title: "leak", task: `error mentions key ${secret}` });
+  const s = await mgr.spawn({ role: "bug_fix", title: "leak", task: `error mentions key ${secret}` });
   const settled = await mgr.settle(s.agent_id);
   const report = await readFile(settled.report_path, "utf8");
   assert.doesNotMatch(report, /DEADBEEF1234567890/);
@@ -147,7 +147,7 @@ test("reports redact secrets embedded in the task", async () => {
 
 test("cancel right after spawn yields cancelled with no files", async () => {
   const { mgr } = await freshManager();
-  const s = await mgr.spawn({ role: "release_agent", title: "rel", task: "prep release" });
+  const s = await mgr.spawn({ role: "release_prep", title: "rel", task: "prep release" });
   const res = await mgr.cancel(s.agent_id);
   assert.equal(res.status, "cancelled");
   const meta = mgr.get(s.agent_id);
@@ -162,7 +162,7 @@ test("cancel right after spawn yields cancelled with no files", async () => {
 test("cancel on unknown throws; cancel on terminal is idempotent", async () => {
   const { mgr } = await freshManager();
   await assert.rejects(() => mgr.cancel("a_0000000000000000"), /No agent/);
-  const s = await mgr.spawn({ role: "readme_agent", title: "d", task: "docs" });
+  const s = await mgr.spawn({ role: "docs_update", title: "d", task: "docs" });
   await mgr.settle(s.agent_id);
   const again = await mgr.cancel(s.agent_id);
   assert.equal(again.status, "done");
@@ -171,7 +171,7 @@ test("cancel on unknown throws; cancel on terminal is idempotent", async () => {
 
 test("readArtifact paginates report and log; handles missing", async () => {
   const { mgr } = await freshManager();
-  const s = await mgr.spawn({ role: "release_agent", title: "big", task: "prep release" });
+  const s = await mgr.spawn({ role: "release_prep", title: "big", task: "prep release" });
   await mgr.settle(s.agent_id);
   const p1 = await mgr.readArtifact(s.agent_id, "report", { offset: 0, limit: 3 });
   assert.equal(p1.exists, true);
@@ -185,7 +185,7 @@ test("readArtifact paginates report and log; handles missing", async () => {
   assert.equal(logView.kind, "log");
   assert.equal(logView.exists, true);
   // cancelled agent has no files -> exists false, no throw
-  const c = await mgr.spawn({ role: "readme_agent", title: "c", task: "x" });
+  const c = await mgr.spawn({ role: "docs_update", title: "c", task: "x" });
   await mgr.cancel(c.agent_id);
   const none = await mgr.readArtifact(c.agent_id, "report");
   assert.equal(none.exists, false);
@@ -194,7 +194,7 @@ test("readArtifact paginates report and log; handles missing", async () => {
 
 test("dry_run validates without executing", async () => {
   const { mgr } = await freshManager();
-  const s = await mgr.spawn({ role: "security_review_agent", title: "sec", task: "review", dry_run: true });
+  const s = await mgr.spawn({ role: "safety_review", title: "sec", task: "review", dry_run: true });
   assert.equal(s.status, "done");
   assert.equal(mgr.get(s.agent_id).report_path, null);
   const r = await mgr.result(s.agent_id);
@@ -203,7 +203,7 @@ test("dry_run validates without executing", async () => {
 
 test("clean removes old terminal agents", async () => {
   const { mgr } = await freshManager();
-  const s = await mgr.spawn({ role: "readme_agent", title: "old", task: "t" });
+  const s = await mgr.spawn({ role: "docs_update", title: "old", task: "t" });
   await mgr.settle(s.agent_id);
   // Force it to look old.
   mgr.get(s.agent_id);

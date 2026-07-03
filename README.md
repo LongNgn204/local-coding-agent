@@ -266,8 +266,8 @@ a compact status + summary + a local path.
 
 - **MCP tools:** `create_local_task`, `list_local_tasks`, `get_local_task_status`,
   `get_local_task_result` (compact, `max_chars`), `cancel_local_task`.
-- **Roles:** `repo_setup_agent`, `bug_fix_agent`, `network_doctor_agent`,
-  `release_agent`, `readme_agent`, `security_review_agent`.
+- **Roles:** `repo_setup`, `bug_fix`, `network_check`,
+  `release_prep`, `docs_update`, `safety_review`.
 - **Dashboard:** a **Local sub-agents** panel (status badges, roles, summaries,
   click an id to load the latest lines locally).
 - **CLI:** `node scripts/local-coding-agent.mjs agents list|roles|spawn|clean`.
@@ -579,8 +579,8 @@ máy và giữ log/report nặng ở máy bạn. ChatGPT chỉ nhận trạng th
 
 - **Tool MCP:** `create_local_task`, `list_local_tasks`, `get_local_task_status`,
   `get_local_task_result` (gọn, `max_chars`), `cancel_local_task`.
-- **Vai trò:** `repo_setup_agent`, `bug_fix_agent`, `network_doctor_agent`,
-  `release_agent`, `readme_agent`, `security_review_agent`.
+- **Vai trò:** `repo_setup`, `bug_fix`, `network_check`,
+  `release_prep`, `docs_update`, `safety_review`.
 - **Dashboard:** bảng **Local sub-agents** (huy hiệu trạng thái, vai trò, tóm
   tắt, bấm id để tải các dòng mới nhất tại máy).
 - **CLI:** `node scripts/local-coding-agent.mjs agents list|roles|spawn|clean`.

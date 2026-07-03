@@ -97,8 +97,8 @@ export function workspaceAgentsDir(dataDir, workspaceRoot) {
 // Specialist roles
 // ----------------------------------------------------------------------------
 export const ROLES = {
-  repo_setup_agent: {
-    name: "repo_setup_agent",
+  repo_setup: {
+    name: "repo_setup",
     description: "Helps install, verify, and diagnose Local Coding Agent setup problems.",
     allowed_task_type: "setup/install/verify diagnosis",
     safety_notes: [
@@ -108,8 +108,8 @@ export const ROLES = {
     ],
     default_output: "checklist"
   },
-  bug_fix_agent: {
-    name: "bug_fix_agent",
+  bug_fix: {
+    name: "bug_fix",
     description: "Investigates errors, points at relevant files, and proposes a focused fix plan.",
     allowed_task_type: "bug investigation / focused fix plan",
     safety_notes: [
@@ -119,8 +119,8 @@ export const ROLES = {
     ],
     default_output: "investigation report"
   },
-  network_doctor_agent: {
-    name: "network_doctor_agent",
+  network_check: {
+    name: "network_check",
     description: "Runs network/customer diagnostics and writes a redacted report.",
     allowed_task_type: "network/customer diagnostics",
     safety_notes: [
@@ -129,8 +129,8 @@ export const ROLES = {
     ],
     default_output: "redacted diagnostic report"
   },
-  release_agent: {
-    name: "release_agent",
+  release_prep: {
+    name: "release_prep",
     description: "Prepares changelog, version notes, build checklist, and a release-readiness report.",
     allowed_task_type: "release preparation",
     safety_notes: [
@@ -139,8 +139,8 @@ export const ROLES = {
     ],
     default_output: "release readiness checklist"
   },
-  readme_agent: {
-    name: "readme_agent",
+  docs_update: {
+    name: "docs_update",
     description: "Updates bilingual Vietnamese/English docs with matching content.",
     allowed_task_type: "documentation update",
     safety_notes: [
@@ -149,8 +149,8 @@ export const ROLES = {
     ],
     default_output: "doc update plan"
   },
-  security_review_agent: {
-    name: "security_review_agent",
+  safety_review: {
+    name: "safety_review",
     description: "Checks permission risks, token leaks, unsafe commands, public tunnel exposure, and log redaction.",
     allowed_task_type: "security review",
     safety_notes: [
@@ -189,40 +189,40 @@ function envSnapshot(meta) {
 }
 
 const ROLE_PLAYBOOK = {
-  repo_setup_agent: () => [
+  repo_setup: () => [
     "1. Check `node -v` is >= 18.",
     "2. Install: `scripts\\lca.cmd install` (Windows) or `bash scripts/lca install`.",
     "3. Configure a workspace and start with `--no-tunnel` for a first check.",
     "4. Verify health at http://127.0.0.1:8787/healthz and dashboard at :8790/ui.",
     "5. Run `npm run test:agent` from server/."
   ],
-  bug_fix_agent: () => [
+  bug_fix: () => [
     "1. Reproduce the error and capture the exact message + stack.",
     "2. Locate the relevant files with search_text / repo_symbols.",
     "3. Read only the needed line ranges.",
     "4. Draft a minimal fix; validate with preview_patch/validate_patch.",
     "5. Run run_changed_tests after applying."
   ],
-  network_doctor_agent: () => [
+  network_check: () => [
     "1. Run `node scripts/network-doctor.mjs` on the failing network.",
     "2. Check DNS, TCP 443, TLS, local health (8787) and dashboard (8790).",
     "3. Inspect proxy env vars; confirm no public tunnel without MCP_AUTH_TOKEN.",
     "4. Send the redacted network-doctor-report.txt to the developer."
   ],
-  release_agent: () => [
+  release_prep: () => [
     "1. Run test:agent, test:pro, test:security, validate-skills.",
     "2. Confirm version constants (stable + PREVIEW_VERSION).",
     "3. Update CHANGELOG with a dated, clearly-labeled section.",
     "4. Confirm preview flags default to off (stable behavior unchanged).",
     "5. Only tag/publish after maintainer approval."
   ],
-  readme_agent: () => [
+  docs_update: () => [
     "1. Identify the English section to change.",
     "2. Mirror the same meaning in the Vietnamese section.",
     "3. Keep PowerShell snippets ASCII-only.",
     "4. Cross-link related docs."
   ],
-  security_review_agent: () => [
+  safety_review: () => [
     "1. Check for tokens/keys in code, logs, and reports (should be redacted).",
     "2. Review command execution paths and mode/policy gates.",
     "3. Confirm the server binds loopback and is not on a public tunnel without auth.",

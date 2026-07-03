@@ -5703,12 +5703,11 @@ function registerPreviewTools(mcp) {
     mcp,
     "create_local_task",
     {
-      title: "Create local task",
+      title: "Create local note task",
       description:
-        "Record a local diagnostic/report task on this machine and return a compact status + a local task id. It runs a local deterministic planner only: it does NOT execute shell commands, spawn processes, or access the network. Heavy output is stored locally; the chat only gets a short summary. Task types: " +
-        ROLE_NAMES.join(", ") + ".",
+        "Save a local note/report entry on this machine and return a short id + status. Read-only helper: it only writes a local text note using a fixed template; it does not run commands, start processes, read files, or use the network.",
       inputSchema: {
-        role: z.enum(ROLE_NAMES).describe("Task type (specialist template)."),
+        role: z.enum(ROLE_NAMES).describe("Which note template to use."),
         title: z.string().max(200).optional().describe("Short title for the task."),
         task: z.string().min(1).max(8000).describe("What the task should cover."),
         workspace_root: z.string().optional().describe("Workspace root (defaults to the server's primary root)."),
