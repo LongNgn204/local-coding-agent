@@ -2456,6 +2456,8 @@ function metricsSnapshot() {
   const uptimeMinutes = Math.max((Date.now() - bootStartedAt) / 60000, 1 / 60);
   return {
     version: VERSION,
+    preview_version: PREVIEW_VERSION,
+    preview_enabled: PREVIEW_ENABLED,
     tier: PRODUCT_TIER,
     mode: MODE,
     policy: AGENT_POLICY,
@@ -3216,7 +3218,7 @@ function renderCards(d){
   html+=card('Uptime', fmtDur(d.uptime_sec||0), 'mode '+d.mode);
   html+=card('Tiến trình nền', h(d.running_processes), 'đang chạy');
   document.getElementById('cards').innerHTML=html;
-  document.getElementById('ver').textContent='v'+(d.version||'');
+  document.getElementById('ver').textContent = d.preview_enabled ? ('v'+d.preview_version+' (core v'+(d.version||'')+')') : ('v'+(d.version||''));
   document.getElementById('modePill').textContent=(d.mode||'')+' mode - '+(d.policy||'balanced')+' policy';
   document.getElementById('since').textContent=d.since? new Date(d.since).toLocaleString():'-';
   document.getElementById('roots').innerHTML=(d.roots||[]).map(function(r){return esc(r);}).join('<br>')||'-';

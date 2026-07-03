@@ -400,7 +400,10 @@ public sealed class MainForm : Form
             var root = doc.RootElement;
             var ver = root.TryGetProperty("version", out var v) ? v.GetString() : "?";
             var mode = root.TryGetProperty("mode", out var m) ? m.GetString() : "?";
-            status = $"● Server: ONLINE v{ver} ({mode})   Tunnel: {(_sup.TunnelRunning ? "running" : "stopped")}";
+            var previewOn = root.TryGetProperty("preview_enabled", out var pe) && pe.ValueKind == JsonValueKind.True;
+            var previewVer = root.TryGetProperty("preview_version", out var pv) ? pv.GetString() : null;
+            var shown = previewOn && !string.IsNullOrEmpty(previewVer) ? $"{previewVer} (core {ver})" : ver;
+            status = $"● Server: ONLINE v{shown} ({mode})   Tunnel: {(_sup.TunnelRunning ? "running" : "stopped")}";
         }
         catch
         {
