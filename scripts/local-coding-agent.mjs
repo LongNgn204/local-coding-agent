@@ -71,7 +71,8 @@ Usage:
   node scripts/local-coding-agent.mjs config show|path|set <key> <value>|unset <key>
   node scripts/local-coding-agent.mjs key set|clear
   node scripts/local-coding-agent.mjs update
-  node scripts/local-coding-agent.mjs skills list|validate
+  node scripts/local-coding-agent.mjs support
+  node scripts/local-coding-agent.mjs skills list|json|validate
 
 Common options:
   --workspace <path>          Workspace root the agent may access
@@ -777,16 +778,29 @@ function parseSkillMeta(text, fallbackName) {
   return { name, description };
 }
 
+function readSkillManifest(dir) {
+  // v5.0.0-preview.1: optional skill.json manifest alongside SKILL.md.
+  const file = join(dir, "skill.json");
+  if (!existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return { error: "invalid skill.json" };
+  }
+}
+
 function listRepoSkills() {
   const skillsDir = join(REPO_ROOT, "skills");
   if (!existsSync(skillsDir)) return [];
   return readdirSync(skillsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => {
-      const file = join(skillsDir, entry.name, "SKILL.md");
-      if (!existsSync(file)) return { folder: entry.name, name: entry.name, description: "(missing SKILL.md)" };
+      const dir = join(skillsDir, entry.name);
+      const file = join(dir, "SKILL.md");
+      const manifest = readSkillManifest(dir);
+      if (!existsSync(file)) return { folder: entry.name, name: entry.name, description: "(missing SKILL.md)", manifest };
       const meta = parseSkillMeta(readFileSync(file, "utf8"), entry.name);
-      return { folder: entry.name, ...meta };
+      return { folder: entry.name, ...meta, manifest };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -795,15 +809,27 @@ async function skillsCommand(rest) {
   const [sub = "list"] = rest;
   if (sub === "list") {
     for (const skill of listRepoSkills()) {
-      console.log(`${skill.name} - ${skill.description}`);
+      const ver = skill.manifest && skill.manifest.version ? ` [v${skill.manifest.version}]` : "";
+      console.log(`${skill.name}${ver} - ${skill.description}`);
     }
+    return;
+  }
+  if (sub === "json") {
+    // Machine-readable manifest dump for the v5 skill system.
+    const skills = listRepoSkills().map((s) => ({
+      name: s.name,
+      folder: s.folder,
+      description: s.description,
+      manifest: s.manifest || null
+    }));
+    console.log(JSON.stringify({ count: skills.length, skills }, null, 2));
     return;
   }
   if (sub === "validate") {
     await runChecked("skills", process.execPath, [join(SCRIPT_DIR, "validate-skills.mjs")], { cwd: REPO_ROOT });
     return;
   }
-  throw new Error("Usage: skills list|validate");
+  throw new Error("Usage: skills list|json|validate");
 }
 
 function openUrl(url) {
@@ -850,6 +876,14 @@ async function main() {
   if (command === "config") return configCommand(rest);
   if (command === "key") return keyCommand(rest);
   if (command === "update") return updateSelf(flags);
+  if (command === "support" || command === "report") {
+    const opts = effectiveOptions(flags);
+    const args = ["--port", String(opts.port), "--dashboard-port", String(opts.dashboardPort)];
+    return runChecked("support", process.execPath, [join(SCRIPT_DIR, "support-report.mjs"), ...args], { cwd: REPO_ROOT });
+  }
+  if (command === "network" || command === "netdoctor") {
+    return runChecked("network", process.execPath, [join(SCRIPT_DIR, "network-doctor.mjs"), ...rest], { cwd: REPO_ROOT });
+  }
   if (command === "skills") return skillsCommand(rest);
   throw new Error(`Unknown command: ${command}`);
 }

@@ -56,6 +56,8 @@ npm start
 | `DASHBOARD_PORT` | `8790` | Local-only metrics dashboard. `0` disables it. (Avoid 8788 — the OpenAI tunnel uses it.) |
 | `AGENT_READ_DEFAULT` | `30000` | Default chars `read_file` returns (raise per-call via `max_chars`). Keeps payloads + context small. |
 | `AGENT_CMD_OUTPUT_DEFAULT` | `20000` | Default chars of command output returned (use `tail_lines`/`head_lines`/`max_output_chars`). |
+| `AGENT_V5_PREVIEW` | _(unset)_ | v5.0.0-preview.1 (experimental). `1` enables opt-in anti-lag tools (`save_report`/`read_report`/`list_reports`/`preview_status`) + the dashboard v5 panel. Off = unchanged stable v4. See [../docs/V5_PREVIEW.md](../docs/V5_PREVIEW.md). |
+| `AGENT_MAX_REPORTS` | `200` | Max stored preview reports before trimming oldest (10-5000). Only used when the preview is enabled. |
 
 ## Test
 

@@ -32,6 +32,13 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
 > This tool can run commands on your computer. Read [SECURITY.md](SECURITY.md)
 > before using it. It is not an OS sandbox; only connect workspaces you trust.
 
+> **v5.0.0-preview.1 (experimental).** An opt-in "local-first anti-lag" workflow
+> keeps ChatGPT Web fast on huge tasks by storing long logs/reports on your
+> machine and sending ChatGPT only compact summaries + a local dashboard link.
+> Stable v4 behavior is unchanged unless you set `AGENT_V5_PREVIEW=1`. See
+> [docs/V5_PREVIEW.md](docs/V5_PREVIEW.md). / **Ban thu nghiem:** xem
+> [docs/V5_PREVIEW.md](docs/V5_PREVIEW.md).
+
 ---
 
 ## English
@@ -60,9 +67,9 @@ Rules:
 - If anything fails, show the exact error and the next command to fix it.
 
 Steps:
-1. Check Node.js version is >= 18.
-2. Clone https://github.com/LongNgn204/local-coding-agent if it is not already cloned.
-3. Enter the repo directory.
+1. Clone https://github.com/LongNgn204/local-coding-agent if it is not already cloned.
+2. Enter the repo directory and read AGENTS.md; follow it exactly.
+3. Check Node.js version is >= 18 (node -v).
 4. Install with:
    - Windows: scripts\lca.cmd install
    - macOS/Linux: bash scripts/lca install
@@ -78,8 +85,11 @@ Steps:
 9. Verify:
    - http://127.0.0.1:8787/healthz returns status ok
    - http://127.0.0.1:8790/ui opens the dashboard
+   - Run the tool suite: from server/ run npm run test:agent
    - status command works
-10. Report the MCP URL, dashboard URL, workspace path, mode, policy, and tunnel status.
+10. Explain the results to me in plain language: what passed, what failed, and
+    the exact next command to fix anything that failed.
+11. Report the MCP URL, dashboard URL, workspace path, mode, policy, and tunnel status.
 ```
 
 More prompt variants are in [docs/AI_AGENT_SETUP_PROMPT.md](docs/AI_AGENT_SETUP_PROMPT.md).
@@ -193,6 +203,58 @@ node scripts\network-doctor.mjs --tunnel-bin "tools\tunnel-client.exe" --tunnel-
 
 Guide: [docs/NETWORK_DOCTOR.md](docs/NETWORK_DOCTOR.md).
 
+For a full, redacted support bundle a customer can send back to the developer:
+
+```powershell
+node scripts\support-report.mjs
+scripts\lca.cmd support
+```
+
+It prints a compact summary and writes a redacted `support-report.txt`
+(versions, Node, ports 8787/8790, tunnel-client presence, health, recent
+errors). It never requires the proprietary tunnel client and never writes keys
+or tokens.
+
+### v5 Preview (Experimental)
+
+**Why:** ChatGPT Web gets laggy when a thread accumulates many messages, logs,
+code blocks, screenshots, and long tool outputs. v5 preview keeps the heavy
+information **local** and sends ChatGPT only compact summaries plus links.
+
+**Enable it (opt-in):**
+
+```powershell
+$env:AGENT_V5_PREVIEW="1"
+node scripts\local-coding-agent.mjs start --workspace "C:\path\repo" --no-tunnel
+```
+
+Stable v4 behavior is unchanged when the flag is off.
+
+**What it adds when enabled:**
+
+- New MCP tools: `save_report`, `read_report`, `list_reports`, `preview_status`.
+  Instead of pasting a huge log into chat, the agent calls
+  `save_report(title, content)`; ChatGPT receives a short head/tail summary + a
+  report id + the local dashboard link. Retrieve any slice later with
+  `read_report(id, offset_lines, limit_lines)`.
+- A **v5 preview panel** on the local dashboard (`http://127.0.0.1:8790/ui`):
+  version, health, workspace roots, tool-call counts, recent errors, and a
+  **paginated** list of local reports (never dumps thousands of rows at once).
+- `healthz` reports `preview_version` and `preview_enabled`.
+
+**Workflow for large tasks (reduce lag):**
+
+1. Start a **new ChatGPT thread** for a big task; do not keep piling onto a long
+   laggy one.
+2. Ask the agent to read files with the MCP tools instead of pasting large
+   content into chat.
+3. When output is long (build logs, test failures, diffs), tell the agent to
+   `save_report` it and share only the id + dashboard link.
+4. Open the dashboard to read the full content locally; page through it there or
+   with `read_report`.
+
+Full guide: [docs/V5_PREVIEW.md](docs/V5_PREVIEW.md).
+
 ### Features
 
 | Area | What it does |
@@ -300,9 +362,9 @@ Quy tắc:
 - Nếu lỗi, hãy báo đúng lỗi và lệnh tiếp theo để sửa.
 
 Các bước:
-1. Kiểm tra Node.js version >= 18.
-2. Clone https://github.com/LongNgn204/local-coding-agent nếu repo chưa tồn tại.
-3. Đi vào thư mục repo.
+1. Clone https://github.com/LongNgn204/local-coding-agent nếu repo chưa tồn tại.
+2. Đi vào thư mục repo và đọc AGENTS.md; làm theo đúng hướng dẫn.
+3. Kiểm tra Node.js version >= 18 (node -v).
 4. Cài đặt bằng:
    - Windows: scripts\lca.cmd install
    - macOS/Linux: bash scripts/lca install
@@ -318,8 +380,11 @@ Các bước:
 9. Kiểm tra:
    - http://127.0.0.1:8787/healthz trả về status ok
    - http://127.0.0.1:8790/ui mở được dashboard
+   - Chạy bộ test tool: trong thư mục server/ chạy npm run test:agent
    - lệnh status chạy được
-10. Báo lại MCP URL, Dashboard URL, workspace path, mode, policy và trạng thái tunnel.
+10. Giải thích kết quả cho tôi bằng lời dễ hiểu: cái gì đạt, cái gì lỗi, và lệnh
+    tiếp theo chính xác để sửa phần lỗi.
+11. Báo lại MCP URL, Dashboard URL, workspace path, mode, policy và trạng thái tunnel.
 ```
 
 Các prompt khác nằm ở [docs/AI_AGENT_SETUP_PROMPT.md](docs/AI_AGENT_SETUP_PROMPT.md).
@@ -431,6 +496,54 @@ node scripts\network-doctor.mjs --tunnel-bin "tools\tunnel-client.exe" --tunnel-
 ```
 
 Hướng dẫn: [docs/NETWORK_DOCTOR.md](docs/NETWORK_DOCTOR.md).
+
+Để tạo gói hỗ trợ đầy đủ (đã che secret) mà khách gửi lại cho nhà phát triển:
+
+```powershell
+node scripts\support-report.mjs
+scripts\lca.cmd support
+```
+
+Lệnh in ra tóm tắt gọn và ghi file `support-report.txt` đã redact (phiên bản,
+Node, cổng 8787/8790, có tunnel-client hay không, health, lỗi gần đây). Nó không
+cần tunnel client độc quyền và không bao giờ ghi key hay token.
+
+### v5 Preview (Thử Nghiệm)
+
+**Vì sao:** ChatGPT Web bị lag khi một thread tích nhiều tin nhắn, log, khối
+code, ảnh chụp và output tool dài. v5 preview giữ thông tin nặng ở **máy cục bộ**
+và chỉ gửi cho ChatGPT tóm tắt gọn kèm liên kết.
+
+**Bật (tùy chọn):**
+
+```powershell
+$env:AGENT_V5_PREVIEW="1"
+node scripts\local-coding-agent.mjs start --workspace "C:\path\repo" --no-tunnel
+```
+
+Khi tắt cờ, hành vi ổn định của v4 không đổi.
+
+**Khi bật sẽ có thêm:**
+
+- Tool MCP mới: `save_report`, `read_report`, `list_reports`, `preview_status`.
+  Thay vì dán log khổng lồ vào chat, agent gọi `save_report(title, content)`;
+  ChatGPT chỉ nhận tóm tắt đầu/cuối + report id + link dashboard cục bộ. Lấy
+  từng phần sau bằng `read_report(id, offset_lines, limit_lines)`.
+- **Bảng v5 preview** trên dashboard cục bộ (`http://127.0.0.1:8790/ui`): phiên
+  bản, health, workspace roots, số lượt gọi tool, lỗi gần đây, và danh sách
+  report cục bộ có **phân trang** (không đổ hàng nghìn dòng cùng lúc).
+- `healthz` báo `preview_version` và `preview_enabled`.
+
+**Quy trình cho tác vụ lớn (giảm lag):**
+
+1. Mở **thread ChatGPT mới** cho tác vụ lớn; đừng dồn tiếp vào thread dài đang lag.
+2. Yêu cầu agent đọc file bằng tool MCP thay vì dán nội dung lớn vào chat.
+3. Khi output dài (log build, test lỗi, diff), bảo agent `save_report` rồi chỉ
+   chia sẻ id + link dashboard.
+4. Mở dashboard để đọc toàn bộ nội dung cục bộ; xem từng trang ở đó hoặc dùng
+   `read_report`.
+
+Hướng dẫn đầy đủ: [docs/V5_PREVIEW.md](docs/V5_PREVIEW.md).
 
 ### Tính Năng
 

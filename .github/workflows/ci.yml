@@ -42,10 +42,13 @@ jobs:
           node --check ../scripts/network-doctor.mjs
           node --test ../scripts/network-doctor.test.mjs
           node --check ../scripts/validate-skills.mjs
+          node --check ../scripts/support-report.mjs
           node ../scripts/local-coding-agent.mjs --help
           node ../scripts/network-doctor.mjs --help
+          node ../scripts/support-report.mjs --help
           node ../scripts/validate-skills.mjs
           node ../scripts/local-coding-agent.mjs skills validate
+          node ../scripts/local-coding-agent.mjs skills json
       - name: Parse PowerShell launchers
         run: |
           [void][scriptblock]::Create((Get-Content -Raw ../install.ps1))

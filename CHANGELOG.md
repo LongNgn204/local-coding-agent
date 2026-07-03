@@ -5,6 +5,38 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Added — v5.0.0-preview.1 (experimental, opt-in)
+
+Experimental "local-first anti-lag" preview. It reduces ChatGPT Web lag on large
+threads by keeping long logs/reports/tool output on the local machine and giving
+ChatGPT only compact summaries plus a local dashboard link. **Stable v4 behavior
+is unchanged unless `AGENT_V5_PREVIEW=1` is set.** The stable server version
+constant stays `4.4.0-pro`; the preview is surfaced through a separate
+`PREVIEW_VERSION` (`5.0.0-preview.1`) so the current stable version is not
+broken.
+
+- Opt-in preview MCP tools (only registered when `AGENT_V5_PREVIEW` is truthy):
+  `save_report`, `read_report`, `list_reports`, and `preview_status`. Long
+  output is stored under `server/data/workspaces/<id>/reports/`; `save_report`
+  returns a compact head/tail summary + `sha256` + id + local dashboard link
+  instead of echoing the full content into chat. `read_report` is line-paginated
+  and path-confined to the report store.
+- Dashboard v5 preview panel plus a `GET /api/v5` JSON endpoint (loopback only):
+  version, health, roots, tool-call counts, recent errors, and a paginated
+  report list (max 20 rows/page, so the page never renders thousands of DOM
+  nodes). `healthz` now reports `preview_version` and `preview_enabled`.
+- `scripts/support-report.mjs` and CLI `support` command produce a redacted
+  customer diagnostic bundle (versions, Node, ports 8787/8790, tunnel-client
+  presence, health, recent errors) written to `support-report.txt`. It never
+  requires the proprietary tunnel client and never writes keys/tokens. CLI also
+  gains `network` as an alias for the network doctor.
+- Four v5 skills with the new optional `skill.json` manifest (alongside the
+  existing `SKILL.md`): `setup-assistant`, `customer-doctor`, `release-helper`,
+  `repo-support`. `skills json` lists manifests; `skills list` shows the version.
+- `docs/V5_PREVIEW.md` (English + Vietnamese) documents the anti-lag workflow and
+  how to start a fresh ChatGPT thread for large tasks. README gains a v5 preview
+  section in both languages and an experimental warning.
+
 ### Added
 
 - `experiments/standalone-client-roadmap/` documents the path from

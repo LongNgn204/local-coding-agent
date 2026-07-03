@@ -31,6 +31,11 @@ import { z } from "zod";
 // ----------------------------------------------------------------------------
 const VERSION = "4.4.0-pro";
 const PRODUCT_TIER = "pro";
+// v5.0.0-preview.1 — experimental "local-first anti-lag" channel. The stable v4
+// server behavior is unchanged by default; the preview tools/store only load
+// when AGENT_V5_PREVIEW is truthy so we never break the current stable version.
+const PREVIEW_VERSION = "5.0.0-preview.1";
+const PREVIEW_ENABLED = /^(1|true|on|yes)$/i.test(String(process.env.AGENT_V5_PREVIEW || ""));
 const PORT = Number(process.env.PORT || 8787);
 // Bind to loopback by default. The local OpenAI tunnel-client forwards to this,
 // so we never need to listen on 0.0.0.0 (which would expose a shell to the LAN).
@@ -91,6 +96,15 @@ const INDEX_PATH = path.resolve(WORKSPACE_DATA_DIR, "index.json");
 // v2.2 Patch history
 const PATCH_HISTORY_PATH = path.resolve(WORKSPACE_DATA_DIR, "patch-history.json");
 const BACKUPS_DIR = path.resolve(WORKSPACE_DATA_DIR, "backups");
+
+// v5.0.0-preview.1 local-first anti-lag report store. Long logs/reports/tool
+// outputs are stored here (workspace-scoped, loopback dashboard only, never
+// tunneled) so ChatGPT Web receives a compact summary + a local handle instead
+// of thousands of lines that make the web thread laggy.
+const REPORTS_DIR = path.resolve(WORKSPACE_DATA_DIR, "reports");
+const REPORTS_INDEX_PATH = path.resolve(REPORTS_DIR, "index.json");
+const MAX_REPORTS = boundedNumber(process.env.AGENT_MAX_REPORTS, 200, 10, 5000);
+const REPORT_ID_RE = /^r_[0-9a-f]{8,32}$/;
 
 // v2.5 Planner state
 const AGENT_STATE_DIR = path.join(PRIMARY_ROOT, ".agent", "state");
@@ -247,6 +261,8 @@ const httpServer = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         status: "ok",
         version: VERSION,
+        preview_version: PREVIEW_VERSION,
+        preview_enabled: PREVIEW_ENABLED,
         tier: PRODUCT_TIER,
         pid: process.pid,
         mode: MODE,
@@ -313,6 +329,8 @@ if (DASHBOARD_PORT > 0) {
       if (url.pathname === "/api/approvals" && req.method === "GET") return void dashApiApprovals(res);
       if (url.pathname.startsWith("/api/approvals/") && req.method === "POST") return void dashApiApprovalAction(url, res);
       if (url.pathname === "/api/clear-metrics" && req.method === "POST") return void dashApiClearMetrics(res);
+      if (url.pathname === "/api/v5") return void dashApiV5(url, res);
+      if (url.pathname === "/api/report" && req.method === "GET") return void dashApiReport(url, res);
       if (url.pathname === "/") {
         res.writeHead(302, { Location: "/ui" });
         return res.end();
@@ -412,7 +430,13 @@ const SERVER_INSTRUCTIONS = [
   "Keep the conversation light: do NOT re-read a file you already read; read only the line range you need; never dump a whole large file or large command output unless asked.",
   "When the conversation grows long or feels slow, call checkpoint() with a compact summary + next steps, then tell the user to open a NEW chat; in that fresh chat call resume() first. This resets the heavy context (faster) while keeping your progress.",
   "If a task matches an available skill, call list_skills first, then read_skill(name) to load its instructions before doing the work.",
-  "Prefer a few large, well-targeted calls over many tiny ones."
+  "Prefer a few large, well-targeted calls over many tiny ones.",
+  ...(PREVIEW_ENABLED
+    ? [
+        "v5 preview (anti-lag): for LONG logs, reports, or command output that the user does not need pasted in chat, call save_report(title, content) instead of returning the raw text. It stores the content locally and returns a compact summary + a report id. Tell the user the id and the local dashboard link; use read_report(id, offset_lines, limit_lines) to page through it only if needed. This keeps the ChatGPT Web thread fast.",
+        "v5 preview: call preview_status to see the local dashboard URL and where reports are stored."
+      ]
+    : [])
 ].join("\n");
 
 function createMcpServer() {
@@ -431,6 +455,7 @@ function createMcpServer() {
   registerPlannerTools(mcp);      // v2.5
   registerPolicyTools(mcp);       // v2.6
   registerProfileTools(mcp);      // v2.8
+  if (PREVIEW_ENABLED) registerPreviewTools(mcp); // v5.0.0-preview.1 (opt-in)
   return mcp;
 }
 
@@ -2185,6 +2210,68 @@ async function writeNotes(notes) {
 }
 
 // ----------------------------------------------------------------------------
+// v5.0.0-preview.1 local-first report store (anti-lag)
+// ----------------------------------------------------------------------------
+const REPORT_EXT = { txt: "txt", md: "md", json: "json", log: "log", diff: "diff" };
+
+async function readReportsIndex() {
+  try {
+    const list = JSON.parse(await readFile(REPORTS_INDEX_PATH, "utf8"));
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeReportsIndex(list) {
+  await mkdir(REPORTS_DIR, { recursive: true });
+  await writeFile(REPORTS_INDEX_PATH, `${JSON.stringify(list, null, 2)}\n`, "utf8");
+}
+
+// Resolve a report id to a file path, refusing anything outside REPORTS_DIR.
+function reportFilePath(entry) {
+  const p = path.resolve(REPORTS_DIR, `${entry.id}.${entry.ext}`);
+  const base = path.resolve(REPORTS_DIR);
+  if (p !== base && !p.startsWith(base + path.sep)) throw new Error("Report path escapes the report store.");
+  return p;
+}
+
+// Compact head/tail summary so ChatGPT sees a preview, never the whole payload.
+function reportPreview(content, { headLines = 20, tailLines = 8, maxChars = 1600 } = {}) {
+  const lines = content.split(/\r?\n/);
+  if (lines.length && lines[lines.length - 1] === "") lines.pop();
+  const head = lines.slice(0, headLines).join("\n").slice(0, maxChars);
+  const tail = lines.length > headLines + tailLines ? lines.slice(-tailLines).join("\n").slice(0, maxChars) : "";
+  return { head, tail, omitted_lines: Math.max(0, lines.length - headLines - (tail ? tailLines : 0)) };
+}
+
+async function saveReport({ title, content, kind = "report", format = "txt" }) {
+  const ext = REPORT_EXT[String(format).toLowerCase()] || "txt";
+  const id = `r_${createHash("sha256").update(randomUUID()).digest("hex").slice(0, 16)}`;
+  const entry = {
+    id,
+    title: String(title).slice(0, 200),
+    kind: String(kind).slice(0, 40),
+    ext,
+    bytes: Buffer.byteLength(content, "utf8"),
+    lines: content ? content.split(/\r?\n/).length : 0,
+    sha256: createHash("sha256").update(content).digest("hex"),
+    created_at: isoNow()
+  };
+  await mkdir(REPORTS_DIR, { recursive: true });
+  await writeFile(reportFilePath(entry), content, "utf8");
+  const index = await readReportsIndex();
+  index.unshift(entry);
+  // Trim oldest reports to bound disk use; best-effort unlink of dropped files.
+  const dropped = index.splice(MAX_REPORTS);
+  for (const d of dropped) {
+    try { await rm(reportFilePath(d), { force: true }); } catch { /* best effort */ }
+  }
+  await writeReportsIndex(index);
+  return entry;
+}
+
+// ----------------------------------------------------------------------------
 // Skills (Claude-style on-demand playbooks)
 // ----------------------------------------------------------------------------
 async function discoverSkills() {
@@ -2726,6 +2813,78 @@ function homeHtml() {
 // Mini-IDE dashboard APIs (local-only). Read-only file/tree/diff + clear-metrics.
 // Reuse the same root confinement (resolvePath) and SKIP_DIRS as the MCP tools.
 // ----------------------------------------------------------------------------
+// v5.0.0-preview.1: local-only dashboard aggregate for the experimental panel.
+// Heavy data (reports, errors) lives here on the loopback dashboard, never on
+// the tunneled MCP port, which is the whole point of the anti-lag design.
+async function dashApiV5(url, res) {
+  try {
+    const offset = Math.min(Math.max(Number(url.searchParams.get("offset") || 0), 0), 1_000_000);
+    const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 20), 1), 100);
+    const index = await readReportsIndex();
+    const snap = metricsSnapshot();
+    const recentErrors = (metrics.recent || [])
+      .filter((r) => !r.ok)
+      .slice(0, 20)
+      .map((r) => ({ tool: r.tool, at: r.ts || null, error: r.error || null, ms: r.duration_ms ?? null }));
+    return sendJson(res, 200, {
+      preview_version: PREVIEW_VERSION,
+      stable_version: VERSION,
+      experimental: true,
+      preview_enabled: PREVIEW_ENABLED,
+      mode: MODE,
+      policy: AGENT_POLICY,
+      roots: ROOTS,
+      health_score: snap.health_score,
+      health_label: snap.health_label,
+      total_calls: snap.total_calls,
+      error_calls: snap.error_calls,
+      success_rate: snap.success_rate,
+      tool_counts: (snap.top_tools || []).slice(0, 15).map((t) => ({ name: t.name, calls: t.calls, err: t.err })),
+      recent_errors: recentErrors,
+      reports_total: index.length,
+      reports_offset: offset,
+      reports: index.slice(offset, offset + limit).map((e) => ({
+        id: e.id, title: e.title, kind: e.kind, bytes: e.bytes, lines: e.lines, created_at: e.created_at
+      })),
+      links: {
+        healthz: `http://${HOST}:${PORT}/healthz`,
+        metrics: `http://${DASHBOARD_HOST}:${DASHBOARD_PORT}/metrics`,
+        mcp_endpoint: `http://${HOST}:${PORT}/mcp`
+      }
+    });
+  } catch (error) {
+    return sendJson(res, 500, { error: error?.message || "error" });
+  }
+}
+
+// Serve a slice of one stored report to the loopback dashboard (paginated).
+async function dashApiReport(url, res) {
+  try {
+    const id = url.searchParams.get("id") || "";
+    if (!REPORT_ID_RE.test(id)) return sendJson(res, 400, { error: "invalid report id" });
+    const offset = Math.min(Math.max(Number(url.searchParams.get("offset") || 0), 0), 5_000_000);
+    const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 500), 1), 5000);
+    const index = await readReportsIndex();
+    const entry = index.find((e) => e.id === id);
+    if (!entry) return sendJson(res, 404, { error: "not_found" });
+    const raw = await readFile(reportFilePath(entry), "utf8");
+    const lines = raw.split(/\r?\n/);
+    if (lines.length && lines[lines.length - 1] === "") lines.pop();
+    const slice = lines.slice(offset, offset + limit);
+    return sendJson(res, 200, {
+      id: entry.id,
+      title: entry.title,
+      total_lines: lines.length,
+      offset,
+      returned_lines: slice.length,
+      has_more: offset + slice.length < lines.length,
+      content: slice.join("\n")
+    });
+  } catch (error) {
+    return sendJson(res, 500, { error: error?.message || "error" });
+  }
+}
+
 async function dashApiTree(url, res) {
   try {
     const rel = url.searchParams.get("path") || ".";
@@ -2871,6 +3030,29 @@ function dashboardHtml() {
     <h3>Đường dẫn ChatGPT đang thao tác (workspace / roots)</h3>
     <div id="roots" style="font-family:Consolas,monospace;font-size:13px;color:#7fe0d2"></div>
     <div class="note">MCP endpoint: <span id="mcpep"></span> · Đây là thư mục mà ChatGPT đọc/ghi qua MCP. Để kiểm chứng, bảo ChatGPT chạy tool <b>workspace_info</b> — nó trả về đúng các path này.</div>
+  </div>
+
+  <div class="panel" id="v5" style="margin-bottom:16px;border:1px solid #b45309">
+    <h3>v5 preview
+      <span class="pill" style="background:#7c2d12;color:#fed7aa">EXPERIMENTAL</span>
+      <span class="pill" id="v5ver"></span>
+    </h3>
+    <div class="note">Local-first anti-lag preview. ChatGPT nhan tom tat gon + link; log dai luu tai may nay. / ChatGPT receives compact summaries + a link; long logs stay on this machine.</div>
+    <div class="cards" id="v5cards" style="margin-top:10px"></div>
+    <div class="grid" style="margin-top:12px">
+      <div class="panel" style="margin:0"><h3>Recent errors</h3><div id="v5errors"><div class="dim">-</div></div></div>
+      <div class="panel" style="margin:0"><h3>Tool call counts</h3><table id="v5tools"></table></div>
+    </div>
+    <div class="panel" style="margin:12px 0 0">
+      <h3>Local reports <span class="dim" id="v5repcount"></span></h3>
+      <div id="v5reports"><div class="dim">Loading...</div></div>
+      <div style="margin-top:8px">
+        <span class="btn" onclick="v5Page(-1)">Prev</span>
+        <span class="btn" onclick="v5Page(1)">Next</span>
+        <span class="dim" id="v5pageinfo" style="margin-left:8px"></span>
+      </div>
+      <div class="note">Reports paginate (max 20/page) so the dashboard never renders thousands of DOM rows at once. Open a stored report with the CLI/report path; local only, never tunneled.</div>
+    </div>
   </div>
 
   <div class="cards" id="cards"></div>
@@ -3068,7 +3250,41 @@ function toggleDiff(){
     renderDiff(d.diff||'');
   }).catch(function(e){ body.textContent='offline'; });
 }
+// ---- v5 preview panel (anti-lag) ----
+var v5Off=0, v5Limit=20, v5Total=0;
+function v5row(a,b){ return '<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid #1f2937">'+a+b+'</div>'; }
+async function loadV5(){
+  try{
+    var r=await fetch('/api/v5?offset='+v5Off+'&limit='+v5Limit,{cache:'no-store'});
+    var d=await r.json();
+    document.getElementById('v5ver').textContent='v'+d.preview_version+(d.preview_enabled?' - enabled':' - set AGENT_V5_PREVIEW=1');
+    var c='';
+    c+=card('Preview / stable','v'+esc(d.preview_version),'stable v'+esc(d.stable_version));
+    c+=card('Health', h(d.health_score||100)+'/100', esc(d.health_label||''));
+    c+=card('Tool calls', h(d.total_calls), 'errors '+h(d.error_calls)+' - '+(d.success_rate||0).toFixed(1)+'%');
+    c+=card('Local reports', h(d.reports_total), 'stored on this machine');
+    document.getElementById('v5cards').innerHTML=c;
+    var eh='';
+    (d.recent_errors||[]).forEach(function(e){ eh+=v5row('<span>'+esc(e.tool)+'</span>','<span class="dim">'+esc(e.error||'')+'</span>'); });
+    document.getElementById('v5errors').innerHTML=eh||'<div class="dim">Khong co loi gan day / no recent errors.</div>';
+    var th='<tr><th style="text-align:left">tool</th><th>calls</th><th>err</th></tr>';
+    (d.tool_counts||[]).forEach(function(t){ th+='<tr><td>'+esc(t.name)+'</td><td>'+h(t.calls)+'</td><td>'+h(t.err)+'</td></tr>'; });
+    document.getElementById('v5tools').innerHTML=(d.tool_counts&&d.tool_counts.length)?th:'<tr><td class="dim">no calls yet</td></tr>';
+    v5Total=d.reports_total||0;
+    var rh='';
+    (d.reports||[]).forEach(function(x){ rh+=v5row('<span>'+esc(x.title)+' <span class="dim">('+esc(x.id)+')</span></span>','<span class="dim">'+h(x.lines)+' lines - '+Math.round(x.bytes/1024)+' KB</span>'); });
+    document.getElementById('v5reports').innerHTML=rh||'<div class="dim">No local reports yet. Set AGENT_V5_PREVIEW=1 and call save_report.</div>';
+    document.getElementById('v5repcount').textContent='('+v5Total+')';
+    document.getElementById('v5pageinfo').textContent=v5Total?('showing '+(v5Off+1)+'-'+Math.min(v5Off+v5Limit,v5Total)+' of '+v5Total):'';
+  }catch(e){}
+}
+function v5Page(dir){
+  var n=v5Off+dir*v5Limit;
+  if(n<0) n=0; if(n>=v5Total&&dir>0) return;
+  v5Off=n; loadV5();
+}
 loadTree();
+loadV5(); setInterval(loadV5,5000);
 tick(); setInterval(tick,2500);
 </script>
 </body>
@@ -5159,6 +5375,138 @@ function registerProfileTools(mcp) {
     async () => {
       await loadWorkspaceProfile();
       return jsonResult({ ok: true, loaded: WORKSPACE_PROFILE !== null, profile: WORKSPACE_PROFILE });
+    }
+  );
+}
+
+// ----------------------------------------------------------------------------
+// v5.0.0-preview.1 preview tools (opt-in via AGENT_V5_PREVIEW).
+// Goal: keep the ChatGPT Web thread light. Long output stays local; ChatGPT
+// receives a compact summary + a report id + the local dashboard link.
+// ----------------------------------------------------------------------------
+function registerPreviewTools(mcp) {
+  const dashboardUrl = DASHBOARD_PORT > 0 ? `http://${DASHBOARD_HOST}:${DASHBOARD_PORT}/ui#v5` : null;
+
+  reg(
+    mcp,
+    "preview_status",
+    {
+      title: "v5 preview status",
+      description: "Return the experimental v5 preview status: versions, local dashboard link, report store location and count. Compact.",
+      inputSchema: {}
+    },
+    async () => {
+      const index = await readReportsIndex();
+      const recentErrors = (metrics.recent || []).filter((r) => !r.ok).length;
+      return jsonResult({
+        preview_version: PREVIEW_VERSION,
+        stable_version: VERSION,
+        experimental: true,
+        enabled: true,
+        mode: MODE,
+        policy: AGENT_POLICY,
+        roots: ROOTS,
+        dashboard_url: dashboardUrl,
+        reports_dir: REPORTS_DIR,
+        reports_count: index.length,
+        recent_errors: recentErrors,
+        workflow_hint:
+          "For long logs/output, call save_report(title, content) instead of pasting it into chat. Share the returned id and the dashboard link; use read_report(id) to page through it only if needed."
+      });
+    }
+  );
+
+  reg(
+    mcp,
+    "save_report",
+    {
+      title: "Save local report (anti-lag)",
+      description:
+        "Store a long log/report/tool-output on the local machine and return only a COMPACT summary (head/tail + id + local link). Use this instead of pasting large content into ChatGPT so the web thread stays fast. Retrieve later with read_report.",
+      inputSchema: {
+        title: z.string().min(1).max(200).describe("Short human-readable title."),
+        content: z.string().min(1).describe("The full text to store locally (logs, report, command output, diff)."),
+        kind: z.enum(["report", "log", "output", "diff", "other"]).optional().describe("Category label (default report)."),
+        format: z.enum(["txt", "md", "json", "log", "diff"]).optional().describe("File extension for the stored file (default txt).")
+      }
+    },
+    async ({ title, content, kind = "report", format = "txt" }) => {
+      const entry = await saveReport({ title, content, kind, format });
+      const preview = reportPreview(content);
+      return jsonResult({
+        saved: true,
+        id: entry.id,
+        title: entry.title,
+        kind: entry.kind,
+        bytes: entry.bytes,
+        lines: entry.lines,
+        sha256: entry.sha256,
+        path: reportFilePath(entry),
+        dashboard_url: dashboardUrl,
+        read_more: `read_report id=${entry.id}`,
+        preview
+      });
+    }
+  );
+
+  reg(
+    mcp,
+    "read_report",
+    {
+      title: "Read local report (paged)",
+      description: "Read a stored report by id with line-range pagination so ChatGPT only pulls the slice it needs.",
+      inputSchema: {
+        id: z.string().regex(REPORT_ID_RE, "Invalid report id.").describe("Report id from save_report/list_reports."),
+        offset_lines: z.number().int().min(0).optional().describe("First line to return (0-based, default 0)."),
+        limit_lines: z.number().int().min(1).max(2000).optional().describe("Max lines to return (default 200)."),
+        max_chars: z.number().int().min(500).max(200000).optional().describe("Hard character cap on the returned slice (default 20000).")
+      }
+    },
+    async ({ id, offset_lines = 0, limit_lines = 200, max_chars = 20000 }) => {
+      const index = await readReportsIndex();
+      const entry = index.find((e) => e.id === id);
+      if (!entry) throw new Error(`No report with id ${id}. Use list_reports.`);
+      const raw = await readFile(reportFilePath(entry), "utf8");
+      const lines = raw.split(/\r?\n/);
+      if (lines.length && lines[lines.length - 1] === "") lines.pop();
+      const slice = lines.slice(offset_lines, offset_lines + limit_lines);
+      let text = slice.join("\n");
+      let charTruncated = false;
+      if (text.length > max_chars) {
+        text = text.slice(0, max_chars);
+        charTruncated = true;
+      }
+      const nextOffset = offset_lines + slice.length;
+      const hasMore = nextOffset < lines.length || charTruncated;
+      return jsonResult({
+        id: entry.id,
+        title: entry.title,
+        total_lines: lines.length,
+        offset: offset_lines,
+        returned_lines: slice.length,
+        char_truncated: charTruncated,
+        has_more: hasMore,
+        next_offset: hasMore ? nextOffset : null,
+        content: text
+      });
+    }
+  );
+
+  reg(
+    mcp,
+    "list_reports",
+    {
+      title: "List local reports",
+      description: "List locally stored reports (metadata only, no bodies) most-recent first.",
+      inputSchema: { limit: z.number().int().min(1).max(200).optional().describe("Max entries (default 20).") }
+    },
+    async ({ limit = 20 }) => {
+      const index = await readReportsIndex();
+      return jsonResult({
+        count: index.length,
+        dashboard_url: dashboardUrl,
+        reports: index.slice(0, limit).map((e) => ({ id: e.id, title: e.title, kind: e.kind, bytes: e.bytes, lines: e.lines, created_at: e.created_at }))
+      });
     }
   );
 }
