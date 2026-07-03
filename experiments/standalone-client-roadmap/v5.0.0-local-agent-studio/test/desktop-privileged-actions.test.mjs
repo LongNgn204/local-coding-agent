@@ -15,6 +15,12 @@ test("desktop privileged action mapping injects intent and never accepts arbitra
 
   assert.throws(() => buildPrivilegedRequest({ action: "anything", payload: { path: "/api/update" } }), /Unknown privileged/);
   assert.throws(() => buildPrivilegedRequest({ action: "providerKey:set", payload: { provider: "../openai", value: "x" } }), /Unsupported provider/);
+
+  const patch = buildPrivilegedRequest({ action: "patch:preview", payload: { diff: "--- a/a\n+++ b/a\n@@\n-a\n+b\n" } });
+  assert.equal(patch.path, "/api/patches/preview");
+  assert.equal(patch.body.intent.action, "patch:preview");
+  assert.equal(Object.hasOwn(patch.body, "reviewId"), false);
+  assert.throws(() => buildPrivilegedRequest({ action: "patch:apply", payload: { reviewId: "../escape" } }), /Invalid patch review id/);
 });
 
 test("desktop privileged action mapping is a small explicit allowlist", () => {
@@ -25,6 +31,9 @@ test("desktop privileged action mapping is a small explicit allowlist", () => {
     "license:delete",
     "mcpServer:start",
     "mcpServer:stop",
+    "patch:apply",
+    "patch:preview",
+    "patch:undo",
     "providerKey:delete",
     "providerKey:set",
     "releaseUpdate:verify",

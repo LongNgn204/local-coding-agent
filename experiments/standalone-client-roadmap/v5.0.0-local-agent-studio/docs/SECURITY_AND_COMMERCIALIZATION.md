@@ -50,13 +50,36 @@ The Preview implements these baseline controls:
     publisher/thumbprint policy and macOS TeamIdentifier policy are checked
     before the partial file becomes a staged artifact. Stable Windows/macOS
     manifests fail closed without this policy. Preview never executes a staged
-    installer automatically.
+     installer automatically.
+16. Workspace patch writes use a two-phase reviewed flow. The server validates
+    input size/shape before MCP access, performs dry-run and conflict validation,
+    and creates an in-memory SHA-256-bound ticket with a ten-minute lifetime.
+    Apply consumes the private ticket once, while manual tool calls remain
+    read-only. The MCP server creates a workspace-scoped backup before writing,
+    and undo has a separate high-risk confirmation.
 
 This is defense in depth, not an operating-system sandbox. Before customer
 release, the Stable desktop app still needs typed IPC coverage for every
 privileged workflow, OS-enforced workspace boundaries, network allowlists,
 signed installers, signed update manifests, packaged smoke tests for every
 supported OS/arch, and platform code signing.
+
+### Patch Review Threat Model
+
+- Raw unified diffs are accepted only as JSON, capped at 500,000 UTF-8 bytes,
+  and rejected locally before any MCP connection when malformed.
+- Preview and validation are read-only MCP calls. A ticket becomes `ready` only
+  when both structured results explicitly report `ok: true`.
+- Public ticket objects include hash, size, status, timestamps, and bounded MCP
+  reports capped at 200,000 UTF-8 bytes each, but never the raw diff. Tickets
+  are process-local and are lost on restart by design.
+- Apply takes a ticket ID, not replacement patch content. The transition from
+  `ready` to `applying` occurs before connection/tool I/O and cannot be replayed.
+  Connection failure, tool failure, or a non-success payload permanently marks
+  that ticket failed.
+- External filesystem changes remain possible between preview and apply. The
+  patch engine re-checks hunk context and reports conflicts instead of forcing a
+  write. OS isolation and Git history are still recommended for untrusted work.
 
 ### Commercial License Design
 
@@ -182,13 +205,35 @@ Preview hiện có các lớp bảo vệ cơ bản:
     app version. Policy publisher/thumbprint Authenticode trên Windows và
     TeamIdentifier trên macOS được kiểm tra trước khi partial file trở thành
     staged artifact. Manifest Stable Windows/macOS thiếu policy này sẽ bị từ
-    chối. Preview không tự execute installer đã stage.
+     chối. Preview không tự execute installer đã stage.
+16. Thao tác ghi patch vào workspace dùng flow review hai giai đoạn. Server kiểm
+    tra kích thước/cấu trúc trước khi chạm MCP, chạy dry-run và conflict
+    validation, rồi tạo ticket trong RAM gắn SHA-256 và sống mười phút. Apply
+    chỉ dùng private ticket một lần, còn manual tool call luôn read-only. MCP
+    server tạo backup theo workspace trước khi ghi; undo cần xác nhận high-risk
+    riêng.
 
 Đây là defense in depth, chưa phải sandbox cấp hệ điều hành. Trước khi phát hành
 Stable cho khách, desktop app vẫn cần typed IPC cho toàn bộ workflow có quyền
 cao, workspace boundary do hệ điều hành cưỡng chế, network allowlist, signed
 installer, signed update manifest, packaged smoke test cho mọi OS/arch được hỗ
 trợ và platform code signing.
+
+### Threat Model Của Patch Review
+
+- Raw unified diff chỉ được nhận dưới dạng JSON, giới hạn 500.000 byte UTF-8 và
+  bị từ chối cục bộ trước khi kết nối MCP nếu sai cấu trúc.
+- Preview và validation là MCP call read-only. Ticket chỉ chuyển sang `ready`
+  khi cả hai structured result đều xác nhận rõ `ok: true`.
+- Ticket public chỉ có hash, kích thước, trạng thái, thời gian và MCP report có
+  giới hạn 200.000 byte UTF-8 cho mỗi report; không chứa raw diff. Ticket chỉ
+  nằm trong tiến trình và chủ động mất khi restart.
+- Apply nhận ticket ID, không nhận patch thay thế. Trạng thái đổi từ `ready` sang
+  `applying` trước connection/tool I/O và không thể replay. Lỗi kết nối, lỗi tool
+  hoặc payload không xác nhận thành công đều làm ticket thất bại vĩnh viễn.
+- Filesystem vẫn có thể bị tiến trình ngoài thay đổi giữa preview và apply. Patch
+  engine kiểm tra lại hunk context và báo conflict thay vì ép ghi. Với workspace
+  không đáng tin, vẫn nên dùng OS isolation và Git history.
 
 ### Thiết Kế License Thương Mại
 

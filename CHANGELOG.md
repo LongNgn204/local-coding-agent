@@ -94,6 +94,11 @@ follows [Semantic Versioning](https://semver.org/).
   large-file preview, colored Git diff, and exact-action approval decisions.
   Its dashboard proxy is restricted to loopback HTTP plus an explicit
   route/method allowlist, and MCP connection/listing now fails fast on timeout.
+- Studio v5 now includes a two-phase Reviewed Patch workflow. Parallel dry-run
+  and validation produce a SHA-256-bound, ten-minute, one-time in-memory ticket;
+  apply uses only the reviewed private diff, MCP creates a backup batch before
+  writes, and guarded undo restores the latest batch. The generic manual-tool
+  endpoint is now read-only and honors destructive MCP metadata over tool names.
 
 ## [4.4.0-pro] - 2026-07-01
 

@@ -64,6 +64,21 @@ export function buildPrivilegedRequest(request = {}) {
         arguments: payload.arguments && typeof payload.arguments === "object" ? payload.arguments : {},
         intent: intent("tool:call")
       });
+    case "patch:preview":
+      return jsonRequest("POST", "/api/patches/preview", {
+        diff: safePatchDiff(payload.diff),
+        intent: intent("patch:preview")
+      });
+    case "patch:apply": {
+      const reviewId = safeSegment(payload.reviewId, "patch review id");
+      return jsonRequest("POST", `/api/patches/${encodeURIComponent(reviewId)}/apply`, {
+        intent: intent("patch:apply")
+      });
+    }
+    case "patch:undo":
+      return jsonRequest("POST", "/api/patches/undo", {
+        intent: intent("patch:undo")
+      });
     case "approval:mutate": {
       const id = safeSegment(payload.id, "approval id");
       const decision = String(payload.decision || "");
@@ -95,6 +110,9 @@ export function privilegedActionNames() {
     "releaseUpdate:verify",
     "releaseUpdate:stage",
     "tool:call",
+    "patch:preview",
+    "patch:apply",
+    "patch:undo",
     "approval:mutate",
     "customerUpdate:run"
   ];
@@ -122,6 +140,13 @@ function optionalString(value) {
 function safeToolName(value) {
   const text = String(value || "");
   if (!/^[\w.-]{1,128}$/.test(text)) throw new Error("Invalid tool name.");
+  return text;
+}
+
+function safePatchDiff(value) {
+  const text = String(value || "");
+  if (!text.trim()) throw new Error("Unified diff is required.");
+  if (Buffer.byteLength(text, "utf8") > 500_000) throw new Error("Unified diff exceeds 500000 bytes.");
   return text;
 }
 

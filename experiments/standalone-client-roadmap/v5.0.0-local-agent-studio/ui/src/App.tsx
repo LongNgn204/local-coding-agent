@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   Square,
   Terminal,
+  Undo2,
   Wrench,
   X
 } from "lucide-react";
@@ -121,7 +122,7 @@ type ModelPreset = {
   model: string;
 };
 
-type ReviewMode = "files" | "diff" | "approvals";
+type ReviewMode = "files" | "diff" | "patch" | "approvals";
 
 type WorkspaceEntry = {
   path: string;
@@ -161,6 +162,19 @@ type ApprovalRecord = {
   expires_at?: string;
 };
 
+type PatchReviewPayload = {
+  id: string;
+  diffSha256: string;
+  bytes: number;
+  status: "ready" | "blocked" | "applying" | "applied" | "failed" | "expired";
+  createdAt: string;
+  expiresAt: string;
+  preview?: { ok?: boolean; files?: Array<Record<string, unknown>> };
+  validation?: { ok?: boolean; conflicts?: Array<Record<string, unknown>> };
+  result?: Record<string, unknown> | null;
+  error?: string | null;
+};
+
 type ReviewState = {
   open: boolean;
   mode: ReviewMode;
@@ -171,6 +185,9 @@ type ReviewState = {
   file: FilePayload | null;
   diff: DiffPayload | null;
   approvals: ApprovalRecord[];
+  patchDraft: string;
+  patchReview: PatchReviewPayload | null;
+  patchResult: string;
 };
 
 const token = document.querySelector<HTMLMetaElement>('meta[name="lca-studio-token"]')?.content || "";
@@ -282,7 +299,10 @@ export function App() {
     tree: null,
     file: null,
     diff: null,
-    approvals: []
+    approvals: [],
+    patchDraft: "",
+    patchReview: null,
+    patchResult: ""
   });
   const streamAbortRef = useRef<AbortController | null>(null);
 
@@ -378,6 +398,7 @@ export function App() {
   async function refreshReviewMode(mode: ReviewMode) {
     if (mode === "files") return loadWorkspaceTree(review.tree?.root || ".");
     if (mode === "diff") return loadWorkspaceDiff(review.file?.path);
+    if (mode === "patch") return;
     return loadApprovals();
   }
 
@@ -406,14 +427,14 @@ export function App() {
     }
   }
 
-  async function loadWorkspaceDiff(path?: string) {
-    setReview((current) => ({ ...current, busy: true, error: "" }));
+  async function loadWorkspaceDiff(path?: string, silent = false) {
+    if (!silent) setReview((current) => ({ ...current, busy: true, error: "" }));
     try {
       const suffix = path ? `?path=${encodeURIComponent(path)}` : "";
       const data = await api<DiffPayload>(`/api/dashboard/diff${suffix}`);
-      setReview((current) => ({ ...current, busy: false, diff: data }));
+      setReview((current) => ({ ...current, busy: silent ? current.busy : false, diff: data }));
     } catch (error) {
-      setReview((current) => ({ ...current, busy: false, error: errorMessage(error) }));
+      if (!silent) setReview((current) => ({ ...current, busy: false, error: errorMessage(error) }));
     }
   }
 
@@ -443,6 +464,82 @@ export function App() {
       );
       setNotice(`Approval ${decision}d: ${record.id}`);
       await loadApprovals();
+    } catch (error) {
+      setReview((current) => ({ ...current, busy: false, error: errorMessage(error) }));
+    }
+  }
+
+  async function previewPatchDraft() {
+    const diff = review.patchDraft;
+    if (!diff.trim()) {
+      setReview((current) => ({ ...current, error: "Unified diff is required." }));
+      return;
+    }
+    setReview((current) => ({ ...current, busy: true, error: "", patchReview: null, patchResult: "" }));
+    try {
+      const data = await privilegedApi<{ ok: boolean; review: PatchReviewPayload }>(
+        "patch:preview",
+        { diff },
+        () => api("/api/patches/preview", {
+          method: "POST",
+          body: JSON.stringify({ diff, intent: intent("patch:preview") })
+        })
+      );
+      setReview((current) => ({ ...current, busy: false, patchReview: data.review }));
+      setNotice(`Patch preview ${data.review.status}: ${data.review.diffSha256.slice(0, 12)}`);
+    } catch (error) {
+      setReview((current) => ({ ...current, busy: false, error: errorMessage(error) }));
+    }
+  }
+
+  async function applyReviewedPatch() {
+    const patchReview = review.patchReview;
+    if (!patchReview || patchReview.status !== "ready") return;
+    const files = patchReview.preview?.files?.length || 0;
+    if (!window.confirm(`Apply reviewed patch ${patchReview.diffSha256.slice(0, 12)} to ${files} file(s)?\n\nA workspace backup batch will be created first.`)) return;
+    setReview((current) => ({ ...current, busy: true, error: "" }));
+    try {
+      const data = await privilegedApi<{ ok: boolean; review: PatchReviewPayload; result: Record<string, unknown> }>(
+        "patch:apply",
+        { reviewId: patchReview.id },
+        () => api(`/api/patches/${encodeURIComponent(patchReview.id)}/apply`, {
+          method: "POST",
+          body: JSON.stringify({ intent: intent("patch:apply") })
+        })
+      );
+      setReview((current) => ({
+        ...current,
+        busy: false,
+        patchReview: data.review,
+        patchResult: JSON.stringify(data.result || {}, null, 2)
+      }));
+      setNotice(`Patch applied: ${data.review.diffSha256.slice(0, 12)}`);
+      await loadWorkspaceDiff(undefined, true);
+    } catch (error) {
+      setReview((current) => ({ ...current, busy: false, error: errorMessage(error) }));
+    }
+  }
+
+  async function undoReviewedPatch() {
+    if (!window.confirm("Undo the most recent workspace backup batch? This affects files from the last mutating MCP operation.")) return;
+    setReview((current) => ({ ...current, busy: true, error: "" }));
+    try {
+      const data = await privilegedApi<{ ok: boolean; result: Record<string, unknown> }>(
+        "patch:undo",
+        {},
+        () => api("/api/patches/undo", {
+          method: "POST",
+          body: JSON.stringify({ intent: intent("patch:undo") })
+        })
+      );
+      setReview((current) => ({
+        ...current,
+        busy: false,
+        patchReview: null,
+        patchResult: JSON.stringify(data.result || {}, null, 2)
+      }));
+      setNotice("Last workspace backup batch restored");
+      await loadWorkspaceDiff(undefined, true);
     } catch (error) {
       setReview((current) => ({ ...current, busy: false, error: errorMessage(error) }));
     }
@@ -815,6 +912,7 @@ export function App() {
         <section className="mini-grid">
           {features.has("fileViewer") && <button title="Workspace files" onClick={() => void openReview("files")}><FolderGit2 size={16} /></button>}
           {features.has("fileViewer") && <button title="Git diff" onClick={() => void openReview("diff")}><GitCompareArrows size={16} /></button>}
+          {features.has("fileViewer") && <button title="Patch review" onClick={() => void openReview("patch")}><FileCode2 size={16} /></button>}
           {features.has("approvals") && <button title="Approvals" onClick={() => void openReview("approvals")}><ListChecks size={16} /></button>}
           <button title="Security status" onClick={() => setNotice(health?.integrity?.reason || health?.license?.reason || "Security checks ok")}><ShieldCheck size={16} /></button>
         </section>
@@ -834,6 +932,10 @@ export function App() {
             void loadWorkspaceDiff(path);
           }}
           onDecision={(record, decision) => void decideApproval(record, decision)}
+          onPatchDraft={(patchDraft) => setReview((current) => ({ ...current, patchDraft, patchReview: null, patchResult: "", error: "" }))}
+          onPatchPreview={() => void previewPatchDraft()}
+          onPatchApply={() => void applyReviewedPatch()}
+          onPatchUndo={() => void undoReviewedPatch()}
         />
       )}
     </>
@@ -849,7 +951,11 @@ function WorkspaceReview({
   onTree,
   onFile,
   onDiff,
-  onDecision
+  onDecision,
+  onPatchDraft,
+  onPatchPreview,
+  onPatchApply,
+  onPatchUndo
 }: {
   review: ReviewState;
   onClose: () => void;
@@ -860,6 +966,10 @@ function WorkspaceReview({
   onFile: (path: string) => void;
   onDiff: (path?: string) => void;
   onDecision: (record: ApprovalRecord, decision: "approve" | "deny") => void;
+  onPatchDraft: (value: string) => void;
+  onPatchPreview: () => void;
+  onPatchApply: () => void;
+  onPatchUndo: () => void;
 }) {
   const filter = normalizeWorkspacePath(review.filter).toLowerCase();
   const entries = (review.tree?.entries || []).filter((entry) => !filter || normalizeWorkspacePath(entry.path).toLowerCase().includes(filter));
@@ -872,7 +982,7 @@ function WorkspaceReview({
         <header className="review-header">
           <div>
             <strong>Workspace Review</strong>
-            <span>{review.mode === "files" ? root : review.mode === "diff" ? review.diff?.root || "Git working tree" : `${review.approvals.length} pending`}</span>
+            <span>{review.mode === "files" ? root : review.mode === "diff" ? review.diff?.root || "Git working tree" : review.mode === "patch" ? review.patchReview?.diffSha256 || "Two-phase patch review" : `${review.approvals.length} pending`}</span>
           </div>
           <div className="review-header-actions">
             <button title="Refresh review" onClick={onRefresh}><RefreshCw size={16} /></button>
@@ -883,6 +993,7 @@ function WorkspaceReview({
         <nav className="review-tabs" aria-label="Review views">
           <button className={review.mode === "files" ? "active" : ""} onClick={() => onMode("files")}><Folder size={15} /> Files</button>
           <button className={review.mode === "diff" ? "active" : ""} onClick={() => onMode("diff")}><GitCompareArrows size={15} /> Diff</button>
+          <button className={review.mode === "patch" ? "active" : ""} onClick={() => onMode("patch")}><FileCode2 size={15} /> Patch</button>
           <button className={review.mode === "approvals" ? "active" : ""} onClick={() => onMode("approvals")}><ListChecks size={15} /> Approvals</button>
         </nav>
 
@@ -943,6 +1054,53 @@ function WorkspaceReview({
             <section className="diff-pane">
               {review.diff?.error && <div className="review-error">{review.diff.error}</div>}
               {review.diff?.empty ? <div className="review-empty"><Check size={24} /><span>Working tree clean.</span></div> : <DiffView text={review.diff?.diff || ""} />}
+            </section>
+          )}
+
+          {review.mode === "patch" && (
+            <section className="patch-review-pane">
+              <div className="patch-draft-pane">
+                <header>
+                  <strong>Unified Diff</strong>
+                  <span>{new TextEncoder().encode(review.patchDraft).length.toLocaleString()} / 500,000 bytes</span>
+                </header>
+                <textarea
+                  aria-label="Unified diff draft"
+                  maxLength={500_000}
+                  placeholder={"--- a/path/to/file\n+++ b/path/to/file\n@@ ..."}
+                  spellCheck={false}
+                  value={review.patchDraft}
+                  onChange={(event) => onPatchDraft(event.target.value)}
+                />
+                <div className="patch-actions">
+                  <button title="Preview and validate patch" disabled={review.busy || !review.patchDraft.trim()} onClick={onPatchPreview}><ShieldCheck size={15} /> Preview</button>
+                  <button className="apply" title="Apply reviewed patch" disabled={review.busy || review.patchReview?.status !== "ready"} onClick={onPatchApply}><Check size={15} /> Apply</button>
+                  <button className="undo" title="Undo last workspace backup batch" disabled={review.busy} onClick={onPatchUndo}><Undo2 size={15} /> Undo Last</button>
+                </div>
+              </div>
+              <div className="patch-result-pane">
+                {review.patchReview ? (
+                  <>
+                    <header className={`patch-status ${review.patchReview.status}`}>
+                      <div>
+                        <strong>{review.patchReview.status}</strong>
+                        <span>{review.patchReview.diffSha256} / expires {formatDeadline(review.patchReview.expiresAt)}</span>
+                      </div>
+                      <span>{review.patchReview.bytes.toLocaleString()} bytes / {review.patchReview.preview?.files?.length || 0} files</span>
+                    </header>
+                    <pre className="patch-report">{boundedText(JSON.stringify({
+                      preview: review.patchReview.preview,
+                      validation: review.patchReview.validation,
+                      result: review.patchReview.result,
+                      error: review.patchReview.error
+                    }, null, 2), 120_000)}</pre>
+                  </>
+                ) : review.patchResult ? (
+                  <pre className="patch-report">{boundedText(review.patchResult, 120_000)}</pre>
+                ) : (
+                  <div className="review-empty"><ShieldCheck size={24} /><span>No reviewed patch.</span></div>
+                )}
+              </div>
             </section>
           )}
 

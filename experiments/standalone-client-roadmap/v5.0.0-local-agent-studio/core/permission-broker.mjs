@@ -2,6 +2,9 @@ const MAX_AUDIT = 300;
 
 const ACTIONS = new Map([
   ["tool:call", { risk: "medium", confirmation: "tool:call" }],
+  ["patch:preview", { risk: "medium", confirmation: "patch:preview" }],
+  ["patch:apply", { risk: "high", confirmation: "patch:apply" }],
+  ["patch:undo", { risk: "high", confirmation: "patch:undo" }],
   ["agent-turn:workspace", { risk: "medium", confirmation: "agent-turn:workspace" }],
   ["agent-turn:full", { risk: "high", confirmation: "agent-turn:full" }],
   ["turn:cancel", { risk: "medium", confirmation: "turn:cancel" }],

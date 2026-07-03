@@ -58,6 +58,31 @@ test("Studio HTTP boundary blocks CSRF and persists authenticated threads", asyn
     });
     assert.equal(simpleRequest.status, 415);
 
+    const unconfirmedPatchPreview = await fetch(`http://127.0.0.1:${port}/api/patches/preview`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-lca-studio-token": token },
+      body: JSON.stringify({ diff: "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n" })
+    });
+    assert.equal(unconfirmedPatchPreview.status, 428);
+
+    const malformedPatchPreview = await fetch(`http://127.0.0.1:${port}/api/patches/preview`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-lca-studio-token": token },
+      body: JSON.stringify({ diff: "not a unified diff", intent: { action: "patch:preview", confirm: "patch:preview" } })
+    });
+    assert.equal(malformedPatchPreview.status, 400);
+
+    const manualPatchBypass = await fetch(`http://127.0.0.1:${port}/api/call-tool`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-lca-studio-token": token },
+      body: JSON.stringify({
+        name: "apply_patch",
+        arguments: { diff: "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n" },
+        intent: { action: "tool:call", confirm: "tool:call" }
+      })
+    });
+    assert.equal(manualPatchBypass.status, 403);
+
     const desktopSecretWithoutBridge = await fetch(`http://127.0.0.1:${port}/api/desktop-secrets/anthropic`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-lca-studio-token": token },

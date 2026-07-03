@@ -699,6 +699,127 @@ pre {
   color: var(--warn);
 }
 
+.patch-review-pane {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.patch-draft-pane,
+.patch-result-pane {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.patch-draft-pane {
+  border-right: 1px solid var(--line);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.patch-draft-pane > header,
+.patch-status {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 9px 12px;
+}
+
+.patch-draft-pane > header strong,
+.patch-draft-pane > header span,
+.patch-status strong,
+.patch-status span {
+  display: block;
+}
+
+.patch-draft-pane > header strong,
+.patch-status strong {
+  font-size: 12px;
+}
+
+.patch-draft-pane > header span,
+.patch-status span {
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.patch-draft-pane textarea {
+  background: #090d12;
+  border: 0;
+  border-radius: 0;
+  color: var(--soft);
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  min-height: 0;
+  padding: 14px;
+  resize: none;
+  white-space: pre;
+}
+
+.patch-actions {
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.patch-actions button {
+  gap: 7px;
+  padding: 0 12px;
+}
+
+.patch-actions .apply {
+  border-color: #2d7668;
+}
+
+.patch-actions .undo {
+  border-color: #826f36;
+}
+
+.patch-result-pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.patch-status.ready,
+.patch-status.applied {
+  border-bottom-color: var(--accent);
+}
+
+.patch-status.blocked,
+.patch-status.failed,
+.patch-status.expired {
+  border-bottom-color: var(--bad);
+}
+
+.patch-status > div {
+  min-width: 0;
+}
+
+.patch-status > div span {
+  margin-top: 3px;
+}
+
+.patch-report {
+  background: #090d12;
+  color: var(--soft);
+  font-size: 11px;
+  height: 100%;
+  line-height: 1.5;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: 14px;
+  white-space: pre-wrap;
+}
+
 .approval-list {
   display: grid;
   gap: 10px;
@@ -789,5 +910,9 @@ pre {
 
   .workspace-review-grid {
     grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .patch-review-pane {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }

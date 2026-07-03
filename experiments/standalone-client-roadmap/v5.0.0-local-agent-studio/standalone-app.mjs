@@ -15,6 +15,7 @@ import { compactContext } from "./core/context-compactor.mjs";
 import { buildDashboardRequestUrl } from "./core/dashboard-proxy.mjs";
 import { IntegrityService, loadReleasePublicKey } from "./core/integrity-service.mjs";
 import { LicenseService, loadLicensePublicKey } from "./core/license-service.mjs";
+import { PatchReviewService } from "./core/patch-review-service.mjs";
 import { PermissionBroker, PermissionDeniedError } from "./core/permission-broker.mjs";
 import { PlatformSignatureVerifier } from "./core/platform-signature.mjs";
 import { redactForSupport } from "./core/redaction.mjs";
@@ -45,6 +46,7 @@ export function startStudio(manifest, options = {}) {
   const turnManager = new TurnManager();
   const secretStore = new SecretStore(storageDir);
   const permissionBroker = new PermissionBroker({ strict: process.env.LCA_PERMISSION_BROKER !== "off" });
+  const patchReviewService = new PatchReviewService();
   const updateService = new UpdateService({
     storageDir,
     manifest,
@@ -78,6 +80,7 @@ export function startStudio(manifest, options = {}) {
     turnManager,
     secretStore,
     permissionBroker,
+    patchReviewService,
     updateService,
     licenseService,
     integrityService,
@@ -335,11 +338,90 @@ async function handleApi(req, res, url, state) {
         tools: publicTools(state.tools, true)
       });
     }
-    if (url.pathname === "/api/call-tool" && req.method === "POST") {
+    if (url.pathname === "/api/patches/preview" && req.method === "POST") {
+      const body = await readJson(req);
+      state.permissionBroker.require("patch:preview", body, { route: url.pathname, method: req.method });
+      const draft = state.patchReviewService.validateDraft(body.diff);
+      const readiness = agentReadiness(state);
+      if (!readiness.ok) return sendJson(res, readiness.status, readiness.body);
       if (!state.client) await connectMcp(state, state.mcpEndpoint);
+      const [previewCall, validationCall] = await Promise.all([
+        callMcpTool(state, "preview_patch", { diff: draft.text }),
+        callMcpTool(state, "validate_patch", { diff: draft.text })
+      ]);
+      const preview = requireMcpToolPayload(previewCall, "preview_patch");
+      const validation = requireMcpToolPayload(validationCall, "validate_patch");
+      const review = state.patchReviewService.create({ diff: draft.text, preview, validation });
+      return sendJson(res, 201, { ok: review.status === "ready", review });
+    }
+    if (url.pathname === "/api/patches/undo" && req.method === "POST") {
+      const body = await readJson(req);
+      state.permissionBroker.require("patch:undo", body, { route: url.pathname, method: req.method });
+      const readiness = agentReadiness(state);
+      if (!readiness.ok) return sendJson(res, readiness.status, readiness.body);
+      if (!state.client) await connectMcp(state, state.mcpEndpoint);
+      const call = await callMcpTool(state, "undo_last_patch", {});
+      const result = requireMcpToolPayload(call, "undo_last_patch");
+      if (result?.ok !== true) {
+        const error = new Error("undo_last_patch did not confirm a successful restore.");
+        error.status = 409;
+        throw error;
+      }
+      return sendJson(res, 200, { ok: true, result });
+    }
+    const patchApplyMatch = url.pathname.match(/^\/api\/patches\/([^/]+)\/apply$/);
+    if (patchApplyMatch && req.method === "POST") {
+      const reviewId = decodeURIComponent(patchApplyMatch[1]);
+      const body = await readJson(req);
+      state.permissionBroker.require("patch:apply", body, { route: url.pathname, method: req.method, target: reviewId });
+      const readiness = agentReadiness(state);
+      if (!readiness.ok) return sendJson(res, readiness.status, readiness.body);
+      const pending = state.patchReviewService.beginApply(reviewId);
+      try {
+        if (!state.client) await connectMcp(state, state.mcpEndpoint);
+        const call = await callMcpTool(state, "apply_patch", { diff: pending.diff });
+        const result = parseMcpToolPayload(call.result);
+        const applied = call.ok && result?.ok === true;
+        const error = !call.ok
+          ? toolResultText(call.result) || "apply_patch failed"
+          : applied ? null : "apply_patch did not confirm success.";
+        const review = state.patchReviewService.finishApply(reviewId, { ok: applied, result, error });
+        if (review.status !== "applied") return sendJson(res, 409, { error: error || "Patch was not applied.", review, result });
+        return sendJson(res, 200, { ok: true, review, result });
+      } catch (error) {
+        state.patchReviewService.finishApply(reviewId, { ok: false, error: error?.message || String(error) });
+        throw error;
+      }
+    }
+    const patchReviewMatch = url.pathname.match(/^\/api\/patches\/([^/]+)$/);
+    if (patchReviewMatch && req.method === "GET") {
+      const review = state.patchReviewService.get(decodeURIComponent(patchReviewMatch[1]));
+      if (!review) return sendJson(res, 404, { error: "Patch review not found." });
+      return sendJson(res, 200, { review });
+    }
+    if (url.pathname === "/api/call-tool" && req.method === "POST") {
       const body = await readJson(req);
       state.permissionBroker.require("tool:call", body, { route: url.pathname, method: req.method, target: body.name });
-      const result = await callMcpTool(state, body.name, body.arguments || {});
+      const preliminary = evaluateAgentTool({ name: body.name }, "read-only");
+      if (!preliminary.allowed) {
+        const error = new Error(`Manual tool calls are read-only. Use a dedicated reviewed workflow for ${body.name || "this tool"}.`);
+        error.status = 403;
+        throw error;
+      }
+      if (!state.client) await connectMcp(state, state.mcpEndpoint);
+      const tool = state.tools.find((entry) => entry.name === body.name || sanitizeToolName(entry.name) === body.name);
+      if (!tool) {
+        const error = new Error(`MCP tool is not available: ${body.name || "(missing name)"}`);
+        error.status = 404;
+        throw error;
+      }
+      const decision = evaluateAgentTool(tool, "read-only");
+      if (!decision.allowed) {
+        const error = new Error(`MCP metadata marks ${tool.name} as mutating or destructive.`);
+        error.status = 403;
+        throw error;
+      }
+      const result = await callMcpTool(state, tool.name, body.arguments || {});
       return sendJson(res, 200, result);
     }
     if (url.pathname === "/api/chat" && req.method === "POST") {
@@ -643,6 +725,7 @@ function healthPayload(state) {
     managed_server_pid: state.serverProcess?.pid || null,
     active_turns: state.turnManager.listActive(),
     agent_tool_policies: publicToolPolicyModes(),
+    patch_review: state.patchReviewService.summary(),
     node_runtime: {
       executable: state.nodeRuntime.executable,
       source: state.nodeRuntime.source,
@@ -1306,6 +1389,26 @@ function anthropicText(response) {
 
 function toolResultText(result) {
   return result?.content?.map((part) => part.text || JSON.stringify(part)).join("\n") || "";
+}
+
+function parseMcpToolPayload(result) {
+  const text = toolResultText(result).trim();
+  if (!text) return { ok: !result?.isError };
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { ok: !result?.isError, text };
+  }
+}
+
+function requireMcpToolPayload(call, label) {
+  const text = toolResultText(call?.result).trim();
+  if (!call?.ok) throw new Error(`${label} failed: ${text || "MCP tool error"}`);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${label} returned an invalid JSON payload.`);
+  }
 }
 
 function originalToolName(state, sanitized) {

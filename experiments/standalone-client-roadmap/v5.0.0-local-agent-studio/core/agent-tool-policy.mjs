@@ -14,7 +14,7 @@ export function evaluateAgentTool(tool, mode = "read-only") {
   const name = String(tool?.name || "");
   const readOnlyHint = tool?.annotations?.readOnlyHint === true;
   const destructiveHint = tool?.annotations?.destructiveHint === true;
-  if (readOnlyHint || READ_ONLY_NAMES.test(name)) {
+  if (!destructiveHint && (readOnlyHint || READ_ONLY_NAMES.test(name))) {
     return { allowed: true, mode: policy, level: "read", reason: "Read-only tool allowed." };
   }
   if (policy === "read-only") {

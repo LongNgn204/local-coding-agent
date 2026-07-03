@@ -23,6 +23,9 @@ workspace controls, diagnostics, and commercial-release guardrails.
 - Workspace Review modal with bounded directory browsing, path filtering,
   large-file preview, colored Git diff, and exact-action approval decisions.
   Tree and content render limits keep large repositories responsive.
+- Reviewed Patch workflow with parallel dry-run/validation, SHA-256-bound
+  one-time tickets, a ten-minute expiry, explicit apply confirmation, automatic
+  MCP backup batches, and guarded undo of the latest patch batch.
 - Provider key setup from the app UI for OpenAI and Anthropic. Desktop uses
   Electron `safeStorage`; browser Preview uses the local encrypted vault. APIs
   return only metadata, never the saved key value.
@@ -195,6 +198,28 @@ In the desktop app, privileged UI actions use the typed IPC bridge instead of
 constructing arbitrary privileged URLs in the renderer. Browser preview keeps a
 fetch fallback for development.
 
+## Reviewed Patch Workflow
+
+Open `Workspace Review`, select `Patch`, and paste a standard unified diff. The
+workflow is deliberately split into separate trust steps:
+
+1. `Preview` validates the diff locally, then runs `preview_patch` and
+   `validate_patch` in parallel without writing files.
+2. A successful preview creates an in-memory ticket bound to the exact diff by
+   SHA-256. The ticket expires after ten minutes and never returns raw diff text
+   through the public API.
+3. `Apply` requires a second high-risk confirmation and consumes the ticket
+   exactly once. The server applies only the private diff attached to that
+   ticket; the renderer cannot replace it after review.
+4. The MCP patch engine creates a workspace-scoped backup batch before writing.
+   `Undo Last` requires its own high-risk confirmation and restores that latest
+   batch.
+
+The generic manual-tool route is read-only and cannot call `apply_patch` or
+other mutating/unknown tools. A file may still change outside Studio between
+preview and apply; the MCP patch engine re-matches hunk context and fails closed
+on conflicts. This review layer is not an OS sandbox or a substitute for Git.
+
 ## Build Desktop Package
 
 ```powershell
@@ -282,6 +307,9 @@ workspace controls, diagnostics và các lớp kiểm soát để phát hành th
 - Workspace Review modal có duyệt thư mục giới hạn, lọc path, preview file lớn,
   Git diff có màu và quyết định exact-action approval. Giới hạn tree/content
   giúp repo lớn không làm lag giao diện.
+- Luồng Reviewed Patch có dry-run/validation chạy song song, ticket một lần gắn
+  SHA-256, hết hạn sau mười phút, xác nhận apply riêng, backup batch tự động ở
+  MCP và undo có bảo vệ cho patch batch gần nhất.
 - Setup provider key ngay trong UI cho OpenAI và Anthropic. Desktop dùng Electron
   `safeStorage`; browser Preview dùng local encrypted vault. API chỉ trả metadata,
   không trả giá trị key đã lưu.
@@ -450,6 +478,26 @@ allow/deny; không ghi raw payload hoặc secret.
 Trong desktop app, UI dùng typed IPC bridge cho action có quyền cao thay vì tự
 tạo URL nhạy cảm trong renderer. Browser preview vẫn có fetch fallback để dev
 dễ chạy.
+
+## Luồng Reviewed Patch
+
+Mở `Workspace Review`, chọn `Patch`, rồi dán standard unified diff. Workflow
+được tách thành các bước tin cậy riêng:
+
+1. `Preview` kiểm tra diff cục bộ, sau đó chạy song song `preview_patch` và
+   `validate_patch` mà không ghi file.
+2. Preview thành công tạo ticket trong RAM, gắn với chính xác nội dung diff bằng
+   SHA-256. Ticket hết hạn sau mười phút và public API không trả lại raw diff.
+3. `Apply` cần thêm một xác nhận high-risk và chỉ dùng ticket đúng một lần.
+   Server chỉ apply private diff đã gắn với ticket; renderer không thể thay diff
+   sau khi người dùng đã review.
+4. MCP patch engine tạo backup batch theo workspace trước khi ghi. `Undo Last`
+   cần xác nhận high-risk riêng và khôi phục batch gần nhất đó.
+
+Route gọi tool thủ công chỉ cho read-only, không thể gọi `apply_patch` hoặc tool
+thay đổi/không xác định. File vẫn có thể bị tiến trình ngoài Studio thay đổi giữa
+lúc preview và apply; MCP patch engine sẽ match lại hunk context và fail closed
+khi có conflict. Lớp review này chưa phải OS sandbox và không thay thế Git.
 
 ## Build Desktop Package
 

@@ -7,6 +7,7 @@ test("agent tool policy defaults to read-only and honors MCP annotations", () =>
   assert.equal(evaluateAgentTool({ name: "unknown_report", annotations: { readOnlyHint: true } }).allowed, true);
   assert.equal(evaluateAgentTool({ name: "write_file" }).allowed, false);
   assert.equal(evaluateAgentTool({ name: "run_command" }).allowed, false);
+  assert.equal(evaluateAgentTool({ name: "get_shell", annotations: { readOnlyHint: true, destructiveHint: true } }).allowed, false);
 });
 
 test("workspace policy allows scoped edits but blocks commands and destructive hints", () => {
