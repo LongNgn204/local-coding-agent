@@ -169,6 +169,29 @@ test("cancel on unknown throws; cancel on terminal is idempotent", async () => {
   assert.match(again.message, /already/);
 });
 
+test("readArtifact paginates report and log; handles missing", async () => {
+  const { mgr } = await freshManager();
+  const s = await mgr.spawn({ role: "release_agent", title: "big", task: "prep release" });
+  await mgr.settle(s.agent_id);
+  const p1 = await mgr.readArtifact(s.agent_id, "report", { offset: 0, limit: 3 });
+  assert.equal(p1.exists, true);
+  assert.equal(p1.kind, "report");
+  assert.equal(p1.offset, 0);
+  assert.ok(p1.returned_lines <= 3);
+  assert.equal(p1.has_more, p1.total_lines > 3);
+  const p2 = await mgr.readArtifact(s.agent_id, "report", { offset: 3, limit: 3 });
+  assert.equal(p2.offset, 3);
+  const logView = await mgr.readArtifact(s.agent_id, "log", { offset: 0, limit: 100 });
+  assert.equal(logView.kind, "log");
+  assert.equal(logView.exists, true);
+  // cancelled agent has no files -> exists false, no throw
+  const c = await mgr.spawn({ role: "readme_agent", title: "c", task: "x" });
+  await mgr.cancel(c.agent_id);
+  const none = await mgr.readArtifact(c.agent_id, "report");
+  assert.equal(none.exists, false);
+  await assert.rejects(() => mgr.readArtifact("a_0000000000000000", "report"), /No agent/);
+});
+
 test("dry_run validates without executing", async () => {
   const { mgr } = await freshManager();
   const s = await mgr.spawn({ role: "security_review_agent", title: "sec", task: "review", dry_run: true });

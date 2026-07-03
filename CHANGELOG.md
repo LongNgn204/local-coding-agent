@@ -5,6 +5,21 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Added — v5.0.0-preview.3 (experimental, opt-in): Agents dashboard page
+
+Improves the dashboard Local sub-agents panel (still gated behind
+`AGENT_V5_PREVIEW`; stable v4 behavior unchanged; `PREVIEW_VERSION` ->
+`5.0.0-preview.3`).
+
+- Status **filter chips** (All / running / queued / done / failed / cancelled)
+  with live counts; the agents table now shows agent id, role, title, a colored
+  status badge, and the created time.
+- A per-agent **viewer** with **Report / Log** tabs and **Prev / Next 200** line
+  pagination (`lines X-Y of N`), so the page never renders thousands of DOM rows.
+- New `AgentManager.readArtifact(id, kind, {offset, limit})` and a `source` +
+  `offset`/`limit` mode on the loopback `GET /api/agent` endpoint (back-compatible
+  when `source` is omitted). Added a `readArtifact` unit test (test-agents 19/0).
+
 ### Added — v5.0.0-preview.2 (experimental, opt-in): Local Sub-Agent Manager
 
 Builds on preview.1's anti-lag store. ChatGPT Web does not run native

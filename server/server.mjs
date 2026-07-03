@@ -35,7 +35,7 @@ const PRODUCT_TIER = "pro";
 // v5.0.0-preview.1 — experimental "local-first anti-lag" channel. The stable v4
 // server behavior is unchanged by default; the preview tools/store only load
 // when AGENT_V5_PREVIEW is truthy so we never break the current stable version.
-const PREVIEW_VERSION = "5.0.0-preview.2";
+const PREVIEW_VERSION = "5.0.0-preview.3";
 const PREVIEW_ENABLED = /^(1|true|on|yes)$/i.test(String(process.env.AGENT_V5_PREVIEW || ""));
 const PORT = Number(process.env.PORT || 8787);
 // Bind to loopback by default. The local OpenAI tunnel-client forwards to this,
@@ -2901,9 +2901,27 @@ async function dashApiAgent(url, res) {
     if (!agentManager) return sendJson(res, 404, { error: "preview_disabled" });
     const id = url.searchParams.get("id") || "";
     if (!AGENT_ID_RE.test(id)) return sendJson(res, 400, { error: "invalid agent id" });
-    const maxChars = Math.min(Math.max(Number(url.searchParams.get("max_chars") || 8000), 200), 50000);
     const meta = agentManager.get(id);
     if (!meta) return sendJson(res, 404, { error: "not_found" });
+
+    // v5.0.0-preview.3: paginated report/log viewer for the dashboard.
+    const source = url.searchParams.get("source");
+    if (source === "report" || source === "log") {
+      const offset = Math.max(0, Number(url.searchParams.get("offset") || 0));
+      const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 200), 1), 1000);
+      const view = await agentManager.readArtifact(id, source, { offset, limit });
+      return sendJson(res, 200, {
+        agent_id: meta.agent_id,
+        role: meta.role,
+        title: meta.title,
+        status: meta.status,
+        report_path: meta.report_path || null,
+        log_path: meta.log_path || null,
+        view
+      });
+    }
+
+    const maxChars = Math.min(Math.max(Number(url.searchParams.get("max_chars") || 8000), 200), 50000);
     const result = await agentManager.result(id, maxChars);
     return sendJson(res, 200, {
       agent_id: meta.agent_id,
@@ -3125,9 +3143,22 @@ function dashboardHtml() {
     <div class="panel" style="margin:12px 0 0">
       <h3>Local sub-agents <span class="pill" style="background:#7c2d12;color:#fed7aa">EXPERIMENTAL</span> <span class="dim" id="v5agcount"></span></h3>
       <div class="note">ChatGPT khong chay sub-agent that o day; no goi tool MCP, server chay va theo doi sub-agent cuc bo. / ChatGPT does not run native sub-agents; it calls MCP tools and the server runs/tracks them locally.</div>
-      <table id="v5agents" style="margin-top:8px"></table>
-      <div id="v5agentview" class="dim" style="margin-top:8px">Click an agent id to load its latest 200 lines (local only).</div>
-      <pre class="ide-body" id="v5agentbody" style="display:none;max-height:280px;overflow:auto"></pre>
+      <div id="v5agfilter" style="margin:10px 0 6px;display:flex;gap:6px;flex-wrap:wrap"></div>
+      <table id="v5agents" style="margin-top:4px;width:100%"></table>
+      <div id="v5agviewer" style="display:none;margin-top:12px;border-top:1px solid #1f2937;padding-top:10px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <b id="v5agtitle" style="color:#e2e8f0"></b>
+          <span class="btn" id="v5tabReport" onclick="agView('report')">Report</span>
+          <span class="btn" id="v5tabLog" onclick="agView('log')">Log</span>
+          <span class="dim" id="v5agmeta" style="margin-left:4px"></span>
+          <span style="margin-left:auto;display:flex;gap:6px">
+            <span class="btn" onclick="agPage(-1)">Prev</span>
+            <span class="btn" onclick="agPage(1)">Next 200</span>
+            <span class="btn" onclick="agClose()">Close</span>
+          </span>
+        </div>
+        <pre class="ide-body" id="v5agentbody" style="max-height:320px;overflow:auto;margin-top:8px"></pre>
+      </div>
     </div>
   </div>
 
@@ -3364,29 +3395,60 @@ function agBadge(s){
   var c={queued:'#64748b',running:'#0ea5e9',done:'#22c55e',failed:'#ef4444',cancelled:'#a855f7'}[s]||'#64748b';
   return '<span style="background:'+c+';color:#04121a;padding:1px 7px;border-radius:9px;font-size:11px;font-weight:700">'+esc(s)+'</span>';
 }
+var agAll=[], agFilter='all', agCur=null;
+function agTime(s){ try{ return new Date(s).toLocaleTimeString(); }catch(e){ return ''; } }
+function renderAgFilter(){
+  var counts={all:agAll.length,queued:0,running:0,done:0,failed:0,cancelled:0};
+  agAll.forEach(function(a){ if(counts[a.status]!=null) counts[a.status]++; });
+  var html='';
+  ['all','running','queued','done','failed','cancelled'].forEach(function(k){
+    if(k!=='all'&&!counts[k]) return;
+    var on=(agFilter===k);
+    html+='<span class="btn" onclick="agSetFilter(\''+k+'\')" style="'+(on?'background:#134e4a;border-color:#2dd4bf;color:#5eead4':'')+'">'+k+' '+counts[k]+'</span>';
+  });
+  document.getElementById('v5agfilter').innerHTML=html;
+}
+function agSetFilter(k){ agFilter=k; renderAgFilter(); renderAgTable(); }
+function renderAgTable(){
+  var rows=agAll.filter(function(a){ return agFilter==='all'||a.status===agFilter; });
+  var th='<tr><th style="text-align:left">agent</th><th style="text-align:left">role</th><th style="text-align:left">title</th><th>status</th><th>time</th></tr>';
+  rows.forEach(function(a){
+    th+='<tr><td><span class="btn" onclick="agOpen(\''+esc(a.agent_id)+'\')">'+esc(a.agent_id.slice(0,10))+'</span></td>'+
+        '<td>'+esc(a.role)+'</td>'+
+        '<td class="dim">'+esc((a.title||'').slice(0,46))+'</td>'+
+        '<td style="text-align:center">'+agBadge(a.status)+'</td>'+
+        '<td class="dim" style="text-align:center">'+agTime(a.created_at)+'</td></tr>';
+  });
+  document.getElementById('v5agents').innerHTML=rows.length?th:'<tr><td class="dim">No sub-agents'+(agFilter!=='all'?(' with status '+agFilter):'')+'. Ask ChatGPT to call spawn_agent, or use the CLI.</td></tr>';
+}
 async function loadAgents(){
   try{
-    var r=await fetch('/api/agents?limit=100',{cache:'no-store'}); var d=await r.json();
-    if(!d.enabled){ document.getElementById('v5agents').innerHTML='<tr><td class="dim">Set AGENT_V5_PREVIEW=1 to enable sub-agents.</td></tr>'; return; }
-    document.getElementById('v5agcount').textContent='('+(d.agents?d.agents.length:0)+')';
-    var th='<tr><th style="text-align:left">agent</th><th style="text-align:left">role</th><th>status</th><th style="text-align:left">summary</th></tr>';
-    (d.agents||[]).forEach(function(a){
-      th+='<tr><td><span class="btn" onclick="loadAgent(\''+esc(a.agent_id)+'\')">'+esc(a.agent_id)+'</span></td>'+
-          '<td>'+esc(a.role)+'</td><td style="text-align:center">'+agBadge(a.status)+'</td>'+
-          '<td class="dim">'+esc((a.summary||'').slice(0,90))+'</td></tr>';
-    });
-    document.getElementById('v5agents').innerHTML=(d.agents&&d.agents.length)?th:'<tr><td class="dim">No sub-agents yet. Ask ChatGPT to call spawn_agent, or use the CLI.</td></tr>';
+    var r=await fetch('/api/agents?limit=200',{cache:'no-store'}); var d=await r.json();
+    if(!d.enabled){ document.getElementById('v5agents').innerHTML='<tr><td class="dim">Set AGENT_V5_PREVIEW=1 to enable sub-agents.</td></tr>'; document.getElementById('v5agfilter').innerHTML=''; return; }
+    agAll=d.agents||[];
+    document.getElementById('v5agcount').textContent='('+agAll.length+')';
+    renderAgFilter(); renderAgTable();
   }catch(e){}
 }
-async function loadAgent(id){
+function agOpen(id){ agCur={id:id,source:'report',offset:0,view:null}; document.getElementById('v5agviewer').style.display='block'; agFetch(); }
+function agClose(){ agCur=null; document.getElementById('v5agviewer').style.display='none'; }
+function agView(src){ if(!agCur) return; agCur.source=src; agCur.offset=0; agFetch(); }
+function agPage(dir){ if(!agCur) return; if(dir>0 && agCur.view && !agCur.view.has_more) return; var n=agCur.offset+dir*200; if(n<0)n=0; agCur.offset=n; agFetch(); }
+async function agFetch(){
+  if(!agCur) return;
+  var body=document.getElementById('v5agentbody');
   try{
-    var r=await fetch('/api/agent?id='+encodeURIComponent(id)+'&max_chars=20000',{cache:'no-store'}); var d=await r.json();
-    var body=document.getElementById('v5agentbody');
-    if(d.error){ body.style.display='block'; body.textContent='Error: '+d.error; return; }
-    document.getElementById('v5agentview').textContent=d.title+' - '+d.status+(d.report_path?(' - report: '+d.report_path):'');
-    body.style.display='block';
-    body.textContent=(d.content||'(no output)')+(d.truncated?('\n...[truncated '+d.total_chars+' chars - open the local report path]'):'');
-  }catch(e){}
+    var r=await fetch('/api/agent?id='+encodeURIComponent(agCur.id)+'&source='+agCur.source+'&offset='+agCur.offset+'&limit=200',{cache:'no-store'});
+    var d=await r.json();
+    if(d.error){ body.textContent='Error: '+d.error; return; }
+    document.getElementById('v5agtitle').textContent=(d.title||agCur.id)+'  ['+d.status+']';
+    document.getElementById('v5tabReport').style.opacity=(agCur.source==='report')?'1':'0.5';
+    document.getElementById('v5tabLog').style.opacity=(agCur.source==='log')?'1':'0.5';
+    var v=d.view||{}; agCur.view=v; agCur.offset=v.offset||0;
+    if(!v.exists){ body.textContent='(no '+agCur.source+' for this agent)'; document.getElementById('v5agmeta').textContent=''; return; }
+    body.textContent=v.content||'(empty)';
+    document.getElementById('v5agmeta').textContent='lines '+(v.offset+1)+'-'+(v.offset+v.returned_lines)+' of '+v.total_lines+(v.has_more?' (more below)':'');
+  }catch(e){ body.textContent='offline'; }
 }
 loadV5(); setInterval(loadV5,5000);
 loadAgents(); setInterval(loadAgents,5000);

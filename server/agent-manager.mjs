@@ -515,6 +515,40 @@ export class AgentManager {
     };
   }
 
+  /**
+   * Read one agent artifact (report or log) with line pagination, for the
+   * dashboard viewer. Files were already redacted at write time.
+   */
+  async readArtifact(agentId, kind, { offset = 0, limit = 200 } = {}) {
+    const meta = this.agents.get(agentId);
+    if (!meta) throw new Error(`No agent with id ${agentId}.`);
+    const which = kind === "log" ? "log" : "report";
+    const file = which === "log" ? meta.log_path : meta.report_path;
+    const empty = { kind: which, exists: false, path: file || null, total_lines: 0, offset: 0, returned_lines: 0, has_more: false, content: "" };
+    if (!file) return empty;
+    let raw;
+    try {
+      raw = await readFile(file, "utf8");
+    } catch {
+      return empty;
+    }
+    const lines = raw.split(/\r?\n/);
+    if (lines.length && lines[lines.length - 1] === "") lines.pop();
+    const off = Math.max(0, Math.min(Number(offset) || 0, lines.length));
+    const lim = Math.max(1, Math.min(Number(limit) || 200, 1000));
+    const slice = lines.slice(off, off + lim);
+    return {
+      kind: which,
+      exists: true,
+      path: file,
+      total_lines: lines.length,
+      offset: off,
+      returned_lines: slice.length,
+      has_more: off + slice.length < lines.length,
+      content: slice.join("\n")
+    };
+  }
+
   async cancel(agentId) {
     const meta = this.agents.get(agentId);
     if (!meta) throw new Error(`No agent with id ${agentId}.`);

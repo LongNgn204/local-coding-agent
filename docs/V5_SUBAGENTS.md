@@ -74,9 +74,14 @@ the server restarts are marked `failed` (interrupted) on next start.
 ### Use it from the local dashboard
 
 Open `http://127.0.0.1:8790/ui` and scroll to the **v5 preview → Local
-sub-agents** panel: task list, status badges, roles, summaries. Click an
-`agent_id` to load the latest lines locally (paginated / truncated — the page
-never renders thousands of DOM nodes).
+sub-agents** panel:
+
+- **Status filter chips** (All / running / queued / done / failed / cancelled)
+  with live counts — click one to filter the list.
+- A clean task table: agent id, role, title, status badge, created time.
+- Click an `agent_id` to open the **viewer**, with **Report / Log** tabs and
+  **Prev / Next 200** line pagination. It shows `lines X-Y of N`, so the page
+  never renders thousands of DOM nodes at once. Everything is loopback-only.
 
 ### Use it from the CLI
 
@@ -195,9 +200,13 @@ server khởi động lại sẽ được đánh dấu `failed` (bị gián đo�
 ### Dùng từ dashboard cục bộ
 
 Mở `http://127.0.0.1:8790/ui`, kéo tới bảng **v5 preview → Local sub-agents**:
-danh sách tác vụ, huy hiệu trạng thái, vai trò, tóm tắt. Bấm vào `agent_id` để
-tải các dòng mới nhất tại máy (phân trang / cắt ngắn — không render hàng nghìn
-node DOM).
+
+- **Chip lọc trạng thái** (All / running / queued / done / failed / cancelled)
+  kèm số đếm — bấm để lọc danh sách.
+- Bảng tác vụ gọn: agent id, vai trò, tiêu đề, huy hiệu trạng thái, thời gian tạo.
+- Bấm `agent_id` để mở **trình xem**, có tab **Report / Log** và phân trang
+  **Prev / Next 200** dòng. Hiển thị `lines X-Y of N` nên trang không bao giờ
+  render hàng nghìn node DOM. Tất cả chỉ loopback.
 
 ### Dùng từ CLI
 
