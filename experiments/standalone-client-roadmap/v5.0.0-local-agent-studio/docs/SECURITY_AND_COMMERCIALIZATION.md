@@ -18,6 +18,8 @@ The Preview implements these baseline controls:
 5. CSP, anti-framing, no-sniff, no-referrer, and restrictive permissions
    headers are applied.
 6. Remote MCP endpoints are disabled unless the operator explicitly opts in.
+   The dashboard proxy separately accepts only loopback HTTP origins and an
+   explicit route/method allowlist, preventing renderer-controlled SSRF.
 7. Privileged API routes require structured intent confirmation through the
    server-side permission broker. Audit entries record metadata only, not raw
    request payloads.
@@ -150,7 +152,9 @@ Preview hiện có các lớp bảo vệ cơ bản:
 4. Thao tác thay đổi chỉ nhận `application/json`, giúp chặn form hoặc request
    `text/plain` cross-origin đơn giản.
 5. App gửi CSP, anti-framing, no-sniff, no-referrer và permissions policy chặt.
-6. Remote MCP bị tắt trừ khi operator chủ động bật.
+6. Remote MCP bị tắt trừ khi operator chủ động bật. Dashboard proxy chỉ chấp
+   nhận HTTP loopback và route/method trong allowlist rõ ràng, ngăn renderer
+   điều khiển SSRF.
 7. API route có quyền cao phải có structured intent confirmation qua permission
    broker ở server. Audit chỉ ghi metadata, không ghi raw request payload.
 8. Electron renderer chạy với `nodeIntegration=false`, `contextIsolation=true`,

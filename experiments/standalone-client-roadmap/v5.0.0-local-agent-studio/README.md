@@ -20,6 +20,9 @@ workspace controls, diagnostics, and commercial-release guardrails.
   injects structured intent, and rejects untrusted renderer origins.
 - Workspace profiles, Skills controls, dashboard metrics, approvals, file
   preview, Git diff, support bundle export, and guarded customer update flow.
+- Workspace Review modal with bounded directory browsing, path filtering,
+  large-file preview, colored Git diff, and exact-action approval decisions.
+  Tree and content render limits keep large repositories responsive.
 - Provider key setup from the app UI for OpenAI and Anthropic. Desktop uses
   Electron `safeStorage`; browser Preview uses the local encrypted vault. APIs
   return only metadata, never the saved key value.
@@ -276,6 +279,9 @@ workspace controls, diagnostics và các lớp kiểm soát để phát hành th
   tự gắn structured intent và từ chối renderer origin không tin cậy.
 - Workspace profiles, Skills controls, dashboard metrics, approvals, file
   preview, Git diff, support bundle export và guarded customer update flow.
+- Workspace Review modal có duyệt thư mục giới hạn, lọc path, preview file lớn,
+  Git diff có màu và quyết định exact-action approval. Giới hạn tree/content
+  giúp repo lớn không làm lag giao diện.
 - Setup provider key ngay trong UI cho OpenAI và Anthropic. Desktop dùng Electron
   `safeStorage`; browser Preview dùng local encrypted vault. API chỉ trả metadata,
   không trả giá trị key đã lưu.

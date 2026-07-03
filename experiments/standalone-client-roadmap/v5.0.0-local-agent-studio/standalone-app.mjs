@@ -12,6 +12,7 @@ import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { evaluateAgentTool, normalizeAgentToolPolicy, publicToolPolicyModes } from "./core/agent-tool-policy.mjs";
 import { compactContext } from "./core/context-compactor.mjs";
+import { buildDashboardRequestUrl } from "./core/dashboard-proxy.mjs";
 import { IntegrityService, loadReleasePublicKey } from "./core/integrity-service.mjs";
 import { LicenseService, loadLicensePublicKey } from "./core/license-service.mjs";
 import { PermissionBroker, PermissionDeniedError } from "./core/permission-broker.mjs";
@@ -29,6 +30,10 @@ const DEFAULT_MCP_URL = process.env.MCP_ENDPOINT || "http://127.0.0.1:8787/mcp";
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 const DEFAULT_PROVIDER = process.env.LCA_MODEL_PROVIDER || "openai";
 const MAX_TOOL_LOOPS = Number(process.env.LCA_STUDIO_MAX_TOOL_LOOPS || 8);
+const MCP_CONNECT_TIMEOUT_VALUE = Number(process.env.LCA_MCP_CONNECT_TIMEOUT_MS || 12_000);
+const MCP_CONNECT_TIMEOUT_MS = Number.isFinite(MCP_CONNECT_TIMEOUT_VALUE)
+  ? Math.max(1_000, Math.min(MCP_CONNECT_TIMEOUT_VALUE, 60_000))
+  : 12_000;
 let mcpSdkPromise = null;
 
 export function startStudio(manifest, options = {}) {
@@ -700,15 +705,22 @@ function modelPresets(manifest) {
 async function connectMcp(state, endpoint) {
   validateMcpEndpoint(endpoint);
   if (state.client) await state.client.close().catch(() => {});
+  state.client = null;
+  state.tools = [];
   const { Client, StreamableHTTPClientTransport } = await loadMcpSdk();
   const client = new Client({ name: "local-agent-studio", version: state.manifest.version });
   const transport = new StreamableHTTPClientTransport(new URL(endpoint));
-  await client.connect(transport);
-  const listed = await client.listTools();
-  state.client = client;
-  state.mcpEndpoint = endpoint;
-  state.tools = listed.tools || [];
-  return state;
+  try {
+    await client.connect(transport, { timeout: MCP_CONNECT_TIMEOUT_MS });
+    const listed = await client.listTools(undefined, { timeout: MCP_CONNECT_TIMEOUT_MS });
+    state.client = client;
+    state.mcpEndpoint = endpoint;
+    state.tools = listed.tools || [];
+    return state;
+  } catch (error) {
+    await client.close().catch(() => {});
+    throw error;
+  }
 }
 
 async function loadMcpSdk() {
@@ -1072,7 +1084,7 @@ function appendServerLog(state, chunk, prefix = "OUT") {
 }
 
 async function dashboardJson(state, path, options = {}) {
-  const url = `${state.dashboardUrl.replace(/\/+$/, "")}${path}`;
+  const url = buildDashboardRequestUrl(state.dashboardUrl, path, { method: options.method || "GET" });
   return httpJson(url, options, { retries: 0 });
 }
 

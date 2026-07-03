@@ -2,19 +2,27 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Activity,
+  ArrowUp,
+  Check,
   Download,
+  FileCode2,
   FileText,
+  Folder,
   FolderGit2,
+  GitCompareArrows,
   KeyRound,
+  ListChecks,
   Play,
   Plus,
   RefreshCw,
+  Search,
   Send,
   Settings,
   ShieldCheck,
   Square,
   Terminal,
-  Wrench
+  Wrench,
+  X
 } from "lucide-react";
 
 type Role = "user" | "assistant" | "system" | "tool";
@@ -25,7 +33,7 @@ type ThreadSummary = {
   title: string;
   provider?: string;
   model?: string;
-  updated_at?: string;
+  updatedAt?: string;
 };
 
 type ThreadItem = {
@@ -79,6 +87,7 @@ type HealthPayload = {
   updates?: UpdateStatus;
   agent_tool_policies?: ToolPolicy[];
   active_turns?: unknown[];
+  mcp_endpoint?: string;
   openai_key_present?: boolean;
   anthropic_key_present?: boolean;
 };
@@ -110,6 +119,58 @@ type ModelPreset = {
   label: string;
   provider: string;
   model: string;
+};
+
+type ReviewMode = "files" | "diff" | "approvals";
+
+type WorkspaceEntry = {
+  path: string;
+  type: "directory" | "file";
+};
+
+type TreePayload = {
+  root: string;
+  truncated: boolean;
+  count: number;
+  entries: WorkspaceEntry[];
+};
+
+type FilePayload = {
+  path: string;
+  total_lines: number;
+  chars: number;
+  truncated: boolean;
+  content: string;
+};
+
+type DiffPayload = {
+  root: string;
+  is_git_repo: boolean;
+  diff: string;
+  empty: boolean;
+  error?: string;
+};
+
+type ApprovalRecord = {
+  id: string;
+  action?: string;
+  actions?: string[];
+  reason?: string;
+  status?: string;
+  created?: string;
+  expires_at?: string;
+};
+
+type ReviewState = {
+  open: boolean;
+  mode: ReviewMode;
+  busy: boolean;
+  error: string;
+  filter: string;
+  tree: TreePayload | null;
+  file: FilePayload | null;
+  diff: DiffPayload | null;
+  approvals: ApprovalRecord[];
 };
 
 const token = document.querySelector<HTMLMetaElement>('meta[name="lca-studio-token"]')?.content || "";
@@ -212,6 +273,17 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [notice, setNotice] = useState("Ready");
+  const [review, setReview] = useState<ReviewState>({
+    open: false,
+    mode: "files",
+    busy: false,
+    error: "",
+    filter: "",
+    tree: null,
+    file: null,
+    diff: null,
+    approvals: []
+  });
   const streamAbortRef = useRef<AbortController | null>(null);
 
   const features = new Set(health?.features || []);
@@ -219,6 +291,15 @@ export function App() {
   useEffect(() => {
     void boot();
   }, []);
+
+  useEffect(() => {
+    if (!review.open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setReview((current) => ({ ...current, open: false }));
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [review.open]);
 
   async function boot() {
     try {
@@ -231,6 +312,7 @@ export function App() {
       setProviderKeys(providerStatusMap(healthData.providers || []));
       setPresets(presetData.presets || []);
       setThreads(threadData.threads || []);
+      if (healthData.mcp_endpoint) setEndpoint(healthData.mcp_endpoint);
       if (healthData.features?.length) setNotice(`${healthData.product || "Studio"} online`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -286,6 +368,84 @@ export function App() {
     setEndpoint(data.endpoint);
     setTools(data.tools || []);
     setNotice(`${data.tools?.length || 0} tools`);
+  }
+
+  async function openReview(mode: ReviewMode) {
+    setReview((current) => ({ ...current, open: true, mode, error: "" }));
+    await refreshReviewMode(mode);
+  }
+
+  async function refreshReviewMode(mode: ReviewMode) {
+    if (mode === "files") return loadWorkspaceTree(review.tree?.root || ".");
+    if (mode === "diff") return loadWorkspaceDiff(review.file?.path);
+    return loadApprovals();
+  }
+
+  async function selectReviewMode(mode: ReviewMode) {
+    setReview((current) => ({ ...current, mode, error: "" }));
+    await refreshReviewMode(mode);
+  }
+
+  async function loadWorkspaceTree(path = ".") {
+    setReview((current) => ({ ...current, busy: true, error: "", file: path === current.tree?.root ? current.file : null }));
+    try {
+      const data = await api<TreePayload>(`/api/dashboard/tree?path=${encodeURIComponent(path)}&depth=3&max=1200`);
+      setReview((current) => ({ ...current, busy: false, tree: data }));
+    } catch (error) {
+      setReview((current) => ({ ...current, busy: false, error: errorMessage(error) }));
+    }
+  }
+
+  async function loadWorkspaceFile(path: string) {
+    setReview((current) => ({ ...current, busy: true, error: "" }));
+    try {
+      const data = await api<FilePayload>(`/api/dashboard/file?path=${encodeURIComponent(path)}`);
+      setReview((current) => ({ ...current, busy: false, file: data }));
+    } catch (error) {
+      setReview((current) => ({ ...current, busy: false, error: errorMessage(error) }));
+    }
+  }
+
+  async function loadWorkspaceDiff(path?: string) {
+    setReview((current) => ({ ...current, busy: true, error: "" }));
+    try {
+      const suffix = path ? `?path=${encodeURIComponent(path)}` : "";
+      const data = await api<DiffPayload>(`/api/dashboard/diff${suffix}`);
+      setReview((current) => ({ ...current, busy: false, diff: data }));
+    } catch (error) {
+      setReview((current) => ({ ...current, busy: false, error: errorMessage(error) }));
+    }
+  }
+
+  async function loadApprovals() {
+    setReview((current) => ({ ...current, busy: true, error: "" }));
+    try {
+      const data = await api<{ pending: ApprovalRecord[] }>("/api/approvals");
+      setReview((current) => ({ ...current, busy: false, approvals: data.pending || [] }));
+    } catch (error) {
+      setReview((current) => ({ ...current, busy: false, error: errorMessage(error) }));
+    }
+  }
+
+  async function decideApproval(record: ApprovalRecord, decision: "approve" | "deny") {
+    const exactActions = approvalActions(record);
+    const verb = decision === "approve" ? "Approve" : "Deny";
+    if (!window.confirm(`${verb} these exact actions?\n\n${exactActions.join("\n")}`)) return;
+    setReview((current) => ({ ...current, busy: true, error: "" }));
+    try {
+      await privilegedApi<{ ok: boolean; status: string }>(
+        "approval:mutate",
+        { id: record.id, decision },
+        () => api(`/api/approvals/${encodeURIComponent(record.id)}/${decision}`, {
+          method: "POST",
+          body: JSON.stringify({ intent: intent("approval:mutate") })
+        })
+      );
+      setNotice(`Approval ${decision}d: ${record.id}`);
+      await loadApprovals();
+    } catch (error) {
+      setReview((current) => ({ ...current, busy: false, error: errorMessage(error) }));
+    }
   }
 
   async function sendMessage() {
@@ -503,7 +663,8 @@ export function App() {
   }, [health]);
 
   return (
-    <div className="studio-shell">
+    <>
+      <div className="studio-shell">
       <aside className="rail">
         <div className="brand">
           <div className="mark">LA</div>
@@ -536,7 +697,7 @@ export function App() {
               onClick={() => void openThread(thread.id)}
             >
               <span>{preview(thread.title || "Untitled", 58)}</span>
-              <small>{thread.provider || "agent"} / {thread.model || "model"} {formatAge(thread.updated_at)}</small>
+              <small>{thread.provider || "agent"} / {thread.model || "model"} {formatAge(thread.updatedAt)}</small>
             </button>
           ))}
           {!threads.length && <div className="empty">No threads yet.</div>}
@@ -652,12 +813,172 @@ export function App() {
         </section>
 
         <section className="mini-grid">
-          <button title="Git diff" onClick={() => void quickPanel("/api/dashboard/diff", setNotice)}><FolderGit2 size={16} /></button>
-          <button title="Read file" onClick={() => void readFilePanel(setNotice)}><FileText size={16} /></button>
+          {features.has("fileViewer") && <button title="Workspace files" onClick={() => void openReview("files")}><FolderGit2 size={16} /></button>}
+          {features.has("fileViewer") && <button title="Git diff" onClick={() => void openReview("diff")}><GitCompareArrows size={16} /></button>}
+          {features.has("approvals") && <button title="Approvals" onClick={() => void openReview("approvals")}><ListChecks size={16} /></button>}
           <button title="Security status" onClick={() => setNotice(health?.integrity?.reason || health?.license?.reason || "Security checks ok")}><ShieldCheck size={16} /></button>
         </section>
       </aside>
+      </div>
+      {review.open && (
+        <WorkspaceReview
+          review={review}
+          onClose={() => setReview((current) => ({ ...current, open: false }))}
+          onMode={(mode) => void selectReviewMode(mode)}
+          onRefresh={() => void refreshReviewMode(review.mode)}
+          onFilter={(filter) => setReview((current) => ({ ...current, filter }))}
+          onTree={(path) => void loadWorkspaceTree(path)}
+          onFile={(path) => void loadWorkspaceFile(path)}
+          onDiff={(path) => {
+            setReview((current) => ({ ...current, mode: "diff", error: "" }));
+            void loadWorkspaceDiff(path);
+          }}
+          onDecision={(record, decision) => void decideApproval(record, decision)}
+        />
+      )}
+    </>
+  );
+}
+
+function WorkspaceReview({
+  review,
+  onClose,
+  onMode,
+  onRefresh,
+  onFilter,
+  onTree,
+  onFile,
+  onDiff,
+  onDecision
+}: {
+  review: ReviewState;
+  onClose: () => void;
+  onMode: (mode: ReviewMode) => void;
+  onRefresh: () => void;
+  onFilter: (value: string) => void;
+  onTree: (path: string) => void;
+  onFile: (path: string) => void;
+  onDiff: (path?: string) => void;
+  onDecision: (record: ApprovalRecord, decision: "approve" | "deny") => void;
+}) {
+  const filter = normalizeWorkspacePath(review.filter).toLowerCase();
+  const entries = (review.tree?.entries || []).filter((entry) => !filter || normalizeWorkspacePath(entry.path).toLowerCase().includes(filter));
+  const root = review.tree?.root || ".";
+  return (
+    <div className="review-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="review-modal" role="dialog" aria-modal="true" aria-label="Workspace review">
+        <header className="review-header">
+          <div>
+            <strong>Workspace Review</strong>
+            <span>{review.mode === "files" ? root : review.mode === "diff" ? review.diff?.root || "Git working tree" : `${review.approvals.length} pending`}</span>
+          </div>
+          <div className="review-header-actions">
+            <button title="Refresh review" onClick={onRefresh}><RefreshCw size={16} /></button>
+            <button title="Close review" onClick={onClose}><X size={17} /></button>
+          </div>
+        </header>
+
+        <nav className="review-tabs" aria-label="Review views">
+          <button className={review.mode === "files" ? "active" : ""} onClick={() => onMode("files")}><Folder size={15} /> Files</button>
+          <button className={review.mode === "diff" ? "active" : ""} onClick={() => onMode("diff")}><GitCompareArrows size={15} /> Diff</button>
+          <button className={review.mode === "approvals" ? "active" : ""} onClick={() => onMode("approvals")}><ListChecks size={15} /> Approvals</button>
+        </nav>
+
+        <div className="review-status">
+          {review.error && <div className="review-error">{review.error}</div>}
+          {review.busy && <div className="review-progress">Loading...</div>}
+        </div>
+
+        <div className="review-body">
+          {review.mode === "files" && (
+            <div className="workspace-review-grid">
+              <aside className="workspace-tree-pane">
+                <div className="tree-toolbar">
+                  <button title="Parent folder" disabled={root === "."} onClick={() => onTree(parentWorkspacePath(root))}><ArrowUp size={15} /></button>
+                  <label className="tree-search">
+                    <Search size={14} />
+                    <input value={review.filter} onChange={(event) => onFilter(event.target.value)} aria-label="Filter workspace files" placeholder="Filter" />
+                  </label>
+                </div>
+                <div className="tree-root" title={root}>{root}</div>
+                <div className="workspace-tree">
+                  {entries.slice(0, 500).map((entry) => (
+                    <button
+                      className={review.file?.path === entry.path ? "tree-entry active" : "tree-entry"}
+                      key={`${entry.type}:${entry.path}`}
+                      onClick={() => entry.type === "directory" ? onTree(entry.path) : onFile(entry.path)}
+                      style={{ paddingLeft: `${10 + Math.min(5, workspaceDepth(entry.path, root)) * 12}px` }}
+                      title={entry.path}
+                    >
+                      {entry.type === "directory" ? <Folder size={14} /> : <FileText size={14} />}
+                      <span>{workspaceName(entry.path)}</span>
+                    </button>
+                  ))}
+                  {!entries.length && <div className="empty">No matching files.</div>}
+                  {entries.length > 500 && <div className="empty">Showing the first 500 entries.</div>}
+                </div>
+              </aside>
+              <section className="workspace-preview-pane">
+                {review.file ? (
+                  <>
+                    <header className="preview-header">
+                      <div>
+                        <strong>{review.file.path}</strong>
+                        <span>{review.file.total_lines.toLocaleString()} lines / {review.file.chars.toLocaleString()} chars{review.file.truncated ? " / server truncated" : ""}</span>
+                      </div>
+                      <button title="Diff this file" onClick={() => onDiff(review.file?.path)}><GitCompareArrows size={15} /></button>
+                    </header>
+                    <pre className="review-code">{boundedText(review.file.content, 250_000)}</pre>
+                  </>
+                ) : (
+                  <div className="review-empty"><FileCode2 size={24} /><span>No file selected.</span></div>
+                )}
+              </section>
+            </div>
+          )}
+
+          {review.mode === "diff" && (
+            <section className="diff-pane">
+              {review.diff?.error && <div className="review-error">{review.diff.error}</div>}
+              {review.diff?.empty ? <div className="review-empty"><Check size={24} /><span>Working tree clean.</span></div> : <DiffView text={review.diff?.diff || ""} />}
+            </section>
+          )}
+
+          {review.mode === "approvals" && (
+            <section className="approval-list">
+              {review.approvals.map((record) => (
+                <article className="approval-item" key={record.id}>
+                  <header>
+                    <strong>{record.action || `${approvalActions(record).length} exact actions`}</strong>
+                    <span>expires {formatDeadline(record.expires_at)}</span>
+                  </header>
+                  {record.reason && <p>{record.reason}</p>}
+                  <pre>{approvalActions(record).join("\n")}</pre>
+                  <div className="approval-actions">
+                    <button className="approve" title="Approve exact actions" onClick={() => onDecision(record, "approve")}><Check size={15} /> Approve</button>
+                    <button className="deny" title="Deny exact actions" onClick={() => onDecision(record, "deny")}><X size={15} /> Deny</button>
+                  </div>
+                </article>
+              ))}
+              {!review.approvals.length && <div className="review-empty"><ShieldCheck size={24} /><span>No pending approvals.</span></div>}
+            </section>
+          )}
+        </div>
+      </section>
     </div>
+  );
+}
+
+function DiffView({ text }: { text: string }) {
+  const bounded = boundedText(text, 300_000);
+  return (
+    <pre className="review-code diff-code">
+      {bounded.split("\n").map((line, index) => (
+        <span className={diffLineClass(line)} key={`${index}:${line.slice(0, 40)}`}>{line || " "}{"\n"}</span>
+      ))}
+    </pre>
   );
 }
 
@@ -763,17 +1084,57 @@ function timelineLabel(event: TimelineEvent) {
   ].filter(Boolean).join(" / ");
 }
 
-async function quickPanel(path: string, setNotice: (value: string) => void) {
-  try {
-    const data = await api<Record<string, unknown>>(path);
-    setNotice(preview(JSON.stringify(data), 180));
-  } catch (error) {
-    setNotice(error instanceof Error ? error.message : String(error));
-  }
+function approvalActions(record: ApprovalRecord) {
+  if (Array.isArray(record.actions) && record.actions.length) return record.actions.map(String);
+  return record.action ? [String(record.action)] : ["Unknown action"];
 }
 
-async function readFilePanel(setNotice: (value: string) => void) {
-  const path = window.prompt("Workspace-relative file path", "README.md");
-  if (!path) return;
-  await quickPanel(`/api/dashboard/file?path=${encodeURIComponent(path)}`, setNotice);
+function parentWorkspacePath(value: string) {
+  const normalized = String(value || ".").replaceAll("\\", "/").replace(/\/+$/, "");
+  if (!normalized || normalized === ".") return ".";
+  const parts = normalized.split("/").filter(Boolean);
+  return parts.length > 1 ? parts.slice(0, -1).join("/") : ".";
+}
+
+function normalizeWorkspacePath(value: string) {
+  return String(value || "").replaceAll("\\", "/").replace(/\/{2,}/g, "/");
+}
+
+function workspaceName(value: string) {
+  const parts = String(value || "").split(/[\\/]/).filter(Boolean);
+  return parts.at(-1) || ".";
+}
+
+function workspaceDepth(value: string, root: string) {
+  const pathParts = String(value || "").split(/[\\/]/).filter(Boolean);
+  const rootParts = root === "." ? [] : String(root || "").split(/[\\/]/).filter(Boolean);
+  return Math.max(0, pathParts.length - rootParts.length - 1);
+}
+
+function boundedText(value: string, limit: number) {
+  const text = String(value || "");
+  return text.length <= limit ? text : `${text.slice(0, limit)}\n[UI PREVIEW TRUNCATED ${text.length - limit} CHARS]`;
+}
+
+function diffLineClass(line: string) {
+  if (line.startsWith("@@")) return "diff-hunk";
+  if (line.startsWith("+") && !line.startsWith("+++")) return "diff-add";
+  if (line.startsWith("-") && !line.startsWith("---")) return "diff-remove";
+  if (line.startsWith("diff ") || line.startsWith("index ") || line.startsWith("+++") || line.startsWith("---")) return "diff-meta";
+  return "";
+}
+
+function formatDeadline(value?: string) {
+  if (!value) return "unknown";
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return "unknown";
+  const seconds = Math.round((time - Date.now()) / 1000);
+  if (seconds <= 0) return "now";
+  if (seconds < 60) return `in ${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  return minutes < 60 ? `in ${minutes}m` : `in ${Math.round(minutes / 60)}h`;
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }

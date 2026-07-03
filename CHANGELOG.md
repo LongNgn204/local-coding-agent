@@ -90,6 +90,10 @@ follows [Semantic Versioning](https://semver.org/).
 - Studio v5 support bundles now include redacted, bounded agent-session
   diagnostics: recent thread items, persisted turn provider/model/tool policy,
   blocked-tool evidence, and turn failures for customer troubleshooting.
+- Studio v5 now includes a Workspace Review modal for bounded file browsing,
+  large-file preview, colored Git diff, and exact-action approval decisions.
+  Its dashboard proxy is restricted to loopback HTTP plus an explicit
+  route/method allowlist, and MCP connection/listing now fails fast on timeout.
 
 ## [4.4.0-pro] - 2026-07-01
 
