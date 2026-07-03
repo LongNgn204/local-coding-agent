@@ -36,6 +36,7 @@ public sealed class MainForm : Form
     private TextBox _txtKey = null!;
     private Label _lblKeyState = null!;
     private CheckBox _chkOpenWeb = null!;
+    private CheckBox _chkV5Preview = null!;
     private Label _lblStatus = null!;
     private TextBox _txtLog = null!;
     private Button _btnStart = null!;
@@ -45,7 +46,7 @@ public sealed class MainForm : Form
     {
         Text = "Local Coding Agent";
         Width = 660;
-        Height = 835;
+        Height = 863;
         StartPosition = FormStartPosition.CenterScreen;
         MinimizeBox = true;
         FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -127,6 +128,9 @@ public sealed class MainForm : Form
         y += 26;
         _chkOpenWeb = new CheckBox { Text = "Open tunnel web UI on start", Left = 150, Top = y, Width = 300 };
         Controls.Add(_chkOpenWeb);
+        y += 28;
+        _chkV5Preview = new CheckBox { Text = "Enable v5 preview (experimental, anti-lag)", Left = 150, Top = y, Width = 360 };
+        Controls.Add(_chkV5Preview);
         y += 34;
 
         // Action buttons (row 1)
@@ -237,6 +241,7 @@ public sealed class MainForm : Form
         _numPort.Value = Math.Clamp(_cfg.Port, 1, 65535);
         _txtAuth.Text = _cfg.AuthToken;
         _chkOpenWeb.Checked = _cfg.OpenWebUi;
+        _chkV5Preview.Checked = _cfg.V5Preview;
         _lblKeyState.Text = _cfg.HasKey ? "Key is saved (encrypted)." : "No key saved yet.";
     }
 
@@ -256,6 +261,7 @@ public sealed class MainForm : Form
         _cfg.Port = (int)_numPort.Value;
         _cfg.AuthToken = _txtAuth.Text.Trim();
         _cfg.OpenWebUi = _chkOpenWeb.Checked;
+        _cfg.V5Preview = _chkV5Preview.Checked;
     }
 
     // ----------------------------------------------------------------- actions

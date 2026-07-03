@@ -28,6 +28,11 @@ public class AppConfig
     public string AuthToken { get; set; } = "";
     public bool OpenWebUi { get; set; } = true;
 
+    /// <summary>v5.0.0-preview.1 (experimental). When true, the server starts with
+    /// AGENT_V5_PREVIEW=1 to enable the opt-in local-first anti-lag tools and the
+    /// dashboard v5 panel. Off = unchanged stable v4 behavior.</summary>
+    public bool V5Preview { get; set; } = false;
+
     /// <summary>DPAPI-encrypted (CurrentUser) tunnel key, base64. Never stored in plain text.</summary>
     public string EncryptedKey { get; set; } = "";
 

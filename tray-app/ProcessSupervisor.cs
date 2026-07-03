@@ -54,6 +54,8 @@ public sealed class ProcessSupervisor : IDisposable
         psi.Environment["AGENT_POLICY"] = cfg.Policy;
         psi.Environment["AGENT_EXTRA_ROOTS"] = cfg.ExtraRoots;
         psi.Environment["MCP_AUTH_TOKEN"] = cfg.AuthToken;
+        // v5.0.0-preview.1 opt-in anti-lag preview (off by default keeps stable v4).
+        psi.Environment["AGENT_V5_PREVIEW"] = cfg.V5Preview ? "1" : "0";
 
         _node = new Process { StartInfo = psi, EnableRaisingEvents = true };
         _node.OutputDataReceived += (_, e) => { if (e.Data is not null) Log("[server] " + e.Data); };
