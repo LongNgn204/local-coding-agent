@@ -264,8 +264,8 @@ When the preview is enabled, the server can run specialist "sub-agent" tasks
 locally and keep their heavy logs/reports on your machine. ChatGPT only receives
 a compact status + summary + a local path.
 
-- **MCP tools:** `spawn_agent`, `list_agents`, `get_agent_status`,
-  `get_agent_result` (compact, `max_chars`), `cancel_agent`.
+- **MCP tools:** `create_local_task`, `list_local_tasks`, `get_local_task_status`,
+  `get_local_task_result` (compact, `max_chars`), `cancel_local_task`.
 - **Roles:** `repo_setup_agent`, `bug_fix_agent`, `network_doctor_agent`,
   `release_agent`, `readme_agent`, `security_review_agent`.
 - **Dashboard:** a **Local sub-agents** panel (status badges, roles, summaries,
@@ -577,8 +577,8 @@ Khi bật preview, server có thể chạy các tác vụ "sub-agent" chuyên bi
 máy và giữ log/report nặng ở máy bạn. ChatGPT chỉ nhận trạng thái gọn + tóm tắt
 + đường dẫn cục bộ.
 
-- **Tool MCP:** `spawn_agent`, `list_agents`, `get_agent_status`,
-  `get_agent_result` (gọn, `max_chars`), `cancel_agent`.
+- **Tool MCP:** `create_local_task`, `list_local_tasks`, `get_local_task_status`,
+  `get_local_task_result` (gọn, `max_chars`), `cancel_local_task`.
 - **Vai trò:** `repo_setup_agent`, `bug_fix_agent`, `network_doctor_agent`,
   `release_agent`, `readme_agent`, `security_review_agent`.
 - **Dashboard:** bảng **Local sub-agents** (huy hiệu trạng thái, vai trò, tóm

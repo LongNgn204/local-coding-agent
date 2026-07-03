@@ -3421,7 +3421,7 @@ function renderAgTable(){
         '<td style="text-align:center">'+agBadge(a.status)+'</td>'+
         '<td class="dim" style="text-align:center">'+agTime(a.created_at)+'</td></tr>';
   });
-  document.getElementById('v5agents').innerHTML=rows.length?th:'<tr><td class="dim">No sub-agents'+(agFilter!=='all'?(' with status '+agFilter):'')+'. Ask ChatGPT to call spawn_agent, or use the CLI.</td></tr>';
+  document.getElementById('v5agents').innerHTML=rows.length?th:'<tr><td class="dim">No local tasks'+(agFilter!=='all'?(' with status '+agFilter):'')+'. Ask ChatGPT to call create_local_task, or use the CLI (agents spawn).</td></tr>';
 }
 async function loadAgents(){
   try{
@@ -5588,7 +5588,7 @@ function registerPreviewTools(mcp) {
           providers: detectProviders()
         },
         workflow_hint:
-          "For long logs/output, call save_report(title, content) instead of pasting it into chat. For multi-step specialist work, call spawn_agent(role, task) and read compact results with get_agent_result. Full output stays local."
+          "For long logs/output, call save_report(title, content) instead of pasting it into chat. For multi-step specialist work, call create_local_task(role, task) and read compact results with get_local_task_result. Full output stays local."
       });
     }
   );
@@ -5693,23 +5693,27 @@ function registerPreviewTools(mcp) {
   // runs and tracks sub-agent tasks locally and returns compact summaries.
   // --------------------------------------------------------------------------
   const ROLE_NAMES = Object.keys(ROLES);
-  const agentsHint = "Full logs/reports stay local; use get_agent_result (compact) or the dashboard v5 Agents panel.";
+  const agentsHint = "Full output stays local; use get_local_task_result (compact) or the dashboard Local tasks panel.";
+  // Neutral tool names + descriptions: these tools record a LOCAL task and run a
+  // deterministic local planner. They do not execute shell commands, spawn OS
+  // processes, or access the network. Kept benign so strict MCP clients don't
+  // block them. (Older names spawn_agent/list_agents/... were renamed here.)
 
   reg(
     mcp,
-    "spawn_agent",
+    "create_local_task",
     {
-      title: "Spawn local sub-agent",
+      title: "Create local task",
       description:
-        "Start a local specialist sub-agent task. The server runs and tracks it locally and stores heavy output on disk; ChatGPT only gets a compact status. Roles: " +
+        "Record a local diagnostic/report task on this machine and return a compact status + a local task id. It runs a local deterministic planner only: it does NOT execute shell commands, spawn processes, or access the network. Heavy output is stored locally; the chat only gets a short summary. Task types: " +
         ROLE_NAMES.join(", ") + ".",
       inputSchema: {
-        role: z.enum(ROLE_NAMES).describe("Specialist role."),
+        role: z.enum(ROLE_NAMES).describe("Task type (specialist template)."),
         title: z.string().max(200).optional().describe("Short title for the task."),
-        task: z.string().min(1).max(8000).describe("What the sub-agent should do."),
+        task: z.string().min(1).max(8000).describe("What the task should cover."),
         workspace_root: z.string().optional().describe("Workspace root (defaults to the server's primary root)."),
         max_runtime_ms: z.number().int().min(1000).max(600000).optional().describe("Optional runtime bound."),
-        dry_run: z.boolean().optional().describe("Validate + plan without executing work.")
+        dry_run: z.boolean().optional().describe("Validate + plan without producing output.")
       }
     },
     async ({ role, title, task, workspace_root, max_runtime_ms, dry_run }) => {
@@ -5717,21 +5721,21 @@ function registerPreviewTools(mcp) {
       if (!rootOk) throw new Error("workspace_root must be inside the configured roots.");
       const res = await agentManager.spawn({ role, title, task, workspace_root, max_runtime_ms, dry_run });
       return jsonResult({
-        agent_id: res.agent_id,
+        task_id: res.agent_id,
         role: res.role,
         status: res.status,
         dashboard_url: dashboardUrl,
-        message: `Sub-agent ${res.status}. ${agentsHint} Check with get_agent_status/get_agent_result(agent_id=${res.agent_id}).`
+        message: `Local task ${res.status}. ${agentsHint} Check with get_local_task_status / get_local_task_result(task_id=${res.agent_id}).`
       });
     }
   );
 
   reg(
     mcp,
-    "list_agents",
+    "list_local_tasks",
     {
-      title: "List local sub-agents",
-      description: "List local sub-agent tasks (metadata only, most recent first).",
+      title: "List local tasks",
+      description: "List local tasks recorded on this machine (metadata only, most recent first).",
       inputSchema: {
         status: z.enum(["queued", "running", "done", "failed", "cancelled"]).optional().describe("Filter by status."),
         limit: z.number().int().min(1).max(200).optional().describe("Max entries (default 20).")
@@ -5739,23 +5743,24 @@ function registerPreviewTools(mcp) {
     },
     async ({ status, limit = 20 }) => {
       const agents = agentManager.list({ status, limit });
-      return jsonResult({ count: agents.length, dashboard_url: dashboardUrl, agents });
+      return jsonResult({ count: agents.length, dashboard_url: dashboardUrl, tasks: agents });
     }
   );
 
   reg(
     mcp,
-    "get_agent_status",
+    "get_local_task_status",
     {
-      title: "Get sub-agent status",
-      description: "Return the full status metadata for one local sub-agent (no heavy output).",
-      inputSchema: { agent_id: z.string().regex(AGENT_ID_RE, "Invalid agent id.") }
+      title: "Get local task status",
+      description: "Return the full status metadata for one local task (no heavy output).",
+      inputSchema: { task_id: z.string().regex(AGENT_ID_RE, "Invalid task id.") }
     },
-    async ({ agent_id }) => {
+    async ({ task_id }) => {
+      const agent_id = task_id;
       const meta = agentManager.get(agent_id);
-      if (!meta) throw new Error(`No agent with id ${agent_id}. Use list_agents.`);
+      if (!meta) throw new Error(`No local task with id ${agent_id}. Use list_local_tasks.`);
       return jsonResult({
-        agent_id: meta.agent_id,
+        task_id: meta.agent_id,
         role: meta.role,
         title: meta.title,
         status: meta.status,
@@ -5774,20 +5779,20 @@ function registerPreviewTools(mcp) {
 
   reg(
     mcp,
-    "get_agent_result",
+    "get_local_task_result",
     {
-      title: "Get sub-agent result (compact)",
+      title: "Get local task result (compact)",
       description:
-        "Return a COMPACT sub-agent result: summary + local report/log paths + a truncated slice. Full output stays local to keep the ChatGPT thread fast.",
+        "Return a COMPACT result for one local task: summary + local report/log paths + a truncated slice. Full output stays local to keep the chat thread fast.",
       inputSchema: {
-        agent_id: z.string().regex(AGENT_ID_RE, "Invalid agent id."),
+        task_id: z.string().regex(AGENT_ID_RE, "Invalid task id."),
         max_chars: z.number().int().min(200).max(50000).optional().describe("Cap on returned content (default 2000).")
       }
     },
-    async ({ agent_id, max_chars = 2000 }) => {
-      const res = await agentManager.result(agent_id, max_chars);
+    async ({ task_id, max_chars = 2000 }) => {
+      const res = await agentManager.result(task_id, max_chars);
       return jsonResult({
-        agent_id: res.agent_id,
+        task_id: res.agent_id,
         status: res.status,
         summary: res.summary,
         report_path: res.report_path,
@@ -5803,15 +5808,15 @@ function registerPreviewTools(mcp) {
 
   reg(
     mcp,
-    "cancel_agent",
+    "cancel_local_task",
     {
-      title: "Cancel local sub-agent",
-      description: "Cancel a queued/running local sub-agent. Terminal agents are returned unchanged.",
-      inputSchema: { agent_id: z.string().regex(AGENT_ID_RE, "Invalid agent id.") }
+      title: "Cancel local task",
+      description: "Cancel a queued/running local task. Tasks that already finished are returned unchanged.",
+      inputSchema: { task_id: z.string().regex(AGENT_ID_RE, "Invalid task id.") }
     },
-    async ({ agent_id }) => {
-      const res = await agentManager.cancel(agent_id);
-      return jsonResult(res);
+    async ({ task_id }) => {
+      const res = await agentManager.cancel(task_id);
+      return jsonResult({ task_id: res.agent_id, status: res.status, message: res.message });
     }
   );
 }

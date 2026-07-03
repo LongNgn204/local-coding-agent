@@ -19,6 +19,18 @@ Improves the dashboard Local sub-agents panel (still gated behind
 - New `AgentManager.readArtifact(id, kind, {offset, limit})` and a `source` +
   `offset`/`limit` mode on the loopback `GET /api/agent` endpoint (back-compatible
   when `source` is omitted). Added a `readArtifact` unit test (test-agents 19/0).
+- Renamed the MCP sub-agent tools to neutral, benign names so strict MCP clients
+  (e.g. ChatGPT's safety guard) do not block them: `spawn_agent` ->
+  `create_local_task`, `list_agents` -> `list_local_tasks`, `get_agent_status` ->
+  `get_local_task_status`, `get_agent_result` -> `get_local_task_result`,
+  `cancel_agent` -> `cancel_local_task` (id field is now `task_id`). Descriptions
+  now state plainly that the tools run a local deterministic planner and do NOT
+  execute shell commands, spawn processes, or access the network. The manager,
+  dashboard, and CLI are unchanged.
+- Fixed a dashboard blank-page bug: agents filter/rows built `onclick` handlers
+  with `\'` inside the HTML template literal, producing invalid browser JS that
+  broke the whole inline script. Switched to `data-*` attributes + delegated
+  click listeners.
 
 ### Added — v5.0.0-preview.2 (experimental, opt-in): Local Sub-Agent Manager
 

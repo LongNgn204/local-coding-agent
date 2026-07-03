@@ -38,13 +38,13 @@ summaries and ids. You inspect full output on the local dashboard or via the CLI
 
 | Tool | Purpose | Output |
 |---|---|---|
-| `spawn_agent` | Start a specialist task | `agent_id`, `status`, dashboard link, message |
-| `list_agents` | List tasks (metadata only) | compact array, filter by `status` |
-| `get_agent_status` | One task's full status | metadata, no heavy output |
-| `get_agent_result` | One task's result | summary + report/log paths + **truncated** slice (`max_chars`) |
-| `cancel_agent` | Cancel a queued/running task | final status |
+| `create_local_task` | Start a specialist task | `task_id`, `status`, dashboard link, message |
+| `list_local_tasks` | List tasks (metadata only) | compact array, filter by `status` |
+| `get_local_task_status` | One task's full status | metadata, no heavy output |
+| `get_local_task_result` | One task's result | summary + report/log paths + **truncated** slice (`max_chars`) |
+| `cancel_local_task` | Cancel a queued/running task | final status |
 
-Every tool is **compact by default**. `get_agent_result` truncates to `max_chars`
+Every tool is **compact by default**. `get_local_task_result` truncates to `max_chars`
 (default 2000) and always returns the local `report_path` / `log_path` for the
 full content.
 
@@ -66,9 +66,9 @@ the server restarts are marked `failed` (interrupted) on next start.
 
 ### Use it from ChatGPT Web
 
-1. `spawn_agent` with a `role` and a `task`. You get an `agent_id` back.
-2. `get_agent_status(agent_id)` to see when it is `done`.
-3. `get_agent_result(agent_id)` for a compact summary + local paths.
+1. `create_local_task` with a `role` and a `task`. You get an `task_id` back.
+2. `get_local_task_status(task_id)` to see when it is `done`.
+3. `get_local_task_result(task_id)` for a compact summary + local paths.
 4. Open the full report/log on the dashboard, not in chat.
 
 ### Use it from the local dashboard
@@ -79,7 +79,7 @@ sub-agents** panel:
 - **Status filter chips** (All / running / queued / done / failed / cancelled)
   with live counts — click one to filter the list.
 - A clean task table: agent id, role, title, status badge, created time.
-- Click an `agent_id` to open the **viewer**, with **Report / Log** tabs and
+- Click an `task_id` to open the **viewer**, with **Report / Log** tabs and
   **Prev / Next 200** line pagination. It shows `lines X-Y of N`, so the page
   never renders thousands of DOM nodes at once. Everything is loopback-only.
 
@@ -165,13 +165,13 @@ dashboard hoặc bằng CLI.
 
 | Tool | Mục đích | Output |
 |---|---|---|
-| `spawn_agent` | Bắt đầu tác vụ chuyên biệt | `agent_id`, `status`, link dashboard, message |
-| `list_agents` | Liệt kê tác vụ (chỉ metadata) | mảng gọn, lọc theo `status` |
-| `get_agent_status` | Trạng thái đầy đủ 1 tác vụ | metadata, không kèm output nặng |
-| `get_agent_result` | Kết quả 1 tác vụ | tóm tắt + đường dẫn report/log + phần **cắt ngắn** (`max_chars`) |
-| `cancel_agent` | Hủy tác vụ đang chờ/chạy | trạng thái cuối |
+| `create_local_task` | Bắt đầu tác vụ chuyên biệt | `task_id`, `status`, link dashboard, message |
+| `list_local_tasks` | Liệt kê tác vụ (chỉ metadata) | mảng gọn, lọc theo `status` |
+| `get_local_task_status` | Trạng thái đầy đủ 1 tác vụ | metadata, không kèm output nặng |
+| `get_local_task_result` | Kết quả 1 tác vụ | tóm tắt + đường dẫn report/log + phần **cắt ngắn** (`max_chars`) |
+| `cancel_local_task` | Hủy tác vụ đang chờ/chạy | trạng thái cuối |
 
-Mọi tool **gọn mặc định**. `get_agent_result` cắt theo `max_chars` (mặc định
+Mọi tool **gọn mặc định**. `get_local_task_result` cắt theo `max_chars` (mặc định
 2000) và luôn trả về `report_path` / `log_path` cục bộ để xem đầy đủ.
 
 ### Vai trò (chuyên gia)
@@ -192,9 +192,9 @@ server khởi động lại sẽ được đánh dấu `failed` (bị gián đo�
 
 ### Dùng từ ChatGPT Web
 
-1. `spawn_agent` với `role` và `task`. Nhận về `agent_id`.
-2. `get_agent_status(agent_id)` để biết khi nào `done`.
-3. `get_agent_result(agent_id)` để lấy tóm tắt gọn + đường dẫn cục bộ.
+1. `create_local_task` với `role` và `task`. Nhận về `task_id`.
+2. `get_local_task_status(task_id)` để biết khi nào `done`.
+3. `get_local_task_result(task_id)` để lấy tóm tắt gọn + đường dẫn cục bộ.
 4. Mở report/log đầy đủ trên dashboard, không dán vào chat.
 
 ### Dùng từ dashboard cục bộ
@@ -204,7 +204,7 @@ Mở `http://127.0.0.1:8790/ui`, kéo tới bảng **v5 preview → Local sub-ag
 - **Chip lọc trạng thái** (All / running / queued / done / failed / cancelled)
   kèm số đếm — bấm để lọc danh sách.
 - Bảng tác vụ gọn: agent id, vai trò, tiêu đề, huy hiệu trạng thái, thời gian tạo.
-- Bấm `agent_id` để mở **trình xem**, có tab **Report / Log** và phân trang
+- Bấm `task_id` để mở **trình xem**, có tab **Report / Log** và phân trang
   **Prev / Next 200** dòng. Hiển thị `lines X-Y of N` nên trang không bao giờ
   render hàng nghìn node DOM. Tất cả chỉ loopback.
 
