@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Strict CSP. In production only local assets run. In dev, Vite injects an
+      inline HMR client and connects over ws to the loopback dev server, so we
+      allow 'unsafe-inline' for style/script and ws: to 127.0.0.1 there. No
+      remote origins are ever allowed.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws://127.0.0.1:5199 http://127.0.0.1:5199; base-uri 'none'; form-action 'none'"
+    />
+    <title>Local Codex Studio</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
