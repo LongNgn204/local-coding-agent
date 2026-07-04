@@ -5,6 +5,50 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Fixed — v5.0.0-preview.5 (experimental, opt-in)
+
+Two production bugs in the Local Sub-Agent Manager (`server/agent-manager.mjs`),
+observed live with the `codex_cli` engine. Still gated behind `AGENT_V5_PREVIEW`;
+stable v4 behavior unchanged; `const VERSION` stays `4.4.0-pro`; `PREVIEW_VERSION`
+-> `5.0.0-preview.5`.
+
+- **Shared-store cross-manager interference.** The CLI (`agents spawn`) and the
+  tray server both use the same workspace-scoped store
+  (`server/data/workspaces/<id>/agents/index.json`) via separate in-memory
+  `AgentManager` instances. Previously `init()` flipped *every* non-terminal task
+  it found to `failed` ("interrupted by server restart"), so a second manager
+  starting over the store would wrongly kill a task the first manager had
+  genuinely `running` — orphaning a live `codex.exe`. Now each run stamps an
+  `owner_pid` (the manager's `process.pid`) when it goes `running`, and `init()`
+  marks a non-terminal task interrupted **only if** its `owner_pid` is missing or
+  that pid is not alive. The liveness probe is cross-platform and non-throwing
+  (`process.kill(pid, 0)`; `EPERM` = alive-but-not-ours, `ESRCH` = gone; our own
+  pid counts as alive). When init *does* mark a task interrupted, it best-effort
+  tree-kills that run's recorded `child_pid` to clean up its own orphans, without
+  ever throwing or hanging. The normal single-manager restart case is unchanged
+  (a task whose owner is truly dead is still marked interrupted).
+- **Timeout/cancel could hang when the child could not be killed.** On Windows
+  `taskkill /PID <pid> /T /F` can fail with "Access is denied"; the provider's run
+  promise waited on the child's `close` event, so a failed kill (or a child that
+  ignored it) meant the promise never resolved and the CLI hung past the timeout
+  (a codex child was seen alive 11+ minutes under a 5-minute timeout). The codex
+  provider now resolves on a **grace race**: when a timeout or cancel fires it
+  issues the tree-kill and starts a short grace timer (`killGraceMs`, default
+  5000 ms, injectable for tests); if the child has not closed by then it resolves
+  anyway with `ok:false` and a clear error (`timed out after Xms` / `cancelled`),
+  appending `" (child pid <n> may still be running; kill it manually)"` when the
+  kill returned non-zero. It never waits unbounded on `close` after a kill is
+  requested, so `settle()` / `cancel()` always return and the manager cannot
+  deadlock. The child pid is recorded on the task meta (`child_pid`) via the
+  existing `ctx.onChild` hook and persisted, so a later `init()` can clean up an
+  orphan. `killProcessTree` was hardened to accept a bare pid (for orphan
+  cleanup), only ever kill a specific pid/tree (never `/IM`), and return its
+  `taskkill` exit status instead of throwing.
+- New export `isPidAlive(pid)`; new `AgentManager` option `killGraceMs`. Added 5
+  unit tests (pid-liveness, cross-manager no-clobber of a live task,
+  dead-owner-is-interrupted, timeout-no-hang, cancel-no-hang) proven entirely with
+  fake providers (no real codex run); the agents suite is now 32/0.
+
 ### Added — v5.0.0-preview.4 (experimental, opt-in): codex_cli engine
 
 Adds a real `codex_cli` engine to the Local Sub-Agent Manager (still gated behind

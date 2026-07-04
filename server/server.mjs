@@ -35,7 +35,7 @@ const PRODUCT_TIER = "pro";
 // v5.0.0-preview.1 — experimental "local-first anti-lag" channel. The stable v4
 // server behavior is unchanged by default; the preview tools/store only load
 // when AGENT_V5_PREVIEW is truthy so we never break the current stable version.
-const PREVIEW_VERSION = "5.0.0-preview.4";
+const PREVIEW_VERSION = "5.0.0-preview.5";
 const PREVIEW_ENABLED = /^(1|true|on|yes)$/i.test(String(process.env.AGENT_V5_PREVIEW || ""));
 const PORT = Number(process.env.PORT || 8787);
 // Bind to loopback by default. The local OpenAI tunnel-client forwards to this,

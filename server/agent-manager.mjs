@@ -355,21 +355,60 @@ export function buildCodexPrompt(meta) {
 const HARD_CAP_MS = 600000;
 const DEFAULT_RUNTIME_MS = 300000;
 const CAPTURE_LIMIT = 200000;
+const DEFAULT_KILL_GRACE_MS = 5000;
 
-/** Kill a process tree (best effort). On Windows uses taskkill /T /F. */
-export function killProcessTree(child) {
-  if (!child || child.exitCode !== null || child.signalCode) return;
-  const pid = child.pid;
-  if (!pid) return;
-  if (process.platform === "win32") {
-    try {
-      spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" }).on("error", () => {});
-    } catch {
-      try { child.kill(); } catch { /* ignore */ }
-    }
-  } else {
-    try { child.kill("SIGKILL"); } catch { /* ignore */ }
+/**
+ * Is the given OS pid currently alive? Cross-platform, never throws.
+ *   process.kill(pid, 0) sends no signal; it just probes existence.
+ *   - success            -> the process exists and we may signal it -> alive.
+ *   - throws EPERM       -> the process exists but is not ours -> alive.
+ *   - throws ESRCH       -> no such process -> dead.
+ * We treat our own pid as alive without probing.
+ */
+export function isPidAlive(pid) {
+  const n = Number(pid);
+  if (!Number.isInteger(n) || n <= 0) return false;
+  if (n === process.pid) return true;
+  try {
+    process.kill(n, 0);
+    return true;
+  } catch (e) {
+    return e && e.code === "EPERM";
   }
+}
+
+/**
+ * Kill a process tree by pid (best effort, never throws). On Windows uses
+ * `taskkill /PID <pid> /T /F` to reach the whole tree (node -> cmd.exe -> codex),
+ * only ever targeting a specific pid/tree (never /IM). Returns a promise that
+ * resolves { ok, code } once taskkill exits (or immediately on POSIX / no pid),
+ * so callers can log an "Access is denied" without hanging. Accepts either a
+ * ChildProcess (uses child.pid) or a bare numeric pid (for orphan cleanup on
+ * restart, where the ChildProcess object is gone).
+ */
+export function killProcessTree(target) {
+  const isChild = target && typeof target === "object";
+  if (isChild && (target.exitCode !== null || target.signalCode)) {
+    return Promise.resolve({ ok: true, code: 0 });
+  }
+  const pid = isChild ? target.pid : Number(target);
+  if (!pid || !Number.isInteger(Number(pid)) || Number(pid) <= 0) {
+    return Promise.resolve({ ok: false, code: null });
+  }
+  if (process.platform === "win32") {
+    return new Promise((resolve) => {
+      try {
+        const tk = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+        tk.on("error", () => resolve({ ok: false, code: null }));
+        tk.on("close", (code) => resolve({ ok: code === 0, code }));
+      } catch {
+        try { if (isChild) target.kill(); } catch { /* ignore */ }
+        resolve({ ok: false, code: null });
+      }
+    });
+  }
+  try { if (isChild) target.kill("SIGKILL"); else process.kill(pid, "SIGKILL"); } catch { /* ignore */ }
+  return Promise.resolve({ ok: true, code: 0 });
 }
 
 const codexCli = {
@@ -382,6 +421,7 @@ const codexCli = {
       return { ok: false, summary: "codex CLI not found on PATH.", report: "", log: "codex CLI not found on PATH.", error: "codex CLI not found on PATH" };
     }
     const runtimeMs = Math.min(Number(meta.max_runtime_ms) || DEFAULT_RUNTIME_MS, HARD_CAP_MS);
+    const graceMs = Number.isFinite(ctx.killGraceMs) ? ctx.killGraceMs : DEFAULT_KILL_GRACE_MS;
 
     // Capture the final message to a temp file so we get a clean report.
     const outFile = path.join(os.tmpdir(), `codex-last-${meta.agent_id}.txt`);
@@ -427,6 +467,8 @@ const codexCli = {
 
     ctx.onChild?.(child);
 
+    let killResult = null; // { ok, code } from the last killProcessTree, if any.
+
     const cap = (buf, chunk) => {
       const next = buf + chunk.toString();
       return next.length > CAPTURE_LIMIT ? next.slice(next.length - CAPTURE_LIMIT) : next;
@@ -442,22 +484,47 @@ const codexCli = {
       /* stdin may already be closed if spawn failed */
     }
 
-    const timer = setTimeout(() => { timedOut = true; killProcessTree(child); }, runtimeMs);
-    const onAbort = () => { aborted = true; killProcessTree(child); };
+    // Resolve the run promise on a GRACE RACE: the child's natural 'close'/'error'
+    // wins, but the moment a kill is requested (timeout or cancel) we also start a
+    // grace timer. If the child does not close within `graceMs` after the kill
+    // request (e.g. taskkill "Access is denied", or the child ignores the kill),
+    // we resolve anyway with reason "grace" so settle() never hangs. We never wait
+    // unbounded on 'close' once a kill has been requested.
+    let resolveExit;
+    const exitPromise = new Promise((resolve) => { resolveExit = resolve; });
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolveExit(v); } };
+
+    let graceTimer = null;
+    const requestKill = async (reasonFlag) => {
+      if (reasonFlag === "timeout") timedOut = true;
+      if (reasonFlag === "abort") aborted = true;
+      // Start the grace fallback BEFORE the (async) kill so a kill that hangs or
+      // an unkillable child can never wedge the run promise.
+      if (!graceTimer) {
+        graceTimer = setTimeout(() => finish({ code: null, error: null, reason: "grace" }), graceMs);
+        if (typeof graceTimer.unref === "function") graceTimer.unref();
+      }
+      killResult = await killProcessTree(child);
+    };
+
+    const timer = setTimeout(() => { requestKill("timeout"); }, runtimeMs);
+    const onAbort = () => { requestKill("abort"); };
     if (signal) {
       if (signal.aborted) onAbort();
       else signal.addEventListener("abort", onAbort, { once: true });
     }
 
-    const exit = await new Promise((resolve) => {
-      let done = false;
-      const finish = (v) => { if (!done) { done = true; resolve(v); } };
-      child.on("error", (err) => finish({ code: null, error: err }));
-      child.on("close", (code) => finish({ code, error: null }));
-    });
+    child.on("error", (err) => finish({ code: null, error: err }));
+    child.on("close", (code) => finish({ code, error: null }));
+
+    const exit = await exitPromise;
 
     clearTimeout(timer);
+    if (graceTimer) clearTimeout(graceTimer);
     if (signal) signal.removeEventListener("abort", onAbort);
+
+    const killedButAlive = exit.reason === "grace";
 
     const elapsed = Date.now() - startedAt;
     let finalMessage = "";
@@ -468,14 +535,35 @@ const codexCli = {
     }
     await rm(outFile, { force: true }).catch(() => {});
 
+    // If we resolved on the grace fallback, the child may still be alive: taskkill
+    // may have returned non-zero (e.g. "Access is denied") or the child ignored
+    // the kill. Warn clearly and tell the user which pid to kill by hand.
+    const stuckSuffix =
+      killedButAlive && child.pid && killResult && killResult.ok === false
+        ? ` (child pid ${child.pid} may still be running; kill it manually)`
+        : "";
+
     if (stdout) logLines.push("--- stdout ---", stdout);
     if (stderr) logLines.push("--- stderr ---", stderr);
+    if (killedButAlive) {
+      logLines.push(
+        "",
+        `[${isoNow()}] kill requested but child did not exit within ${graceMs}ms grace` +
+          (killResult ? ` (taskkill ok=${killResult.ok} code=${killResult.code})` : "")
+      );
+    }
     logLines.push("", `[${isoNow()}] codex exited code=${exit.code} elapsed=${elapsed}ms`);
     const log = logLines.join("\n");
 
     if (aborted) {
       // Cancellation is finalized by the manager; report a failed-ish result.
-      return { ok: false, summary: "Cancelled while codex was running.", report: finalMessage || stdout, log, error: "cancelled" };
+      return {
+        ok: false,
+        summary: "Cancelled while codex was running.",
+        report: finalMessage || stdout,
+        log,
+        error: `cancelled${stuckSuffix}`
+      };
     }
     if (timedOut) {
       return {
@@ -483,7 +571,7 @@ const codexCli = {
         summary: `codex timed out after ${runtimeMs}ms`,
         report: finalMessage || stdout,
         log,
-        error: `timed out after ${runtimeMs}ms`
+        error: `timed out after ${runtimeMs}ms${stuckSuffix}`
       };
     }
     if (exit.error) {
@@ -520,7 +608,7 @@ export function detectProviders(env = process.env) {
 // Agent Manager
 // ----------------------------------------------------------------------------
 export class AgentManager {
-  constructor({ agentsDir, defaultWorkspace, mode = null, policy = null, maxAgents = 500, providers = null } = {}) {
+  constructor({ agentsDir, defaultWorkspace, mode = null, policy = null, maxAgents = 500, providers = null, killGraceMs = DEFAULT_KILL_GRACE_MS } = {}) {
     if (!agentsDir) throw new Error("AgentManager requires agentsDir");
     this.agentsDir = agentsDir;
     this.indexPath = path.join(agentsDir, "index.json");
@@ -528,6 +616,7 @@ export class AgentManager {
     this.mode = mode;
     this.policy = policy;
     this.maxAgents = maxAgents;
+    this.killGraceMs = Number.isFinite(killGraceMs) ? killGraceMs : DEFAULT_KILL_GRACE_MS;
     this.providers = providers || { script_runner: scriptRunner, codex_cli: codexCli };
     this.agents = new Map(); // agent_id -> meta
     this._runs = new Map(); // agent_id -> Promise
@@ -539,14 +628,27 @@ export class AgentManager {
 
   async init() {
     await mkdir(this.agentsDir, { recursive: true });
+    let changed = false;
     try {
       const list = JSON.parse(await readFile(this.indexPath, "utf8"));
       if (Array.isArray(list)) {
         for (const m of list) {
-          // Anything left "running"/"queued" after a restart is interrupted.
+          // A non-terminal (queued/running) task in the shared store may belong to
+          // ANOTHER live manager (the CLI and the server share one workspace store
+          // via separate in-memory managers). Only mark it interrupted if its owner
+          // process is gone; if the owner pid is still alive (or is this process on
+          // resume), leave the task untouched so we never clobber a live run.
           if (m && !TERMINAL_STATES.has(m.status)) {
-            m.status = "failed";
-            m.error = m.error || "interrupted by server restart";
+            const owner = Number(m.owner_pid);
+            const ownerAlive = Number.isInteger(owner) && owner > 0 && isPidAlive(owner);
+            if (!ownerAlive) {
+              m.status = "failed";
+              m.error = m.error || "interrupted by server restart";
+              changed = true;
+              // Best-effort: clean up an orphaned child this dead run left behind,
+              // so a restart tidies its own orphans. Never throw/hang here.
+              if (m.child_pid) killProcessTree(Number(m.child_pid)).catch(() => {});
+            }
           }
           if (m?.agent_id) this.agents.set(m.agent_id, m);
         }
@@ -554,6 +656,8 @@ export class AgentManager {
     } catch {
       /* no index yet */
     }
+    // Persist any interrupted-flip so a subsequent manager sees the terminal state.
+    if (changed) await this._saveIndex().catch(() => {});
     return this;
   }
 
@@ -596,6 +700,8 @@ export class AgentManager {
       max_runtime_ms: Number(max_runtime_ms) || null,
       dry_run: Boolean(dry_run),
       pid: null,
+      owner_pid: null,
+      child_pid: null,
       status: "queued",
       created_at: now,
       updated_at: now,
@@ -626,6 +732,10 @@ export class AgentManager {
     }
 
     meta.status = "running";
+    // Stamp the owning process so another live manager sharing this store can tell
+    // (via a liveness probe on init) that this run is genuinely still ours, and
+    // must not be clobbered to "failed".
+    meta.owner_pid = process.pid;
     meta.updated_at = isoNow();
     await this._saveIndex();
     const p = this._execute(meta).catch((err) => this._fail(meta, err));
@@ -651,9 +761,16 @@ export class AgentManager {
 
     const ctx = {
       signal: controller.signal,
+      killGraceMs: this.killGraceMs,
       onChild: (child) => {
         this._children.set(meta.agent_id, child);
         meta.pid = child?.pid || null;
+        // Persist the child pid so a later manager.init() can tree-kill this run's
+        // orphaned child if the owning process died without cleaning up (Bug 2).
+        if (child?.pid) {
+          meta.child_pid = child.pid;
+          this._saveIndex().catch(() => {});
+        }
       }
     };
 
@@ -665,6 +782,10 @@ export class AgentManager {
       this._controllers.delete(meta.agent_id);
       this._children.delete(meta.agent_id);
       meta.pid = null;
+      // The run has settled; the child (if any) is no longer ours to track. Clear
+      // owner/child so the persisted terminal record carries no stale live pids.
+      meta.owner_pid = null;
+      meta.child_pid = null;
     }
 
     // A runtime-timeout abort becomes a failed status with a timeout error,
@@ -714,7 +835,7 @@ export class AgentManager {
    */
   async _writePartialArtifacts(meta, out) {
     if (!out || !out.error) return;
-    const interrupted = /^cancelled$/i.test(out.error) || /timed out/i.test(out.error);
+    const interrupted = /^cancelled\b/i.test(out.error) || /timed out/i.test(out.error);
     if (!interrupted) return;
     await mkdir(this.agentsDir, { recursive: true }).catch(() => {});
     if (out.log) {

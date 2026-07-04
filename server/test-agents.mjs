@@ -7,7 +7,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -25,6 +25,7 @@ import {
   buildCodexExecArgs,
   buildCodexPrompt,
   codexSandboxForMode,
+  isPidAlive,
   AGENT_ID_RE
 } from "./agent-manager.mjs";
 
@@ -366,6 +367,178 @@ test("detectProviders marks codex_cli implemented and honors PATH", () => {
   assert.ok(cx);
   assert.equal(cx.available, false); // empty PATH -> not found
   assert.match(cx.note, /implemented/i);
+});
+
+// ---------------------------------------------------------------------------
+// preview.5: shared-store cross-manager safety + timeout/cancel never hang
+// ---------------------------------------------------------------------------
+
+/**
+ * A provider that stays "running" until the test signals it, WITHOUT resolving
+ * on any child close. It reports whether ctx.signal was seen and, when aborted,
+ * resolves only via the controllable `release` so we can assert "still running".
+ */
+function heldProvider(state) {
+  return {
+    name: "held",
+    available: () => true,
+    async run(meta, ctx = {}) {
+      state.started = true;
+      state.sawSignal = Boolean(ctx.signal);
+      await new Promise((resolve) => {
+        state.release = () => resolve();
+        if (ctx.signal) {
+          ctx.signal.addEventListener("abort", () => { state.aborted = true; }, { once: true });
+        }
+      });
+      return { ok: true, summary: "released", report: "done", log: "held then released" };
+    }
+  };
+}
+
+/**
+ * Simulates the codex grace-race with an UNKILLABLE child: it registers a child
+ * pid via ctx.onChild, but its own "child close" NEVER fires. It honors
+ * ctx.killGraceMs exactly like the real codex provider, so on abort/timeout it
+ * resolves within grace with ok:false and a clear error (even though the child
+ * never closed). No real process is spawned.
+ */
+function unkillableChildProvider(reasonError) {
+  return {
+    name: "unkillable",
+    available: () => true,
+    async run(meta, ctx = {}) {
+      // Pretend we spawned a child with this pid; it will never actually close.
+      ctx.onChild?.({ pid: 424242, exitCode: null, signalCode: null, kill() {} });
+      const graceMs = Number.isFinite(ctx.killGraceMs) ? ctx.killGraceMs : 5000;
+      await new Promise((resolve) => {
+        const onKillRequest = () => {
+          // Start the grace fallback; the "child close" never comes, so this is
+          // the only thing that resolves the run -> no hang.
+          setTimeout(resolve, graceMs).unref?.();
+        };
+        if (ctx.signal) {
+          if (ctx.signal.aborted) onKillRequest();
+          else ctx.signal.addEventListener("abort", onKillRequest, { once: true });
+        }
+      });
+      return {
+        ok: false,
+        summary: reasonError,
+        report: "partial",
+        log: "partial log (child never closed)",
+        error: `${reasonError} (child pid 424242 may still be running; kill it manually)`
+      };
+    }
+  };
+}
+
+test("isPidAlive: own pid alive, impossible pid dead, bad input dead", () => {
+  assert.equal(isPidAlive(process.pid), true);
+  assert.equal(isPidAlive(999999), false);
+  assert.equal(isPidAlive(0), false);
+  assert.equal(isPidAlive(-1), false);
+  assert.equal(isPidAlive(null), false);
+  assert.equal(isPidAlive("nope"), false);
+});
+
+test("cross-manager: manager B init() does not clobber A's live running task", async () => {
+  const state = {};
+  const dir = await mkdtemp(path.join(os.tmpdir(), "lca-agents-shared-"));
+  const mgrA = new AgentManager({
+    agentsDir: dir,
+    defaultWorkspace: dir,
+    mode: "safe",
+    providers: { script_runner: heldProvider(state) }
+  });
+  await mgrA.init();
+  const s = await mgrA.spawn({ role: "bug_fix", title: "held", task: "stay running" });
+  // Let the provider start.
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(mgrA.get(s.agent_id).status, "running");
+  assert.equal(mgrA.get(s.agent_id).owner_pid, process.pid);
+  assert.equal(state.started, true);
+
+  // A SECOND live manager inits over the SAME store. The owning pid (this
+  // process) is alive, so it must leave A's running task untouched.
+  const mgrB = new AgentManager({
+    agentsDir: dir,
+    defaultWorkspace: dir,
+    mode: "safe",
+    providers: { script_runner: heldProvider({}) }
+  });
+  await mgrB.init();
+  assert.equal(mgrB.get(s.agent_id).status, "running", "B must not clobber A's live task");
+
+  // Release A's task so it completes cleanly and the test does not leak a timer.
+  state.release();
+  const settled = await mgrA.settle(s.agent_id);
+  assert.equal(settled.status, "done");
+  await rm(dir, { recursive: true, force: true }).catch(() => {});
+});
+
+test("cross-manager: a dead owner_pid IS marked interrupted on init", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "lca-agents-dead-"));
+  // Write an index with a running task owned by a definitely-dead pid.
+  const now = new Date().toISOString();
+  const rec = {
+    agent_id: "a_00000000deadbeef",
+    role: "bug_fix",
+    title: "orphan",
+    task: "was running under a dead owner",
+    provider: "script_runner",
+    status: "running",
+    owner_pid: 999999,
+    child_pid: null,
+    created_at: now,
+    updated_at: now
+  };
+  await writeFile(path.join(dir, "index.json"), `${JSON.stringify([rec], null, 2)}\n`, "utf8");
+  const fresh = new AgentManager({ agentsDir: dir, defaultWorkspace: dir, mode: "safe" });
+  await fresh.init();
+  const meta = fresh.get("a_00000000deadbeef");
+  assert.equal(meta.status, "failed");
+  assert.match(meta.error, /interrupted/i);
+  await rm(dir, { recursive: true, force: true }).catch(() => {});
+});
+
+test("timeout-no-hang: unkillable child still settles to failed within grace", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "lca-agents-nohang-"));
+  const mgr = new AgentManager({
+    agentsDir: dir,
+    defaultWorkspace: dir,
+    mode: "safe",
+    killGraceMs: 40, // tiny grace so the test is fast, not the real 5000ms
+    providers: { script_runner: unkillableChildProvider("timed out after 50ms") }
+  });
+  await mgr.init();
+  const started = Date.now();
+  const s = await mgr.spawn({ role: "bug_fix", title: "t", task: "hang", max_runtime_ms: 50 });
+  const settled = await mgr.settle(s.agent_id); // MUST return (no hang)
+  assert.equal(settled.status, "failed");
+  assert.match(settled.error, /timed out/i);
+  assert.ok(Date.now() - started < 3000, "settle returned quickly, no unbounded wait");
+  await rm(dir, { recursive: true, force: true }).catch(() => {});
+});
+
+test("cancel-no-hang: unkillable child settles to cancelled within grace", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "lca-agents-nohang-c-"));
+  const mgr = new AgentManager({
+    agentsDir: dir,
+    defaultWorkspace: dir,
+    mode: "safe",
+    killGraceMs: 40,
+    providers: { script_runner: unkillableChildProvider("cancelled") }
+  });
+  await mgr.init();
+  const s = await mgr.spawn({ role: "bug_fix", title: "t", task: "hang" });
+  await new Promise((r) => setTimeout(r, 20)); // let the provider attach its abort listener
+  const started = Date.now();
+  const res = await mgr.cancel(s.agent_id); // MUST return (no hang)
+  assert.equal(res.status, "cancelled");
+  assert.equal(mgr.get(s.agent_id).status, "cancelled");
+  assert.ok(Date.now() - started < 3000, "cancel returned quickly, no unbounded wait");
+  await rm(dir, { recursive: true, force: true }).catch(() => {});
 });
 
 test.after(async () => {

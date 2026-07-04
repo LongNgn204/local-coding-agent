@@ -1,4 +1,4 @@
-# v5.0.0-preview.4 — Local Sub-Agent Manager
+# v5.0.0-preview.5 — Local Sub-Agent Manager
 
 > **Experimental.** Opt-in preview. Stable v4 behavior is unchanged unless you
 > set `AGENT_V5_PREVIEW=1`. The preview API shape may change between previews.
@@ -63,6 +63,14 @@ full content.
 
 `queued` → `running` → `done` | `failed` | `cancelled`. Tasks left `running` when
 the server restarts are marked `failed` (interrupted) on next start.
+
+> **Shared store is safe (preview.5).** The CLI and the server can use the same
+> workspace store at the same time: each run records the pid that owns it, so a
+> second manager starting up leaves another manager's genuinely-running task
+> alone (it only marks a task interrupted when the owning process is really gone).
+> On timeout or cancel a stuck child is force-killed; if it still cannot be killed
+> (e.g. Windows "Access is denied"), the task fails within a short grace period
+> with a clear message naming the child pid to kill by hand — it never hangs.
 
 ### Use it from ChatGPT Web
 
@@ -217,6 +225,15 @@ Mọi tool **gọn mặc định**. `get_local_task_result` cắt theo `max_char
 
 `queued` → `running` → `done` | `failed` | `cancelled`. Tác vụ còn `running` khi
 server khởi động lại sẽ được đánh dấu `failed` (bị gián đoạn).
+
+> **Kho dùng chung an toàn (preview.5).** CLI và server có thể dùng chung một kho
+> theo workspace cùng lúc: mỗi lần chạy ghi lại pid sở hữu nó, nên một manager
+> khởi động sau sẽ để yên tác vụ đang thực sự chạy của manager khác (chỉ đánh dấu
+> gián đoạn khi tiến trình sở hữu đã thực sự tắt). Khi hết giờ hoặc bị hủy, tiến
+> trình con bị kẹt sẽ bị buộc dừng; nếu vẫn không dừng được (ví dụ Windows báo
+> "Access is denied"), tác vụ sẽ chuyển sang `failed` trong một khoảng ân hạn ngắn
+> kèm thông báo rõ ràng nêu pid tiến trình con cần tắt thủ công — không bao giờ bị
+> treo.
 
 ### Dùng từ ChatGPT Web
 
