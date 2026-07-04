@@ -74,6 +74,7 @@ Usage:
   node scripts/local-coding-agent.mjs support
   node scripts/local-coding-agent.mjs skills list|json|validate
   node scripts/local-coding-agent.mjs agents list|roles|spawn|clean   (v5 preview)
+    agents spawn --role <role> --task "<task>" [--engine script_runner|codex_cli]
 
 Common options:
   --workspace <path>          Workspace root the agent may access
@@ -197,6 +198,9 @@ function parseArgs(argv) {
         break;
       case "--task":
         flags.task = next();
+        break;
+      case "--engine":
+        flags.engine = next();
         break;
       case "--status":
         flags.status = next();
@@ -876,8 +880,13 @@ async function agentsCommand(rest, flags) {
   if (sub === "spawn") {
     const role = flags.role || rest[1];
     const task = flags.task || rest.slice(flags.role ? 1 : 2).join(" ");
-    if (!role || !task) throw new Error('Usage: agents spawn --role <role> --task "<task>" [--dry-run]');
-    const started = await mgr.spawn({ role, title: task.slice(0, 80), task, workspace_root: workspace, dry_run: Boolean(flags.dryRun) });
+    const provider = flags.engine || "script_runner";
+    if (!role || !task) throw new Error('Usage: agents spawn --role <role> --task "<task>" [--engine codex_cli] [--dry-run]');
+    if (!["script_runner", "codex_cli"].includes(provider)) {
+      throw new Error(`Unknown --engine "${provider}". Valid: script_runner, codex_cli.`);
+    }
+    const started = await mgr.spawn({ role, title: task.slice(0, 80), task, provider, workspace_root: workspace, dry_run: Boolean(flags.dryRun) });
+    if (provider === "codex_cli" && !flags.dryRun) console.log("running codex, this may take a while...");
     const settled = await mgr.settle(started.agent_id);
     console.log(`agent_id: ${settled.agent_id}`);
     console.log(`status:   ${settled.status}`);

@@ -22,6 +22,9 @@ import {
   makeLocalReportPath,
   detectProviders,
   workspaceAgentsDir,
+  buildCodexExecArgs,
+  buildCodexPrompt,
+  codexSandboxForMode,
   AGENT_ID_RE
 } from "./agent-manager.mjs";
 
@@ -227,6 +230,142 @@ test("workspaceAgentsDir is deterministic and workspace-scoped", () => {
   const c = workspaceAgentsDir("/data", "/repo/two");
   assert.equal(a, b);
   assert.notEqual(a, c);
+});
+
+// ---------------------------------------------------------------------------
+// preview.4: provider selection, timeout, cancel, codex arg-builder
+// ---------------------------------------------------------------------------
+
+/** A fake provider that resolves quickly and tags its report with its name. */
+function fakeProvider(name) {
+  return {
+    name,
+    available: () => true,
+    async run(meta) {
+      await new Promise((r) => setImmediate(r));
+      return { ok: true, summary: `${name} ran`, report: `# ${name}\n${meta.task}`, log: `ran by ${name}` };
+    }
+  };
+}
+
+/**
+ * A fake provider that waits until aborted (via ctx.signal), recording whether
+ * the signal ever fired. Never resolves on its own -> exercises timeout/cancel.
+ */
+function blockingProvider(name, state) {
+  return {
+    name,
+    available: () => true,
+    async run(meta, ctx = {}) {
+      state.sawSignal = Boolean(ctx.signal);
+      await new Promise((resolve) => {
+        const onAbort = () => {
+          state.aborted = true;
+          resolve();
+        };
+        if (ctx.signal) {
+          if (ctx.signal.aborted) onAbort();
+          else ctx.signal.addEventListener("abort", onAbort, { once: true });
+        }
+      });
+      return { ok: false, summary: "stopped", report: "partial", log: "partial log", error: "cancelled" };
+    }
+  };
+}
+
+async function managerWith(providers) {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "lca-agents-p-"));
+  const mgr = new AgentManager({ agentsDir: dir, defaultWorkspace: dir, mode: "safe", policy: "balanced", providers });
+  await mgr.init();
+  return { mgr, dir };
+}
+
+test("spawn respects the provider param and records it", async () => {
+  const { mgr } = await managerWith({ script_runner: fakeProvider("script_runner"), other: fakeProvider("other") });
+  const s = await mgr.spawn({ role: "docs_update", title: "t", task: "hello", provider: "other" });
+  const settled = await mgr.settle(s.agent_id);
+  assert.equal(settled.status, "done");
+  assert.equal(settled.provider, "other");
+  assert.equal(mgr.get(s.agent_id).provider, "other");
+  const report = await readFile(settled.report_path, "utf8");
+  assert.match(report, /# other/);
+});
+
+test("spawn rejects an unknown provider", async () => {
+  const { mgr } = await managerWith({ script_runner: fakeProvider("script_runner") });
+  await assert.rejects(
+    () => mgr.spawn({ role: "docs_update", title: "t", task: "hello", provider: "nope" }),
+    /Unknown provider/
+  );
+});
+
+test("runtime timeout fails the agent and mentions timeout (via ctx.signal)", async () => {
+  const state = {};
+  const { mgr } = await managerWith({ script_runner: blockingProvider("script_runner", state) });
+  const s = await mgr.spawn({ role: "bug_fix", title: "t", task: "hang", max_runtime_ms: 1000 });
+  const settled = await mgr.settle(s.agent_id);
+  assert.equal(settled.status, "failed");
+  assert.match(settled.error, /timed out/i);
+  assert.equal(state.sawSignal, true);
+  assert.equal(state.aborted, true);
+});
+
+test("cancel aborts a long-running provider and fires ctx.signal", async () => {
+  const state = {};
+  const { mgr } = await managerWith({ script_runner: blockingProvider("script_runner", state) });
+  const s = await mgr.spawn({ role: "bug_fix", title: "t", task: "hang" });
+  // Let the provider start and attach its abort listener.
+  await new Promise((r) => setTimeout(r, 20));
+  const res = await mgr.cancel(s.agent_id);
+  assert.equal(res.status, "cancelled");
+  assert.equal(mgr.get(s.agent_id).status, "cancelled");
+  assert.equal(state.sawSignal, true);
+  assert.equal(state.aborted, true);
+});
+
+test("codexSandboxForMode maps mode to sandbox policy", () => {
+  assert.equal(codexSandboxForMode("safe"), "read-only");
+  assert.equal(codexSandboxForMode("full"), "workspace-write");
+  assert.equal(codexSandboxForMode(null), "read-only");
+});
+
+test("buildCodexExecArgs sets sandbox, cwd, non-interactive flags, stdin prompt", () => {
+  const safe = buildCodexExecArgs({ mode: "safe", workspace_root: "/ws" });
+  assert.equal(safe[0], "exec");
+  const sIdx = safe.indexOf("--sandbox");
+  assert.ok(sIdx >= 0);
+  assert.equal(safe[sIdx + 1], "read-only");
+  const cIdx = safe.indexOf("--cd");
+  assert.ok(cIdx >= 0);
+  assert.equal(safe[cIdx + 1], "/ws");
+  assert.ok(safe.includes("--skip-git-repo-check"));
+  // codex exec is already non-interactive: no --ask-for-approval flag exists on it.
+  assert.ok(!safe.includes("--ask-for-approval"));
+  assert.ok(safe.includes("--color"));
+  // prompt is read from stdin, so args end with "-"
+  assert.equal(safe[safe.length - 1], "-");
+
+  const full = buildCodexExecArgs({ mode: "full", workspace_root: "/ws" }, { outputFile: "/tmp/last.txt" });
+  const fIdx = full.indexOf("--sandbox");
+  assert.equal(full[fIdx + 1], "workspace-write");
+  const oIdx = full.indexOf("--output-last-message");
+  assert.ok(oIdx >= 0);
+  assert.equal(full[oIdx + 1], "/tmp/last.txt");
+});
+
+test("buildCodexPrompt includes the role and the task", () => {
+  const p = buildCodexPrompt({ role: "docs_update", task: "update the readme" });
+  assert.match(p, /docs_update/);
+  assert.match(p, /update the readme/);
+  assert.match(p, /summary/i);
+});
+
+test("detectProviders marks codex_cli implemented and honors PATH", () => {
+  const provs = detectProviders({ PATH: "" });
+  const cx = provs.find((p) => p.name === "codex_cli");
+  assert.ok(cx);
+  assert.equal(cx.available, false); // empty PATH -> not found
+  assert.match(cx.note, /implemented/i);
 });
 
 test.after(async () => {

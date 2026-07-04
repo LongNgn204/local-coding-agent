@@ -35,7 +35,7 @@ const PRODUCT_TIER = "pro";
 // v5.0.0-preview.1 — experimental "local-first anti-lag" channel. The stable v4
 // server behavior is unchanged by default; the preview tools/store only load
 // when AGENT_V5_PREVIEW is truthy so we never break the current stable version.
-const PREVIEW_VERSION = "5.0.0-preview.3";
+const PREVIEW_VERSION = "5.0.0-preview.4";
 const PREVIEW_ENABLED = /^(1|true|on|yes)$/i.test(String(process.env.AGENT_V5_PREVIEW || ""));
 const PORT = Number(process.env.PORT || 8787);
 // Bind to loopback by default. The local OpenAI tunnel-client forwards to this,
@@ -3413,10 +3413,11 @@ function renderAgFilter(){
 function agSetFilter(k){ agFilter=k; renderAgFilter(); renderAgTable(); }
 function renderAgTable(){
   var rows=agAll.filter(function(a){ return agFilter==='all'||a.status===agFilter; });
-  var th='<tr><th style="text-align:left">agent</th><th style="text-align:left">role</th><th style="text-align:left">title</th><th>status</th><th>time</th></tr>';
+  var th='<tr><th style="text-align:left">agent</th><th style="text-align:left">role</th><th style="text-align:left">engine</th><th style="text-align:left">title</th><th>status</th><th>time</th></tr>';
   rows.forEach(function(a){
     th+='<tr><td><span class="btn agopen" data-id="'+esc(a.agent_id)+'">'+esc(a.agent_id.slice(0,10))+'</span></td>'+
         '<td>'+esc(a.role)+'</td>'+
+        '<td class="dim">'+esc(a.provider||'script_runner')+'</td>'+
         '<td class="dim">'+esc((a.title||'').slice(0,46))+'</td>'+
         '<td style="text-align:center">'+agBadge(a.status)+'</td>'+
         '<td class="dim" style="text-align:center">'+agTime(a.created_at)+'</td></tr>';
@@ -5710,15 +5711,30 @@ function registerPreviewTools(mcp) {
         role: z.enum(ROLE_NAMES).describe("Which note template to use."),
         title: z.string().max(200).optional().describe("Short title for the task."),
         task: z.string().min(1).max(8000).describe("What the task should cover."),
+        engine: z
+          .enum(["script_runner", "codex_cli"])
+          .optional()
+          .describe(
+            "Which local engine processes the task (default script_runner). codex_cli uses the locally installed, already-authenticated Codex CLI to actually run the task."
+          ),
         workspace_root: z.string().optional().describe("Workspace root (defaults to the server's primary root)."),
         max_runtime_ms: z.number().int().min(1000).max(600000).optional().describe("Optional runtime bound."),
         dry_run: z.boolean().optional().describe("Validate + plan without producing output.")
       }
     },
-    async ({ role, title, task, workspace_root, max_runtime_ms, dry_run }) => {
+    async ({ role, title, task, engine, workspace_root, max_runtime_ms, dry_run }) => {
       const rootOk = workspace_root ? ROOTS.some((r) => comparePath(workspace_root).startsWith(comparePath(r))) : true;
       if (!rootOk) throw new Error("workspace_root must be inside the configured roots.");
-      const res = await agentManager.spawn({ role, title, task, workspace_root, max_runtime_ms, dry_run });
+      const provider = engine || "script_runner";
+      if (provider === "codex_cli") {
+        const cx = detectProviders().find((p) => p.name === "codex_cli");
+        if (!cx || !cx.available) {
+          throw new Error(
+            "engine 'codex_cli' is unavailable: the Codex CLI was not found on PATH. Install it (npm i -g @openai/codex) and sign in (codex login), or use engine 'script_runner'."
+          );
+        }
+      }
+      const res = await agentManager.spawn({ role, title, task, provider, workspace_root, max_runtime_ms, dry_run });
       return jsonResult({
         task_id: res.agent_id,
         role: res.role,
@@ -5763,6 +5779,7 @@ function registerPreviewTools(mcp) {
         role: meta.role,
         title: meta.title,
         status: meta.status,
+        provider: meta.provider || "script_runner",
         created_at: meta.created_at,
         updated_at: meta.updated_at,
         workspace_root: meta.workspace_root,

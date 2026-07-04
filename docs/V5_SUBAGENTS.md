@@ -1,4 +1,4 @@
-# v5.0.0-preview.2 — Local Sub-Agent Manager
+# v5.0.0-preview.4 — Local Sub-Agent Manager
 
 > **Experimental.** Opt-in preview. Stable v4 behavior is unchanged unless you
 > set `AGENT_V5_PREVIEW=1`. The preview API shape may change between previews.
@@ -38,7 +38,7 @@ summaries and ids. You inspect full output on the local dashboard or via the CLI
 
 | Tool | Purpose | Output |
 |---|---|---|
-| `create_local_task` | Start a specialist task | `task_id`, `status`, dashboard link, message |
+| `create_local_task` | Start a specialist task (optional `engine`: `script_runner` \| `codex_cli`) | `task_id`, `status`, dashboard link, message |
 | `list_local_tasks` | List tasks (metadata only) | compact array, filter by `status` |
 | `get_local_task_status` | One task's full status | metadata, no heavy output |
 | `get_local_task_result` | One task's result | summary + report/log paths + **truncated** slice (`max_chars`) |
@@ -118,13 +118,41 @@ Before any report/log is written, secrets are redacted: API keys (`sk-…`,
 `MCP_AUTH_TOKEN`, `AGENT_APPROVAL_TOKEN`, long tunnel ids, common
 `api_key/token/secret/password/authorization` fields, and long opaque blobs.
 
-### Providers
+### Providers (engines)
 
-- `script_runner` — **implemented**. A local, deterministic planner. No network
-  calls, no subprocess: safe and reproducible.
-- `claude_cli`, `codex_cli`, `openai_api` — **detected but not implemented**.
-  The server safely reports availability (PATH / `OPENAI_API_KEY`) without
-  assuming any CLI is installed. Real execution is planned for preview.3.
+- `script_runner` — **implemented** (default). A local, deterministic planner.
+  No network calls, no subprocess: safe and reproducible.
+- `codex_cli` — **implemented** (preview.4). Runs the locally installed,
+  already-authenticated **OpenAI Codex CLI** in its non-interactive `codex exec`
+  mode. It maps the agent `mode` to a Codex sandbox (`safe` → `read-only`,
+  `full` → `workspace-write`), runs the CLI in the task's `workspace_root`,
+  disables approval prompts, enforces the `max_runtime_ms` timeout (default
+  300000 ms, hard cap 600000 ms; on timeout it tree-kills the child and keeps the
+  partial output), and is fully cancellable (`cancel_local_task` aborts and
+  tree-kills the child — on Windows via `taskkill /T /F`). The task text is fed on
+  Codex's stdin, so user input never touches a shell command line. It requires the
+  Codex CLI on `PATH` and a prior `codex login`; if unavailable, `create_local_task`
+  returns a clear error.
+- `claude_cli`, `openai_api` — **detected but not implemented**. The server
+  safely reports availability (PATH / `OPENAI_API_KEY`) without assuming any CLI
+  is installed.
+
+#### Choosing an engine
+
+`create_local_task` takes an optional `engine` (`script_runner` | `codex_cli`,
+default `script_runner`). From the CLI, use `--engine`:
+
+```bash
+# ChatGPT Web: create_local_task(role="docs_update", task="...", engine="codex_cli")
+
+# CLI:
+node scripts/local-coding-agent.mjs agents spawn \
+  --role docs_update --task "Summarize the README" --engine codex_cli \
+  --workspace "C:\\path\\repo"
+```
+
+A `codex_cli` task can take minutes; the CLI prints `running codex, this may take
+a while...` while it waits. The dashboard agents table shows the engine per task.
 
 ### Safety limitations
 
@@ -165,7 +193,7 @@ dashboard hoặc bằng CLI.
 
 | Tool | Mục đích | Output |
 |---|---|---|
-| `create_local_task` | Bắt đầu tác vụ chuyên biệt | `task_id`, `status`, link dashboard, message |
+| `create_local_task` | Bắt đầu tác vụ chuyên biệt (tùy chọn `engine`: `script_runner` \| `codex_cli`) | `task_id`, `status`, link dashboard, message |
 | `list_local_tasks` | Liệt kê tác vụ (chỉ metadata) | mảng gọn, lọc theo `status` |
 | `get_local_task_status` | Trạng thái đầy đủ 1 tác vụ | metadata, không kèm output nặng |
 | `get_local_task_result` | Kết quả 1 tác vụ | tóm tắt + đường dẫn report/log + phần **cắt ngắn** (`max_chars`) |
@@ -243,13 +271,39 @@ GitHub/Slack, token `Bearer`, `CONTROL_PLANE_API_KEY`, `MCP_AUTH_TOKEN`,
 `AGENT_APPROVAL_TOKEN`, tunnel id dài, các trường
 `api_key/token/secret/password/authorization`, và chuỗi bí mật dài.
 
-### Provider
+### Provider (engine)
 
-- `script_runner` — **đã có**. Bộ lập kế hoạch cục bộ, xác định. Không gọi mạng,
-  không spawn tiến trình: an toàn và tái lập được.
-- `claude_cli`, `codex_cli`, `openai_api` — **phát hiện nhưng chưa cài đặt**.
-  Server báo khả dụng an toàn (PATH / `OPENAI_API_KEY`) mà không giả định CLI đã
-  cài. Thực thi thật dự kiến ở preview.3.
+- `script_runner` — **đã có** (mặc định). Bộ lập kế hoạch cục bộ, xác định.
+  Không gọi mạng, không spawn tiến trình: an toàn và tái lập được.
+- `codex_cli` — **đã có** (preview.4). Chạy **Codex CLI của OpenAI** đã cài và
+  đã đăng nhập sẵn trên máy, ở chế độ không tương tác `codex exec`. Nó ánh xạ
+  `mode` của agent sang sandbox Codex (`safe` → `read-only`, `full` →
+  `workspace-write`), chạy trong `workspace_root` của tác vụ, tắt hỏi phê duyệt,
+  áp timeout `max_runtime_ms` (mặc định 300000 ms, trần cứng 600000 ms; khi hết
+  giờ sẽ tree-kill tiến trình con và giữ lại output dở), và hủy được hoàn toàn
+  (`cancel_local_task` sẽ abort và tree-kill tiến trình con — trên Windows dùng
+  `taskkill /T /F`). Văn bản tác vụ được đưa qua stdin của Codex nên đầu vào của
+  người dùng không bao giờ nằm trên dòng lệnh shell. Cần có Codex CLI trên `PATH`
+  và đã `codex login`; nếu không, `create_local_task` trả về lỗi rõ ràng.
+- `claude_cli`, `openai_api` — **phát hiện nhưng chưa cài đặt**. Server báo khả
+  dụng an toàn (PATH / `OPENAI_API_KEY`) mà không giả định CLI đã cài.
+
+#### Chọn engine
+
+`create_local_task` nhận tham số tùy chọn `engine` (`script_runner` |
+`codex_cli`, mặc định `script_runner`). Từ CLI dùng `--engine`:
+
+```bash
+# ChatGPT Web: create_local_task(role="docs_update", task="...", engine="codex_cli")
+
+# CLI:
+node scripts/local-coding-agent.mjs agents spawn \
+  --role docs_update --task "Tom tat README" --engine codex_cli \
+  --workspace "C:\\path\\repo"
+```
+
+Tác vụ `codex_cli` có thể chạy vài phút; CLI in `running codex, this may take a
+while...` trong lúc chờ. Bảng agents trên dashboard hiển thị engine của từng tác vụ.
 
 ### Giới hạn an toàn
 

@@ -5,6 +5,39 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Added — v5.0.0-preview.4 (experimental, opt-in): codex_cli engine
+
+Adds a real `codex_cli` engine to the Local Sub-Agent Manager (still gated behind
+`AGENT_V5_PREVIEW`; stable v4 behavior unchanged; `const VERSION` stays
+`4.4.0-pro`; `PREVIEW_VERSION` -> `5.0.0-preview.4`).
+
+- New `codex_cli` provider runs the locally installed, already-authenticated
+  OpenAI Codex CLI in its non-interactive `codex exec` mode. It maps the agent
+  `mode` to a Codex sandbox (`safe` -> `read-only`, `full` -> `workspace-write`),
+  runs in the task's `workspace_root`, passes `--skip-git-repo-check`, and
+  captures the agent's final message via `--output-last-message` (falling back to
+  stdout). The task text is fed on Codex's stdin, so user input never touches a
+  shell command line. On Windows the `.cmd` shim is invoked via `cmd.exe` with a
+  self-quoted command line (`windowsVerbatimArguments`) instead of `shell:true`.
+- `AgentManager` now creates an `AbortController` per running agent and passes
+  `ctx = { signal, onChild }` to `provider.run(meta, ctx)` (2nd arg is optional,
+  so `script_runner` is unchanged). A central runtime timeout (`max_runtime_ms`,
+  default 300000 ms, hard cap 600000 ms) aborts the signal and fails the task with
+  a `timed out after Xms` error; `cancel_local_task` aborts the signal and
+  tree-kills the child (on Windows via `taskkill /PID <pid> /T /F`). Partial
+  log/report from an interrupted codex run are kept for inspection.
+- `create_local_task` gains an optional `engine` input
+  (`script_runner` | `codex_cli`, default `script_runner`); an unavailable
+  `codex_cli` returns a clear "install / `codex login`" error.
+  `get_local_task_status` and the dashboard agents table now report the `provider`
+  (engine) per task. The CLI `agents spawn` gains `--engine <name>` and prints
+  `running codex, this may take a while...` for codex runs.
+- New pure helpers exported for unit tests: `buildCodexExecArgs`,
+  `buildCodexPrompt`, `codexSandboxForMode`, `resolveOnPath`, `killProcessTree`.
+  Added 8 unit tests (engine selection, unknown-engine rejection, timeout via
+  `ctx.signal`, cancel via `ctx.signal`, and the codex arg-builder); the full
+  agents suite is 27/0 and runs without requiring Codex to execute.
+
 ### Added — v5.0.0-preview.3 (experimental, opt-in): Agents dashboard page
 
 Improves the dashboard Local sub-agents panel (still gated behind

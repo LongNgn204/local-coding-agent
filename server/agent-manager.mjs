@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Long Nguyen
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// v5.0.0-preview.2 Local Sub-Agent Manager.
+// v5.0.0-preview.4 Local Sub-Agent Manager.
 //
 // ChatGPT Web does NOT run native sub-agents here. ChatGPT calls MCP tools;
 // this module runs and tracks sub-agent tasks LOCALLY, stores heavy
@@ -14,6 +14,7 @@
 import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 
@@ -172,12 +173,16 @@ export function getRole(name) {
 // ----------------------------------------------------------------------------
 // Providers
 // ----------------------------------------------------------------------------
-// script_runner is the only provider implemented in preview.2. It runs a
-// deterministic local "specialist planner" that produces a structured,
-// redacted report + log from the role, the task, and the local environment.
-// It performs NO network calls and spawns NO subprocess, so it is safe and
-// deterministic. Real AI providers (claude_cli / codex_cli / openai_api) are
-// declared for discovery but are not implemented yet (see docs/V5_SUBAGENTS.md).
+// script_runner runs a deterministic local "specialist planner" that produces a
+// structured, redacted report + log from the role, the task, and the local
+// environment. It performs NO network calls and spawns NO subprocess, so it is
+// safe and deterministic.
+//
+// codex_cli (preview.4) runs the locally installed, already-authenticated
+// OpenAI Codex CLI in its non-interactive `codex exec` mode, with the sandbox
+// mapped from the agent mode, approvals disabled, a runtime timeout, and full
+// cancellation (tree-kill on Windows). claude_cli / openai_api remain declared
+// for discovery only (see docs/V5_SUBAGENTS.md).
 
 function envSnapshot(meta) {
   return [
@@ -278,27 +283,235 @@ const scriptRunner = {
   }
 };
 
-/** Detect available providers safely (no throwing, no assuming CLIs exist). */
-export function detectProviders(env = process.env) {
-  const onPath = (exe) => {
-    const dirs = String(env.PATH || env.Path || "").split(path.delimiter).filter(Boolean);
-    const names = process.platform === "win32" ? [`${exe}.exe`, `${exe}.cmd`, `${exe}.bat`, exe] : [exe];
-    // Pure lookup: we only REPORT availability. We never execute the binary here.
-    for (const d of dirs) {
-      for (const n of names) {
-        try {
-          if (existsSync(path.join(d, n))) return true;
-        } catch {
-          /* ignore unreadable PATH entry */
-        }
+// ----------------------------------------------------------------------------
+// codex_cli provider (preview.4)
+// ----------------------------------------------------------------------------
+// Runs the locally installed, already-authenticated OpenAI Codex CLI in its
+// non-interactive `codex exec` mode. Flags below are taken from the real
+// `codex exec --help` of the installed version (0.140.0):
+//   codex exec [OPTIONS] [PROMPT]        prompt read from stdin if `-` is used
+//   -s, --sandbox <read-only|workspace-write|danger-full-access>
+//   -C, --cd <DIR>                        working root
+//   --skip-git-repo-check                 allow running outside a git repo
+//   -o, --output-last-message <FILE>      write the agent's final message cleanly
+//   --color never                         no ANSI escape codes in the output
+// `codex exec` is already non-interactive and never prompts for approval, so
+// there is no --ask-for-approval flag on the exec subcommand (it is top-level
+// only). The task text is passed on stdin (prompt = "-") to avoid ALL shell
+// quoting of user input.
+
+/** Look up an executable on PATH, returning its full resolved path or null. */
+export function resolveOnPath(exe, env = process.env) {
+  const dirs = String(env.PATH || env.Path || "").split(path.delimiter).filter(Boolean);
+  const names = process.platform === "win32" ? [`${exe}.cmd`, `${exe}.exe`, `${exe}.bat`, exe] : [exe];
+  for (const d of dirs) {
+    for (const n of names) {
+      try {
+        const full = path.join(d, n);
+        if (existsSync(full)) return full;
+      } catch {
+        /* ignore unreadable PATH entry */
       }
     }
-    return false;
-  };
+  }
+  return null;
+}
+
+/** Map the agent mode to a Codex sandbox policy. safe -> read-only, full -> workspace-write. */
+export function codexSandboxForMode(mode) {
+  return String(mode) === "full" ? "workspace-write" : "read-only";
+}
+
+/**
+ * Pure builder for the `codex exec` argument vector (unit-tested). Does NOT
+ * include the prompt itself: the prompt is fed on stdin (args end with "-").
+ * `opts.outputFile` (optional) adds `-o <file>` to capture the final message.
+ */
+export function buildCodexExecArgs(meta, opts = {}) {
+  const args = ["exec"];
+  args.push("--sandbox", codexSandboxForMode(meta.mode));
+  args.push("--skip-git-repo-check");
+  args.push("--color", "never");
+  if (meta.workspace_root) args.push("--cd", meta.workspace_root);
+  if (opts.outputFile) args.push("--output-last-message", opts.outputFile);
+  args.push("-"); // read the prompt from stdin (no shell quoting of user text)
+  return args;
+}
+
+/** Compose the instruction that prefixes the user's task for a concise report. */
+export function buildCodexPrompt(meta) {
+  const role = ROLES[meta.role];
+  const roleLine = role ? `You are acting as the "${role.name}" specialist: ${role.description}` : "";
+  return [
+    roleLine,
+    "Keep your output concise. Do the task, then end your final message with a short",
+    "3-6 line summary of what you did or found.",
+    "",
+    "TASK:",
+    meta.task
+  ].filter(Boolean).join("\n");
+}
+
+const HARD_CAP_MS = 600000;
+const DEFAULT_RUNTIME_MS = 300000;
+const CAPTURE_LIMIT = 200000;
+
+/** Kill a process tree (best effort). On Windows uses taskkill /T /F. */
+export function killProcessTree(child) {
+  if (!child || child.exitCode !== null || child.signalCode) return;
+  const pid = child.pid;
+  if (!pid) return;
+  if (process.platform === "win32") {
+    try {
+      spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" }).on("error", () => {});
+    } catch {
+      try { child.kill(); } catch { /* ignore */ }
+    }
+  } else {
+    try { child.kill("SIGKILL"); } catch { /* ignore */ }
+  }
+}
+
+const codexCli = {
+  name: "codex_cli",
+  available: () => Boolean(resolveOnPath("codex")),
+  async run(meta, ctx = {}) {
+    const signal = ctx.signal;
+    const codexPath = resolveOnPath("codex");
+    if (!codexPath) {
+      return { ok: false, summary: "codex CLI not found on PATH.", report: "", log: "codex CLI not found on PATH.", error: "codex CLI not found on PATH" };
+    }
+    const runtimeMs = Math.min(Number(meta.max_runtime_ms) || DEFAULT_RUNTIME_MS, HARD_CAP_MS);
+
+    // Capture the final message to a temp file so we get a clean report.
+    const outFile = path.join(os.tmpdir(), `codex-last-${meta.agent_id}.txt`);
+    const args = buildCodexExecArgs(meta, { outputFile: outFile });
+    const prompt = buildCodexPrompt(meta);
+
+    const startedAt = Date.now();
+    const logLines = [
+      `[${isoNow()}] agent ${meta.agent_id} started (role=${meta.role}, provider=codex_cli)`,
+      `[${isoNow()}] codex ${args.join(" ")}`,
+      `[${isoNow()}] sandbox=${codexSandboxForMode(meta.mode)} cwd=${meta.workspace_root} timeout=${runtimeMs}ms`,
+      ""
+    ];
+
+    // On Windows `codex` is an npm `.cmd` shim, which cannot be spawned directly
+    // without a shell. Instead of shell:true (which concatenates args unescaped
+    // -> DEP0190), we invoke cmd.exe with a command line we quote ourselves and
+    // set windowsVerbatimArguments so Node does not re-quote. The prompt is fed
+    // on STDIN (args end with "-"), so user task text never touches this line;
+    // the only variable args are file paths we control (cwd / output file).
+    let child;
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    let aborted = false;
+
+    if (process.platform === "win32") {
+      const q = (s) => (/[\s"&|<>^()%]/.test(String(s)) ? `"${String(s).replace(/"/g, '""')}"` : String(s));
+      const cmdline = `${q(codexPath)} ${args.map(q).join(" ")}`;
+      child = spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", cmdline], {
+        cwd: meta.workspace_root,
+        windowsHide: true,
+        windowsVerbatimArguments: true,
+        env: process.env
+      });
+    } else {
+      child = spawn(codexPath, args, {
+        cwd: meta.workspace_root,
+        windowsHide: true,
+        env: process.env
+      });
+    }
+
+    ctx.onChild?.(child);
+
+    const cap = (buf, chunk) => {
+      const next = buf + chunk.toString();
+      return next.length > CAPTURE_LIMIT ? next.slice(next.length - CAPTURE_LIMIT) : next;
+    };
+    child.stdout?.on("data", (d) => { stdout = cap(stdout, d); });
+    child.stderr?.on("data", (d) => { stderr = cap(stderr, d); });
+
+    // Feed the prompt on stdin then close it.
+    try {
+      child.stdin?.write(prompt);
+      child.stdin?.end();
+    } catch {
+      /* stdin may already be closed if spawn failed */
+    }
+
+    const timer = setTimeout(() => { timedOut = true; killProcessTree(child); }, runtimeMs);
+    const onAbort = () => { aborted = true; killProcessTree(child); };
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    const exit = await new Promise((resolve) => {
+      let done = false;
+      const finish = (v) => { if (!done) { done = true; resolve(v); } };
+      child.on("error", (err) => finish({ code: null, error: err }));
+      child.on("close", (code) => finish({ code, error: null }));
+    });
+
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener("abort", onAbort);
+
+    const elapsed = Date.now() - startedAt;
+    let finalMessage = "";
+    try {
+      finalMessage = await readFile(outFile, "utf8");
+    } catch {
+      /* no output-last-message file (e.g. codex errored early) */
+    }
+    await rm(outFile, { force: true }).catch(() => {});
+
+    if (stdout) logLines.push("--- stdout ---", stdout);
+    if (stderr) logLines.push("--- stderr ---", stderr);
+    logLines.push("", `[${isoNow()}] codex exited code=${exit.code} elapsed=${elapsed}ms`);
+    const log = logLines.join("\n");
+
+    if (aborted) {
+      // Cancellation is finalized by the manager; report a failed-ish result.
+      return { ok: false, summary: "Cancelled while codex was running.", report: finalMessage || stdout, log, error: "cancelled" };
+    }
+    if (timedOut) {
+      return {
+        ok: false,
+        summary: `codex timed out after ${runtimeMs}ms`,
+        report: finalMessage || stdout,
+        log,
+        error: `timed out after ${runtimeMs}ms`
+      };
+    }
+    if (exit.error) {
+      return { ok: false, summary: `codex failed to start: ${exit.error.message}`, report: finalMessage || stdout, log, error: String(exit.error.message) };
+    }
+    if (exit.code !== 0) {
+      return {
+        ok: false,
+        summary: `codex exited with code ${exit.code}`,
+        report: finalMessage || stdout || stderr,
+        log,
+        error: `codex exited with code ${exit.code}`
+      };
+    }
+
+    const report = finalMessage.trim() || stdout.trim() || "(codex produced no final message)";
+    const summary = report.replace(/\s+/g, " ").trim().slice(0, 300);
+    return { ok: true, summary, report, log };
+  }
+};
+
+/** Detect available providers safely (no throwing, no assuming CLIs exist). */
+export function detectProviders(env = process.env) {
+  const onPath = (exe) => Boolean(resolveOnPath(exe, env));
   return [
     { name: "script_runner", available: true, note: "Local deterministic planner (implemented)." },
     { name: "claude_cli", available: onPath("claude"), note: "TODO: run Claude Code CLI as a provider." },
-    { name: "codex_cli", available: onPath("codex"), note: "TODO: run Codex CLI as a provider." },
+    { name: "codex_cli", available: onPath("codex"), note: "Runs the local, authenticated Codex CLI in non-interactive exec mode (implemented)." },
     { name: "openai_api", available: Boolean(env.OPENAI_API_KEY), note: "TODO: call OpenAI API directly." }
   ];
 }
@@ -315,10 +528,13 @@ export class AgentManager {
     this.mode = mode;
     this.policy = policy;
     this.maxAgents = maxAgents;
-    this.providers = providers || { script_runner: scriptRunner };
+    this.providers = providers || { script_runner: scriptRunner, codex_cli: codexCli };
     this.agents = new Map(); // agent_id -> meta
     this._runs = new Map(); // agent_id -> Promise
     this._cancelled = new Set();
+    this._controllers = new Map(); // agent_id -> AbortController
+    this._children = new Map(); // agent_id -> ChildProcess (running provider child)
+    this._timeouts = new Set(); // agent_ids that were aborted by the runtime timeout
   }
 
   async init() {
@@ -347,6 +563,7 @@ export class AgentManager {
       role: meta.role,
       title: meta.title,
       status: meta.status,
+      provider: meta.provider || "script_runner",
       created_at: meta.created_at,
       updated_at: meta.updated_at,
       summary: meta.summary || "",
@@ -378,6 +595,7 @@ export class AgentManager {
       policy: this.policy,
       max_runtime_ms: Number(max_runtime_ms) || null,
       dry_run: Boolean(dry_run),
+      pid: null,
       status: "queued",
       created_at: now,
       updated_at: now,
@@ -417,9 +635,49 @@ export class AgentManager {
 
   async _execute(meta) {
     const provider = this.providers[meta.provider];
-    const out = await provider.run(meta);
+    const controller = new AbortController();
+    this._controllers.set(meta.agent_id, controller);
+
+    // Central runtime timeout: aborts the signal so signal-aware providers stop.
+    // The provider (e.g. codex_cli) also tree-kills its child on abort/timeout.
+    let timer = null;
+    const runtimeMs = Number(meta.max_runtime_ms) || null;
+    if (runtimeMs) {
+      timer = setTimeout(() => {
+        this._timeouts.add(meta.agent_id);
+        controller.abort();
+      }, Math.min(runtimeMs, 600000));
+    }
+
+    const ctx = {
+      signal: controller.signal,
+      onChild: (child) => {
+        this._children.set(meta.agent_id, child);
+        meta.pid = child?.pid || null;
+      }
+    };
+
+    let out;
+    try {
+      out = await provider.run(meta, ctx);
+    } finally {
+      if (timer) clearTimeout(timer);
+      this._controllers.delete(meta.agent_id);
+      this._children.delete(meta.agent_id);
+      meta.pid = null;
+    }
+
+    // A runtime-timeout abort becomes a failed status with a timeout error,
+    // even if a signal-aware provider returned early without ok:false.
+    if (this._timeouts.has(meta.agent_id)) {
+      this._timeouts.delete(meta.agent_id);
+      if (!this._cancelled.has(meta.agent_id)) {
+        return this._finalizeTimeout(meta, out, runtimeMs);
+      }
+    }
+
     if (this._cancelled.has(meta.agent_id)) {
-      return this._finalizeCancelled(meta);
+      return this._finalizeCancelled(meta, out);
     }
     await mkdir(this.agentsDir, { recursive: true });
     const logPath = makeLocalReportPath(this.agentsDir, meta.agent_id, "log");
@@ -447,7 +705,44 @@ export class AgentManager {
     return this._compact(meta);
   }
 
-  async _finalizeCancelled(meta) {
+  /**
+   * Persist whatever partial log/report a provider captured on an interrupted
+   * run (timeout/cancel), so the user can inspect partial work. Only writes when
+   * the provider actually reported the interruption (out.error is "cancelled" or
+   * a timeout). A provider that completed cleanly before an after-the-fact cancel
+   * has no partial state, so we keep the "no files" behavior for that case.
+   */
+  async _writePartialArtifacts(meta, out) {
+    if (!out || !out.error) return;
+    const interrupted = /^cancelled$/i.test(out.error) || /timed out/i.test(out.error);
+    if (!interrupted) return;
+    await mkdir(this.agentsDir, { recursive: true }).catch(() => {});
+    if (out.log) {
+      const logPath = makeLocalReportPath(this.agentsDir, meta.agent_id, "log");
+      await writeFile(logPath, redactSecrets(out.log), "utf8").catch(() => {});
+      meta.log_path = logPath;
+    }
+    if (out.report) {
+      const reportPath = makeLocalReportPath(this.agentsDir, meta.agent_id, "report");
+      await writeFile(reportPath, redactSecrets(out.report), "utf8").catch(() => {});
+      meta.report_path = reportPath;
+    }
+  }
+
+  async _finalizeTimeout(meta, out, runtimeMs) {
+    // Keep partial work so the user can see what codex did before the cutoff.
+    await this._writePartialArtifacts(meta, out);
+    meta.status = "failed";
+    meta.error = `timed out after ${Math.min(Number(runtimeMs) || 0, 600000)}ms`;
+    meta.summary = truncateForChat(redactSecrets((out && out.summary) || meta.error), 500).text;
+    meta.updated_at = isoNow();
+    await this._saveIndex();
+    return this._compact(meta);
+  }
+
+  async _finalizeCancelled(meta, out) {
+    // Preserve any partial log so the user can inspect what ran before cancel.
+    await this._writePartialArtifacts(meta, out);
     meta.status = "cancelled";
     meta.summary = meta.summary || "Cancelled before completion.";
     meta.updated_at = isoNow();
@@ -556,6 +851,11 @@ export class AgentManager {
       return { agent_id: agentId, status: meta.status, message: `Agent already ${meta.status}.` };
     }
     this._cancelled.add(agentId);
+    // Abort the signal so a signal-aware provider stops; tree-kill any child.
+    const controller = this._controllers.get(agentId);
+    if (controller && !controller.signal.aborted) controller.abort();
+    const child = this._children.get(agentId);
+    if (child) killProcessTree(child);
     if (this._runs.has(agentId)) {
       await this.settle(agentId);
     } else {
