@@ -32,6 +32,8 @@ jobs:
         run: |
           node -e "const b=require('fs').readFileSync('server.mjs');const n=[...b].filter(x=>x===0).length;if(n)throw new Error('server.mjs contains '+n+' NUL byte(s)')"
           node --check server.mjs
+          node --check context-memory.mjs
+          node --check context-memory.test.mjs
           node --check test-agent.mjs
           node --check test-security.mjs
           node --check security-test.mjs
@@ -42,6 +44,7 @@ jobs:
           node --check ../scripts/network-doctor.mjs
           node --check ../scripts/release-public-gate.mjs
           node ../scripts/release-public-gate.mjs
+          npm run test:context
           node --test ../scripts/network-doctor.test.mjs
           node --check ../scripts/validate-skills.mjs
           node ../scripts/local-coding-agent.mjs --help
@@ -93,6 +96,7 @@ jobs:
               throw "server did not become healthy"
             }
             npm run test:agent
+            npm run test:context
             npm run test:pro
             npm run test:security
             npm run test:hardening

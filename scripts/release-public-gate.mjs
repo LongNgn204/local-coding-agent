@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
-const tracked = execFileSync("git", ["-C", root, "ls-files", "-z"], { encoding: "utf8" })
+const candidates = execFileSync("git", ["-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"], { encoding: "utf8" })
   .split("\0")
   .filter(Boolean)
   .map((file) => file.replaceAll("\\", "/"));
@@ -28,7 +28,7 @@ const textExtensions = new Set([
 const blockedArtifactExtensions = new Set([".exe", ".key", ".pem", ".pfx", ".zip"]);
 const violations = [];
 
-for (const file of tracked) {
+for (const file of candidates) {
   for (const [label, matches] of pathRules) {
     if (matches(file)) violations.push(`${label}: ${file}`);
   }
@@ -48,4 +48,4 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log(`Public release boundary: ${tracked.length} tracked files checked, 0 private-tree/channel leaks.`);
+console.log(`Public release boundary: ${candidates.length} tracked/untracked candidate files checked, 0 private-tree/channel leaks.`);

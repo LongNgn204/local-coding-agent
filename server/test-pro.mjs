@@ -42,10 +42,27 @@ try {
   check("workspace_info exposes pro tier", info.tier === "pro", `tier=${info.tier}`);
   check("workspace_info exposes policy", typeof info.policy === "string" && info.policy.length > 0);
 
+  const contextBefore = await callJson("context_status");
+  check("context_status identifies MCP-only estimate", typeof contextBefore.disclaimer === "string" && contextBefore.disclaimer.includes("actual context window"));
+  const compact = await callJson("compact_context", {
+    goal: "Verify stable compact and resume",
+    summary: "The Pro fixture is ready. api_key=super-secret-context-test-value",
+    decisions: ["Keep the checkpoint local"],
+    constraints: ["Do not include private release channels"],
+    completed: ["Created the isolated fixture"],
+    open_tasks: ["Run the Pro suite"],
+    next_action: "Continue the Pro checks",
+    files_touched: ["package.json", "README.md", "src/index.js"]
+  });
+  check("compact_context creates a checkpoint", compact.ok === true && /^ctx_[0-9a-f]{16}$/.test(compact.checkpoint_id));
+  const resumed = await callJson("resume_context");
+  check("resume_context restores structured state", resumed.kind === "chatgpt_web_context_checkpoint" && resumed.context?.next_action === "Continue the Pro checks");
+  check("compact_context redacts secrets", JSON.stringify(resumed).includes("super-secret-context-test-value") === false && Number(resumed.privacy?.redactions) >= 1);
+
   const snap = await callJson("workspace_snapshot", { depth: 3, max_entries: 120, include_symbols: true, refresh: true });
   check("snapshot kind is workspace_snapshot", snap.kind === "workspace_snapshot");
   check("snapshot is pro", snap.pro === true && snap.tier === "pro");
-  check("snapshot version is 4.4.3-prodev", snap.version === "4.4.3-prodev", `version=${snap.version}`);
+  check("snapshot version is 4.4.3", snap.version === "4.4.3", `version=${snap.version}`);
   check("snapshot includes safety model", snap.safety?.file_tools_root_confined === true && snap.safety?.command_os_sandbox === false);
   check("snapshot detects javascript", snap.profile?.languages?.includes("javascript"), JSON.stringify(snap.profile));
   check("snapshot detects test command", snap.commands?.test === "npm test", JSON.stringify(snap.commands));

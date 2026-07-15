@@ -10,7 +10,7 @@ namespace LocalCodingAgentTray;
 
 public sealed class MainForm : Form
 {
-    private const string HealthProbeUserAgent = "LocalCodingAgentTray/4.4.3-prodev";
+    private const string HealthProbeUserAgent = "LocalCodingAgentTray/4.4.3";
     private const string HealthProbeHeader = "X-Local-Coding-Agent-Probe";
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(2) };
 

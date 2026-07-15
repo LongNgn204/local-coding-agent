@@ -25,11 +25,12 @@ import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import { ContextMemory, contextPressure } from "./context-memory.mjs";
 
 // ----------------------------------------------------------------------------
 // Configuration (all overridable via environment variables)
 // ----------------------------------------------------------------------------
-const VERSION = "4.4.3-prodev";
+const VERSION = "4.4.3";
 const PRODUCT_TIER = "pro";
 const PORT = Number(process.env.PORT || 8787);
 // Bind to loopback by default. The local OpenAI tunnel-client forwards to this,
@@ -84,6 +85,7 @@ const WORKSPACE_ID = createHash("sha256").update(comparePath(PRIMARY_ROOT)).dige
 const WORKSPACE_DATA_DIR = path.join(DATA_DIR, "workspaces", WORKSPACE_ID);
 const NOTES_PATH = path.resolve(WORKSPACE_DATA_DIR, "notes.json");
 const CHECKPOINT_PATH = path.resolve(WORKSPACE_DATA_DIR, "checkpoint.json");
+const CONTEXT_DIR = path.resolve(WORKSPACE_DATA_DIR, "context-checkpoints");
 const AUDIT_PATH = path.resolve(DATA_DIR, "audit.log");
 const METRICS_PATH = path.resolve(DATA_DIR, "metrics.json");
 
@@ -206,6 +208,20 @@ await mkdir(APPROVALS_DIR, { recursive: true });
 await mkdir(AGENT_STATE_DIR, { recursive: true });
 
 let metrics = loadMetrics();
+const contextMemory = new ContextMemory({
+  dir: CONTEXT_DIR,
+  releaseVersion: VERSION,
+  workspace: {
+    id: WORKSPACE_ID,
+    primary_root: PRIMARY_ROOT,
+    roots: ROOTS,
+    mode: MODE,
+    policy: AGENT_POLICY
+  },
+  maxCheckpoints: boundedNumber(process.env.AGENT_MAX_CONTEXT_CHECKPOINTS, 10, 1, 50)
+});
+await contextMemory.init();
+const contextBootActivity = contextActivityMark();
 
 // v2.8 Load workspace profile on startup
 await loadWorkspaceProfile();
@@ -417,7 +433,7 @@ const SERVER_INSTRUCTIONS = [
   "Keep the conversation light: do NOT re-read a file you already read; read only the line range you need; never dump a whole large file or large command output unless asked.",
   "Anti-lag workflow: do not paste full logs, full diffs, base64 blobs, image/icon inventories, or repeated single-file reads into chat. Save detailed output to local files or reports, then return a compact summary with paths and next actions.",
   "Prefer targeted line ranges, globs, read_many with max_chars, and run_command/run_commands with max_output_chars so long ChatGPT Web threads stay responsive.",
-  "When the conversation grows long or feels slow, call checkpoint() with a compact summary + next steps, then tell the user to open a NEW chat; in that fresh chat call resume() first. This resets the heavy context (faster) while keeping your progress.",
+  "ChatGPT Web compact workflow: when the conversation grows long or feels slow, call context_status. If it recommends compacting, call compact_context with only established facts, decisions, constraints, completed work, open tasks, and the next action. Never include credentials or full source/log content. Then tell the user to open a NEW chat; in that fresh chat call resume_context FIRST and verify workspace_info/git_status before editing.",
   "If a task matches an available skill, call list_skills first, then read_skill(name) to load its instructions before doing the work.",
   "Prefer a few large, well-targeted calls over many tiny ones."
 ].join("\n");
@@ -425,6 +441,7 @@ const SERVER_INSTRUCTIONS = [
 function createMcpServer() {
   const mcp = new McpServer({ name: "Local Coding Agent", version: VERSION }, { instructions: SERVER_INSTRUCTIONS });
   registerBasicTools(mcp);
+  registerContextTools(mcp);
   registerFsReadTools(mcp);
   registerFsWriteTools(mcp);
   registerExecTools(mcp);
@@ -682,33 +699,175 @@ function registerBasicTools(mcp) {
     }
   );
 
+}
+
+const CONTEXT_COMPACT_SCHEMA = {
+  goal: z.string().min(1).max(1_000).describe("Current user goal in one concise sentence."),
+  summary: z.string().min(1).max(8_000).describe("Compact factual state. Do not paste source code, full logs, secrets, or chat transcript."),
+  decisions: z.array(z.string().max(1_000)).max(20).optional().describe("Important decisions already made."),
+  constraints: z.array(z.string().max(1_000)).max(20).optional().describe("Safety, release, compatibility, or user constraints that still apply."),
+  completed: z.array(z.string().max(1_000)).max(20).optional().describe("Verified completed work."),
+  open_tasks: z.array(z.string().max(1_000)).max(20).optional().describe("Remaining work in priority order."),
+  next_action: z.string().max(1_500).optional().describe("The exact first action for the fresh chat."),
+  files_touched: z.array(z.string().max(500)).max(100).optional().describe("Key workspace-relative file paths only.")
+};
+
+function contextActivityMark() {
+  return {
+    total_calls: Number(metrics?.totalCalls || 0),
+    est_tokens_total: estTokens(Number(metrics?.inChars || 0) + Number(metrics?.outChars || 0))
+  };
+}
+
+function contextStatusSnapshot() {
+  const latest = contextMemory.peekLatest();
+  const baseline = latest?.evidence?.activity || contextBootActivity;
+  return {
+    available: Boolean(latest),
+    checkpoint_id: latest?.checkpoint_id || null,
+    saved_at: latest?.saved_at || null,
+    goal: latest?.context?.goal || null,
+    next_action: latest?.context?.next_action || latest?.context?.open_tasks?.[0] || null,
+    ...contextPressure({ current: contextActivityMark(), baseline })
+  };
+}
+
+async function compactTaskPlanSnapshot() {
+  try {
+    const plan = JSON.parse(await readFile(TASK_PLAN_PATH, "utf8"));
+    const steps = Array.isArray(plan.steps) ? plan.steps : [];
+    return {
+      goal: String(plan.goal || "").slice(0, 500),
+      status: plan.status || null,
+      progress: `${steps.filter((step) => step?.done).length}/${steps.length}`,
+      updated: plan.updated || null
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function compactContext(input) {
+  const [git, taskPlan] = await Promise.all([
+    compactGitStatus(PRIMARY_ROOT),
+    compactTaskPlanSnapshot()
+  ]);
+  const checkpoint = await contextMemory.compact(input, {
+    activity: contextActivityMark(),
+    git,
+    recent_tests: (metrics.testRuns || []).slice(0, 5).map((test) => ({
+      ts: test.ts,
+      ok: Boolean(test.ok),
+      command: String(test.command || "").slice(0, 200),
+      summary: String(test.summary || "").slice(0, 300)
+    })),
+    task_plan: taskPlan
+  });
+
+  // Preserve downgrade compatibility with the original checkpoint/resume pair.
+  const legacy = {
+    saved_at: checkpoint.saved_at,
+    summary: checkpoint.context.summary,
+    next_steps: checkpoint.context.open_tasks,
+    files_touched: checkpoint.context.files_touched
+  };
+  await writeFile(CHECKPOINT_PATH, `${JSON.stringify(legacy, null, 2)}\n`, "utf8");
+
+  return {
+    ok: true,
+    checkpoint_id: checkpoint.checkpoint_id,
+    saved_at: checkpoint.saved_at,
+    redactions: checkpoint.privacy.redactions,
+    git_changed_files: checkpoint.evidence.git?.count ?? null,
+    next_action: checkpoint.context.next_action || checkpoint.context.open_tasks?.[0] || null,
+    message: "Context compacted locally. Open a new ChatGPT Web chat and call resume_context first."
+  };
+}
+
+async function loadContextForResume() {
+  const checkpoint = await contextMemory.latest();
+  if (checkpoint) return checkpoint;
+  try {
+    const legacy = JSON.parse(await readFile(CHECKPOINT_PATH, "utf8"));
+    return {
+      kind: "legacy_context_checkpoint",
+      schema_version: 0,
+      saved_at: legacy.saved_at,
+      release_version: VERSION,
+      workspace: { id: WORKSPACE_ID, primary_root: PRIMARY_ROOT, roots: ROOTS, mode: MODE, policy: AGENT_POLICY },
+      context: {
+        goal: legacy.summary,
+        summary: legacy.summary,
+        decisions: [],
+        constraints: [],
+        completed: [],
+        open_tasks: legacy.next_steps || [],
+        files_touched: legacy.files_touched || []
+      },
+      resume_protocol: ["Call workspace_info and git_status before editing."]
+    };
+  } catch {
+    return null;
+  }
+}
+
+function registerContextTools(mcp) {
+  reg(
+    mcp,
+    "compact_context",
+    {
+      title: "Compact ChatGPT Web context",
+      description: "Save a small, structured handoff for a fresh ChatGPT Web chat. The server enriches it with Git state, recent tests, task-plan progress, and MCP activity. Use established facts only; never include secrets, source dumps, full logs, or the full transcript.",
+      inputSchema: CONTEXT_COMPACT_SCHEMA
+    },
+    async (input) => jsonResult(await compactContext(input))
+  );
+
+  reg(
+    mcp,
+    "resume_context",
+    {
+      title: "Resume compacted ChatGPT Web context",
+      description: "Load the latest local compact checkpoint. Call this FIRST in a fresh ChatGPT Web chat, then verify workspace_info and git_status before continuing.",
+      inputSchema: {}
+    },
+    async () => {
+      const checkpoint = await loadContextForResume();
+      return checkpoint ? jsonResult(checkpoint) : textResult("No compact context exists yet. Call compact_context near the end of the current chat.");
+    }
+  );
+
+  reg(
+    mcp,
+    "context_status",
+    {
+      title: "ChatGPT Web context status",
+      description: "Return the latest compact checkpoint metadata and an estimated context-pressure score based only on MCP tool traffic. This is not ChatGPT's actual context-window usage.",
+      inputSchema: {}
+    },
+    async () => jsonResult(contextStatusSnapshot())
+  );
+
+  // Backward-compatible aliases for existing customers and prompts.
   reg(
     mcp,
     "checkpoint",
     {
       title: "Save a progress checkpoint",
-      description: "Save a COMPACT summary of progress so the user can start a fresh, fast chat and you can continue. Call this when the conversation gets long/slow, then tell the user to open a new chat and you will call resume().",
+      description: "Compatibility alias for compact_context. New integrations should call compact_context.",
       inputSchema: {
-        summary: z.string().min(1).describe("What has been done so far, the goal, and current state — concise."),
-        next_steps: z.array(z.string()).optional().describe("Ordered remaining steps."),
-        files_touched: z.array(z.string()).optional().describe("Key files involved.")
+        summary: z.string().min(1).max(8_000),
+        next_steps: z.array(z.string().max(1_000)).max(20).optional(),
+        files_touched: z.array(z.string().max(500)).max(100).optional()
       }
     },
-    async ({ summary, next_steps = [], files_touched = [] }) => {
-      // v2.5: snapshot current-task.json into checkpoints dir
-      try {
-        const cpStateDir = path.join(AGENT_STATE_DIR, "checkpoints");
-        await mkdir(cpStateDir, { recursive: true });
-        if (existsSync(TASK_PLAN_PATH)) {
-          const taskPlan = await readFile(TASK_PLAN_PATH, "utf8");
-          await writeFile(path.join(cpStateDir, `task-${Date.now()}.json`), taskPlan, "utf8");
-        }
-      } catch { /* best-effort */ }
-      const cp = { saved_at: isoNow(), summary, next_steps, files_touched };
-      await mkdir(path.dirname(CHECKPOINT_PATH), { recursive: true });
-      await writeFile(CHECKPOINT_PATH, `${JSON.stringify(cp, null, 2)}\n`, "utf8");
-      return textResult("Checkpoint saved. Tell the user to open a NEW chat (resets the heavy context), then call resume() to continue.");
-    }
+    async ({ summary, next_steps = [], files_touched = [] }) => jsonResult(await compactContext({
+      goal: summary,
+      summary,
+      open_tasks: next_steps,
+      next_action: next_steps[0],
+      files_touched
+    }))
   );
 
   reg(
@@ -716,15 +875,21 @@ function registerBasicTools(mcp) {
     "resume",
     {
       title: "Resume from last checkpoint",
-      description: "Load the last checkpoint saved by checkpoint(). Call this FIRST in a fresh chat to continue prior work without the old heavy context.",
+      description: "Compatibility response for the original checkpoint/resume workflow. New integrations should call resume_context for the structured checkpoint.",
       inputSchema: {}
     },
     async () => {
       try {
-        const cp = JSON.parse(await readFile(CHECKPOINT_PATH, "utf8"));
-        return jsonResult(cp);
+        return jsonResult(JSON.parse(await readFile(CHECKPOINT_PATH, "utf8")));
       } catch {
-        return textResult("No checkpoint saved yet.");
+        const checkpoint = await loadContextForResume();
+        if (!checkpoint) return textResult("No checkpoint saved yet.");
+        return jsonResult({
+          saved_at: checkpoint.saved_at,
+          summary: checkpoint.context?.summary || "",
+          next_steps: checkpoint.context?.open_tasks || [],
+          files_touched: checkpoint.context?.files_touched || []
+        });
       }
     }
   );
@@ -2383,6 +2548,7 @@ function metricsSnapshot() {
     health_label: health.label,
     pro_tips: health.tips,
     bottlenecks: health.bottlenecks,
+    context: contextStatusSnapshot(),
     top_tools: topTools,
     recent: metrics.recent,
     buckets: metrics.buckets
@@ -2562,7 +2728,7 @@ function trimOutput(s, { tail_lines, head_lines, max_chars }) {
 
 // Fields whose values may carry secrets or large payloads — redact them in the
 // audit log so data/audit.log never stores tokens/keys/file contents/commands.
-const AUDIT_REDACT = /^(content|body|diff|patch|old_text|new_text|command|token|approval_token|mcp_auth_token|control_plane_api_key|key|secret|password|authorization|auth|api[_-]?key)$/i;
+const AUDIT_REDACT = /^(content|body|diff|patch|old_text|new_text|command|token|approval_token|mcp_auth_token|control_plane_api_key|key|secret|password|authorization|auth|api[_-]?key|goal|summary|decisions|constraints|completed|open_tasks|next_steps|next_action)$/i;
 
 // Recursively redact sensitive keys at ANY depth (e.g. apply_patch.operations[].content,
 // .edits[].new_text) and truncate long strings, so data/audit.log never stores secrets.
@@ -2722,7 +2888,8 @@ function homeHtml() {
     <div class="panel"><p><strong>Roots</strong></p>${ROOTS.map((r) => `<p><code>${escapeHtml(r)}</code></p>`).join("")}</div>
     <div class="panel"><p><strong>MCP endpoint</strong></p><p><code>http://${HOST}:${PORT}/mcp</code></p></div>
     <div class="panel"><p><strong>Tools</strong></p>
-      <p><strong>Core:</strong> <code>workspace_info, repo_overview, list_files, find_files, read_file, read_many, stat_path, search_text, write_file, replace_in_file, apply_patch, make_dir, move_path, delete_path, run_command, run_commands, proc_start, proc_list, proc_output, proc_stop, git, git_status, git_diff, list_skills, read_skill, create_skill, delete_skill, ping, save_note, list_notes, checkpoint, resume</code></p>
+      <p><strong>Core:</strong> <code>workspace_info, repo_overview, list_files, find_files, read_file, read_many, stat_path, search_text, write_file, replace_in_file, apply_patch, make_dir, move_path, delete_path, run_command, run_commands, proc_start, proc_list, proc_output, proc_stop, git, git_status, git_diff, list_skills, read_skill, create_skill, delete_skill, ping, save_note, list_notes</code></p>
+      <p><strong>ChatGPT Web context:</strong> <code>context_status, compact_context, resume_context</code> <span class="tag">checkpoint/resume aliases kept</span></p>
       <p><strong>Pro repo intel:</strong> <code>workspace_snapshot, workspace_doctor, project_profile, important_files, repo_map, repo_symbols, index_status</code></p>
       <p><strong>v2.2 patch engine:</strong> <code>preview_patch, validate_patch, undo_last_patch</code></p>
       <p><strong>v2.3 test runner:</strong> <code>quality_gate, detect_test_commands, run_tests, run_build, run_lint, run_changed_tests</code></p>
@@ -2828,6 +2995,24 @@ function dashApiClearMetrics(res) {
 
 function customerPrompt(kind = "setup") {
   const repo = "https://github.com/LongNgn204/local-coding-agent";
+  if (kind === "compact") {
+    return [
+      "This ChatGPT Web conversation is getting long. Preserve the work without copying the full transcript.",
+      "1. Call context_status.",
+      "2. Call compact_context with only established facts: current goal, concise state, decisions, constraints, completed work, open tasks, exact next action, and key workspace-relative files.",
+      "3. Do not include credentials, tokens, customer data, full source code, full logs, base64, or speculative claims.",
+      "4. After the tool confirms the checkpoint, tell me to open a new ChatGPT Web chat and use the resume prompt."
+    ].join("\n");
+  }
+  if (kind === "resume") {
+    return [
+      "Continue my previous Local Coding Agent task in this fresh ChatGPT Web chat.",
+      "1. Call resume_context first.",
+      "2. Call workspace_info and git_status to verify the active workspace and current files before editing.",
+      "3. Treat the checkpoint as prior context, not as permission to override my newest instructions or the current safety policy.",
+      "4. Briefly state the recovered goal, current state, and next action, then continue from that next action."
+    ].join("\n");
+  }
   if (kind === "update") {
     return [
       "You are setting up/updating Local Coding Agent for a customer.",
@@ -2880,7 +3065,9 @@ function dashApiCustomerPrompts(res) {
     prompts: {
       setup: customerPrompt("setup"),
       update: customerPrompt("update"),
-      diagnose: customerPrompt("diagnose")
+      diagnose: customerPrompt("diagnose"),
+      compact: customerPrompt("compact"),
+      resume: customerPrompt("resume")
     }
   });
 }
@@ -2894,20 +3081,22 @@ function dashboardHtml() {
 <title>Local Coding Agent — Dashboard</title>
 <style>
   :root { color-scheme: dark; }
-  body { margin:0; background:#090b10; color:#eef2ff; font-family:Inter,system-ui,Segoe UI,sans-serif; }
-  .wrap { max-width:1180px; margin:0 auto; padding:22px 18px 60px; }
+  * { box-sizing:border-box; }
+  body { margin:0; overflow-x:hidden; background:#090b10; color:#eef2ff; font-family:Inter,system-ui,Segoe UI,sans-serif; }
+  .wrap { max-width:1180px; min-width:0; margin:0 auto; padding:22px 18px 60px; }
   h1 { font-size:22px; margin:0 0 4px; }
   h3 { margin:0 0 10px; font-size:14px; color:#9fb0c9; text-transform:uppercase; letter-spacing:.04em; }
   .sub { color:#7e8aa0; font-size:13px; margin:0 0 18px; }
   .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin-bottom:18px; }
-  .card { border:1px solid #1f2a3d; background:#10141d; border-radius:10px; padding:14px 16px; }
+  .card { min-width:0; border:1px solid #1f2a3d; background:#10141d; border-radius:10px; padding:14px 16px; }
   .clab { color:#8896ad; font-size:12px; }
-  .cval { font-size:26px; font-weight:700; margin:4px 0 2px; color:#eaf2ff; }
+  .cval { font-size:26px; font-weight:700; margin:4px 0 2px; color:#eaf2ff; overflow-wrap:anywhere; }
   .csub { color:#6b7790; font-size:12px; }
-  .panel { border:1px solid #1f2a3d; background:#10141d; border-radius:10px; padding:16px; margin-bottom:16px; }
+  .panel { min-width:0; border:1px solid #1f2a3d; background:#10141d; border-radius:10px; padding:16px; margin-bottom:16px; }
   canvas { width:100%; height:220px; display:block; }
-  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-  @media (max-width:820px){ .grid { grid-template-columns:1fr; } }
+  .grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; }
+  .grid > .panel { overflow-x:auto; }
+  @media (max-width:820px){ .grid { grid-template-columns:minmax(0,1fr); } }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th,td { text-align:left; padding:6px 8px; border-bottom:1px solid #1a2335; }
   th { color:#8896ad; font-weight:600; }
@@ -2943,7 +3132,7 @@ function dashboardHtml() {
 
   <div class="panel" style="margin-bottom:16px">
     <h3>Đường dẫn ChatGPT đang thao tác (workspace / roots)</h3>
-    <div id="roots" style="font-family:Consolas,monospace;font-size:13px;color:#7fe0d2"></div>
+    <div id="roots" style="font-family:Consolas,monospace;font-size:13px;color:#7fe0d2;overflow-wrap:anywhere"></div>
     <div class="note">MCP endpoint: <span id="mcpep"></span> · Đây là thư mục mà ChatGPT đọc/ghi qua MCP. Để kiểm chứng, bảo ChatGPT chạy tool <b>workspace_info</b> — nó trả về đúng các path này.</div>
   </div>
 
@@ -2956,6 +3145,19 @@ function dashboardHtml() {
       <span class="btn" onclick="copyCustomerPrompt('diagnose')">Copy diagnose prompt</span>
       <span class="dim" id="promptCopied"></span>
     </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:16px">
+    <h3>ChatGPT Web Compact &amp; Resume</h3>
+    <div class="cards" style="margin:10px 0">
+      <div class="card"><div class="clab">Context health estimate</div><div class="cval" id="contextHealth">100/100</div><div class="csub" id="contextRecommendation">continue</div></div>
+      <div class="card"><div class="clab">Last compact</div><div class="cval" id="contextLast" style="font-size:18px">Not saved</div><div class="csub" id="contextGoal">No checkpoint yet</div></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <span class="btn" onclick="copyCustomerPrompt('compact')">Copy compact prompt</span>
+      <span class="btn" onclick="copyCustomerPrompt('resume')">Copy resume prompt</span>
+    </div>
+    <div class="note">Estimate uses MCP tool traffic only; Local Coding Agent cannot read ChatGPT Web's real context window. Checkpoints stay local and do not contain the full transcript.</div>
   </div>
 
   <div class="cards" id="cards"></div>
@@ -3038,6 +3240,13 @@ function renderCards(d){
   document.getElementById('roots').innerHTML=(d.roots||[]).map(function(r){return esc(r);}).join('<br>')||'-';
   document.getElementById('mcpep').textContent=d.mcp_endpoint||'-';
 }
+function renderContext(c){
+  c=c||{};
+  document.getElementById('contextHealth').textContent=h(c.health_score==null?100:c.health_score)+'/100';
+  document.getElementById('contextRecommendation').textContent=(c.recommendation||'continue').replace(/_/g,' ')+' · '+h(c.activity_since_baseline&&c.activity_since_baseline.tool_calls)+' calls';
+  document.getElementById('contextLast').textContent=c.saved_at?new Date(c.saved_at).toLocaleString():'Not saved';
+  document.getElementById('contextGoal').textContent=c.goal||'No checkpoint yet';
+}
 function renderChart(buckets){
   var c=document.getElementById('chart'), x=c.getContext('2d'); var W=c.width,H=c.height; x.clearRect(0,0,W,H);
   var data=(buckets||[]).slice(-60); var pad=34;
@@ -3098,7 +3307,7 @@ async function decideApproval(id,action){
 async function tick(){
   try{
     var r=await fetch('/metrics',{cache:'no-store'}); var d=await r.json();
-    renderCards(d); renderChart(d.buckets); renderTools(d.top_tools); renderRecent(d.recent); renderProTips(d); loadApprovals();
+    renderCards(d); renderContext(d.context); renderChart(d.buckets); renderTools(d.top_tools); renderRecent(d.recent); renderProTips(d); loadApprovals();
     document.getElementById('status').textContent='● live'; document.getElementById('status').className='';
     document.getElementById('status').style.color='#2dd4bf';
   }catch(e){
@@ -4835,7 +5044,7 @@ const POLICY_RULES = {
 };
 
 const STRICT_MUTATION_TOOLS = new Set([
-  "save_note", "checkpoint", "write_file", "replace_in_file", "apply_patch", "make_dir", "move_path", "delete_path",
+  "save_note", "compact_context", "checkpoint", "write_file", "replace_in_file", "apply_patch", "make_dir", "move_path", "delete_path",
   "run_command", "run_commands", "proc_start", "proc_stop", "git", "create_skill", "delete_skill", "undo_last_patch",
   "quality_gate", "run_tests", "run_build", "run_lint", "run_changed_tests", "task_plan", "task_state", "decision_log"
 ]);

@@ -35,10 +35,10 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
 > This tool can run commands on your computer. Read [SECURITY.md](SECURITY.md)
 > before using it. It is not an OS sandbox; only connect workspaces you trust.
 
-> **v4.4.3-prodev.** Customer-ready Prodev release focused on reducing ChatGPT
-> Web lag, safer customer setup/update prompts, setup diagnostics, and clearer
-> support reports. The public branch contains only supported Community Edition
-> source.
+> **v4.4.3 stable.** Customer-ready Community Edition patch with ChatGPT Web
+> Compact & Resume, smaller tool payloads, safer setup/update prompts, setup
+> diagnostics, and clearer support reports. The public branch contains only
+> supported stable source.
 
 Existing customers can update safely with `scripts\lca.cmd update` on Windows
 or `bash scripts/lca update` on macOS/Linux, then restart the tray app/server.
@@ -56,6 +56,8 @@ agent to clone, install, verify, update, or diagnose this repo for a customer.
 node scripts\local-coding-agent.mjs prompt setup
 node scripts\local-coding-agent.mjs prompt update
 node scripts\local-coding-agent.mjs prompt diagnose
+node scripts\local-coding-agent.mjs prompt compact
+node scripts\local-coding-agent.mjs prompt resume
 node scripts\local-coding-agent.mjs setup-wizard --workspace "C:\path\repo"
 node scripts\local-coding-agent.mjs skills doctor
 ```
@@ -65,13 +67,17 @@ node scripts\local-coding-agent.mjs skills doctor
   client files, secrets, generated profiles, reports, and `server/data`.
 - `prompt diagnose` prints a support prompt that collects redacted reports
   instead of pasting long logs into chat.
+- `prompt compact` tells ChatGPT Web to save a small structured checkpoint when
+  the conversation becomes long or slow.
+- `prompt resume` tells a fresh ChatGPT Web chat to load that checkpoint, verify
+  the workspace and Git state, and continue from the recorded next action.
 - `setup-wizard` checks Node/npm/git, repo layout, server dependencies,
   workspace, tunnel prerequisites, skill validation, and local health, then
   writes `setup-wizard-report.txt`.
 - `skills doctor` maps common customer symptoms to the right shipped skill.
 
 Open the dashboard at `http://127.0.0.1:8790/ui` to copy the same setup,
-update, and diagnose prompts for ChatGPT/Claude.
+update, diagnose, compact, and resume prompts.
 
 ### Tiếng Việt
 
@@ -82,6 +88,8 @@ agent khác clone, cài đặt, kiểm tra, cập nhật hoặc chẩn đoán re
 node scripts\local-coding-agent.mjs prompt setup
 node scripts\local-coding-agent.mjs prompt update
 node scripts\local-coding-agent.mjs prompt diagnose
+node scripts\local-coding-agent.mjs prompt compact
+node scripts\local-coding-agent.mjs prompt resume
 node scripts\local-coding-agent.mjs setup-wizard --workspace "C:\path\repo"
 node scripts\local-coding-agent.mjs skills doctor
 ```
@@ -91,13 +99,17 @@ node scripts\local-coding-agent.mjs skills doctor
   secret, profile sinh ra, report và `server/data`.
 - `prompt diagnose` in prompt hỗ trợ/chẩn đoán, tạo report đã redact thay vì dán
   log dài vào chat.
+- `prompt compact` bảo ChatGPT Web lưu checkpoint nhỏ, có cấu trúc khi cuộc trò
+  chuyện bắt đầu dài hoặc chậm.
+- `prompt resume` bảo chat ChatGPT Web mới tải checkpoint, kiểm tra workspace và
+  trạng thái Git rồi tiếp tục từ hành động kế tiếp đã lưu.
 - `setup-wizard` kiểm tra Node/npm/git, cấu trúc repo, dependency server,
   workspace, điều kiện tunnel, validate skill và health cục bộ, rồi ghi
   `setup-wizard-report.txt`.
 - `skills doctor` map lỗi khách hay gặp sang skill phù hợp trong repo.
 
 Mở dashboard tại `http://127.0.0.1:8790/ui` để copy cùng các prompt setup,
-update và diagnose cho ChatGPT/Claude.
+update, diagnose, compact và resume.
 
 ---
 
@@ -275,9 +287,9 @@ It prints a compact summary and writes a redacted `support-report.txt`
 errors). It never requires the proprietary tunnel client and never writes keys
 or tokens.
 
-### Prodev Anti-Lag Workflow
+### Stable Anti-Lag Workflow
 
-v4.4.3-prodev reduces ChatGPT Web lag by keeping default tool outputs smaller
+v4.4.3 reduces ChatGPT Web lag by keeping default tool outputs smaller
 and steering AI agents toward targeted reads instead of dumping huge logs,
 diffs, base64, or icon inventories into the chat.
 
@@ -296,6 +308,31 @@ For large tasks, start a fresh ChatGPT thread, use `workspace_snapshot` first,
 read only the line ranges you need, and keep raw artifacts as local files or
 support reports.
 
+### ChatGPT Web Compact & Resume
+
+Local Coding Agent cannot read or replace ChatGPT Web's internal context
+window. Instead, v4.4.3 provides a safe MCP handoff that feels similar in use:
+
+1. In the long chat, call `context_status`, then `compact_context`.
+2. The server stores a local structured checkpoint with the goal, decisions,
+   constraints, completed work, open tasks, next action, Git state, and recent
+   test evidence.
+3. Open a fresh chat and call `resume_context` first.
+4. Verify `workspace_info` and `git_status`, then continue the recorded action.
+
+Generate the copy-paste prompts with:
+
+```powershell
+node scripts\local-coding-agent.mjs prompt compact
+node scripts\local-coding-agent.mjs prompt resume
+```
+
+Only MCP tool-traffic pressure is estimated; it is not ChatGPT's actual token
+or context-window usage. Checkpoints stay under `server/data/`, which is ignored
+by Git, and use best-effort credential redaction. Never submit secrets or full
+source/log dumps to `compact_context`. See
+[docs/CHATGPT_WEB_COMPACT.md](docs/CHATGPT_WEB_COMPACT.md).
+
 ### Features
 
 | Area | What it does |
@@ -307,7 +344,7 @@ support reports.
 | Git | `git_status`, `git_diff`, `review_diff`, guarded `git` helper |
 | Safety | `policy_status`, `explain_risk`, `request_approval`, `request_approval_batch` |
 | Dashboard | health score, latency, tool calls, approvals, file viewer, git diff |
-| Workflow | notes, checkpoints, session reports, task state, decision log, skills |
+| Workflow | `context_status`, `compact_context`, `resume_context`, notes, session reports, task state, decision log, skills |
 
 Shipped skills can be checked with:
 
@@ -558,9 +595,9 @@ Lệnh in ra tóm tắt gọn và ghi file `support-report.txt` đã redact (phi
 Node, cổng 8787/8790, có tunnel-client hay không, health, lỗi gần đây). Nó không
 cần tunnel client độc quyền và không bao giờ ghi key hay token.
 
-### Quy Trình Chống Lag Prodev
+### Quy Trình Chống Lag Stable
 
-v4.4.3-prodev giảm lag ChatGPT Web bằng cách thu nhỏ default output của tool và
+v4.4.3 giảm lag ChatGPT Web bằng cách thu nhỏ default output của tool và
 hướng AI agent đọc đúng phần cần thiết thay vì đổ log, diff, base64 hoặc danh
 sách icon khổng lồ vào chat.
 
@@ -579,6 +616,31 @@ Với tác vụ lớn, hãy mở thread ChatGPT mới, gọi `workspace_snapshot
 đọc đúng line range cần thiết và giữ artifact thô trong file local hoặc support
 report.
 
+### Compact & Resume Cho ChatGPT Web
+
+Local Coding Agent không thể đọc hoặc thay thế context nội bộ của ChatGPT Web.
+Thay vào đó, v4.4.3 cung cấp quy trình bàn giao MCP an toàn với trải nghiệm gần
+giống compact:
+
+1. Trong chat dài, gọi `context_status`, sau đó gọi `compact_context`.
+2. Server lưu checkpoint có cấu trúc tại máy, gồm mục tiêu, quyết định, ràng
+   buộc, việc đã xong, việc còn lại, hành động kế tiếp, Git state và test gần đây.
+3. Mở chat mới và gọi `resume_context` đầu tiên.
+4. Kiểm tra `workspace_info` và `git_status`, rồi tiếp tục hành động đã lưu.
+
+Tạo prompt copy-paste bằng:
+
+```powershell
+node scripts\local-coding-agent.mjs prompt compact
+node scripts\local-coding-agent.mjs prompt resume
+```
+
+Hệ thống chỉ ước tính áp lực từ dữ liệu tool đi qua MCP, không phải token hay
+context window thật của ChatGPT. Checkpoint nằm trong `server/data/`, đã được
+Git bỏ qua, và có redact credential theo best effort. Không gửi secret, full
+source hoặc full log vào `compact_context`. Xem
+[docs/CHATGPT_WEB_COMPACT.md](docs/CHATGPT_WEB_COMPACT.md).
+
 ### Tính Năng
 
 | Nhóm | Chức năng |
@@ -590,7 +652,7 @@ report.
 | Git | `git_status`, `git_diff`, `review_diff`, helper `git` có guard |
 | An toàn | `policy_status`, `explain_risk`, `request_approval`, `request_approval_batch` |
 | Dashboard | health score, latency, tool calls, approvals, file viewer, git diff |
-| Workflow | notes, checkpoints, session reports, task state, decision log, skills |
+| Workflow | `context_status`, `compact_context`, `resume_context`, notes, session reports, task state, decision log, skills |
 
 Kiểm tra skill đi kèm:
 

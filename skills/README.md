@@ -44,7 +44,7 @@ machine-readable `skill.json` manifest next to `SKILL.md`:
 {
   "schema": "lca-skill/v1",
   "name": "my-skill",
-  "version": "4.4.3-prodev",
+  "version": "4.4.3",
   "description": "One line describing when to use this skill.",
   "tags": ["setup"],
   "instructions": "SKILL.md",

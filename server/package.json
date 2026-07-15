@@ -1,6 +1,6 @@
 {
   "name": "local-coding-agent",
-  "version": "4.4.3-prodev",
+  "version": "4.4.3",
   "private": true,
   "type": "module",
   "description": "Local Coding Agent Community Edition MCP server for controlled workspace file and command access.",
@@ -17,7 +17,7 @@
     "test:security:baseline": "node security-test.mjs",
     "test:hardening": "node test-hardening.mjs",
     "test:pro": "node test-pro.mjs",
-    "test:agents": "node --test test-agents.mjs",
+    "test:context": "node --test context-memory.test.mjs",
     "eval": "node ../evals/run.mjs"
   },
   "dependencies": {

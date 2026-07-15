@@ -9,7 +9,7 @@ with an intellectual-property professional in each target jurisdiction.
 - Brand used publicly: `Local Coding Agent`
 - Owner/maintainer shown by the repository: Long Nguyen (`@LongNgn204`)
 - Official repository: <https://github.com/LongNgn204/local-coding-agent>
-- Stable Community Edition release: `v4.4.3-prodev`
+- Stable Community Edition release: `v4.4.3`
 - Source-code license: `AGPL-3.0-or-later`
 - Trademark policy: [../TRADEMARKS.md](../TRADEMARKS.md)
 - Registration status: not confirmed in this repository
@@ -66,7 +66,7 @@ chuyên gia sở hữu trí tuệ tại từng quốc gia mục tiêu.
 - Thương hiệu đang sử dụng: `Local Coding Agent`
 - Chủ dự án thể hiện trên repository: Long Nguyễn (`@LongNgn204`)
 - Repository chính thức: <https://github.com/LongNgn204/local-coding-agent>
-- Bản Community Edition stable: `v4.4.3-prodev`
+- Bản Community Edition stable: `v4.4.3`
 - Giấy phép mã nguồn: `AGPL-3.0-or-later`
 - Chính sách nhãn hiệu: [../TRADEMARKS.md](../TRADEMARKS.md)
 - Trạng thái đăng ký: chưa được xác nhận trong repository này

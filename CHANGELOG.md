@@ -3,6 +3,39 @@
 All notable changes to Local Coding Agent are documented here. The project
 follows [Semantic Versioning](https://semver.org/).
 
+## [4.4.3] - 2026-07-15
+
+### Added
+
+- Stable ChatGPT Web Compact & Resume tools: `context_status`,
+  `compact_context`, and `resume_context`.
+- Workspace-scoped immutable context checkpoints with bounded retention,
+  structured goals/decisions/constraints/tasks, Git state, recent test evidence,
+  task-plan progress, and MCP activity marks.
+- CLI and local-dashboard copy actions for `prompt compact` and `prompt resume`.
+- English/Vietnamese Compact & Resume documentation and dedicated storage,
+  redaction, retention, and pressure-estimate tests.
+
+### Changed
+
+- Stable version is now `4.4.3` across the MCP server, CLI, package metadata,
+  skill manifests, version assertions, brand docs, and Windows tray app.
+- The original `checkpoint` and `resume` tools remain compatibility aliases;
+  new ChatGPT Web integrations should use `compact_context` and
+  `resume_context`.
+- Removed a stale public `test:agents` package script that referenced a file not
+  included in the stable Community Edition source.
+
+### Security
+
+- Compact fields are size-bounded, common credential patterns are redacted on
+  a best-effort basis, and capsule contents are excluded from audit arguments.
+- Compact checkpoints stay in the Git-ignored, workspace-specific
+  `server/data/` store. Stable release gates continue to reject private trees,
+  private-channel markers, and tracked binary/secret artifacts.
+- Context pressure is explicitly labeled as an MCP traffic estimate; the server
+  does not claim access to ChatGPT Web's internal token count or context window.
+
 ## [4.4.3-prodev] - 2026-07-15
 
 ### Added
@@ -321,6 +354,7 @@ Windows tray workflow.
 - Dashboard port `8788` remains reserved by the tunnel client; use the default
   dashboard port `8790`.
 
+[4.4.3]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.3
 [4.4.3-prodev]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.3-prodev
 [4.4.1-prodev]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.1-prodev
 [4.4.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.0-pro

@@ -112,7 +112,7 @@ try {
   let logOffset = server.readStdout().length;
   await fetch("http://127.0.0.1:19001/healthz", {
     headers: {
-      "user-agent": "LocalCodingAgentTray/4.4.3-prodev",
+      "user-agent": "LocalCodingAgentTray/4.4.3",
       "x-local-coding-agent-probe": "tray"
     }
   });
@@ -132,6 +132,9 @@ try {
 
   const client = await connect(19001);
   check("strict policy blocks write_file", (await call(client, "write_file", { path: "blocked.txt", content: "x" })).isError);
+  check("strict policy blocks compact_context local writes", (await call(client, "compact_context", { goal: "test", summary: "test" })).isError);
+  check("strict policy allows context_status reads", !(await call(client, "context_status")).isError);
+  check("strict policy allows resume_context reads", !(await call(client, "resume_context")).isError);
   check("strict policy blocks run_command", (await call(client, "run_command", { command: "node --version" })).isError);
   check("strict policy blocks run_commands", (await call(client, "run_commands", { commands: [{ command: "node --version" }] })).isError);
   await call(client, "workspace_info");

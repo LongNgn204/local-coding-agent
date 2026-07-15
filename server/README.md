@@ -19,7 +19,7 @@ ChatGPT sessions; it is a normal MCP connector you authorize.
 | Processes | `proc_start`, `proc_list`, `proc_output`, `proc_stop` |
 | Git | `git` |
 | Pro | `workspace_snapshot`, `workspace_doctor`, `quality_gate`, `session_report` |
-| Notes & session | `save_note`, `list_notes`, `checkpoint`, `resume` |
+| Notes & session | `save_note`, `list_notes`, `context_status`, `compact_context`, `resume_context` (`checkpoint`/`resume` remain compatibility aliases) |
 
 ## Run
 
@@ -52,6 +52,7 @@ npm start
 | `MCP_ALLOWED_ORIGINS` | _(empty)_ | Trusted browser origins for `/mcp`. Empty rejects browser-origin MCP calls. |
 | `AGENT_APPROVAL_TOKEN` | _(empty)_ | Optional secret for MCP-based approval tools. Prefer dashboard approvals. |
 | `AGENT_APPROVAL_TTL_MINUTES` | `10` | Exact approval expiry, clamped to 1-30 minutes. |
+| `AGENT_MAX_CONTEXT_CHECKPOINTS` | `10` | Immutable ChatGPT Web compact checkpoints retained per workspace, clamped to 1-50. |
 | `AGENT_MAX_BATCH_READ_CHARS` | `120000` | Combined text cap for one `read_many` response. Keeps ChatGPT Web responsive on large tasks. |
 | `DASHBOARD_PORT` | `8790` | Local-only metrics dashboard. `0` disables it. (Avoid 8788 — the OpenAI tunnel uses it.) |
 | `AGENT_READ_DEFAULT` | `12000` | Default chars `read_file` returns (raise per-call via `max_chars`). Keeps payloads + context small. |
@@ -64,4 +65,13 @@ npm run test:agent       # exercises every tool against a running server
 npm run test:security    # runtime security checks against a running server
 npm run test:hardening   # self-contained policy/origin/body/undo regressions
 npm run test:pro         # Pro snapshot/health/tier regression checks
+npm run test:context     # compact storage, retention, redaction, pressure estimate
 ```
+
+## ChatGPT Web Compact & Resume
+
+Call `context_status` when a ChatGPT Web conversation becomes long. If it
+recommends compaction, call `compact_context` with a concise factual handoff,
+then open a fresh chat and call `resume_context` first. The pressure score is
+estimated from MCP traffic only; the server cannot inspect ChatGPT's actual
+context window. See [CHATGPT_WEB_COMPACT.md](../docs/CHATGPT_WEB_COMPACT.md).
