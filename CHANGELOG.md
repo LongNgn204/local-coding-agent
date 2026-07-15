@@ -3,7 +3,7 @@
 All notable changes to Local Coding Agent are documented here. The project
 follows [Semantic Versioning](https://semver.org/).
 
-## [4.4.2-prodev] - 2026-07-15
+## [4.4.3-prodev] - 2026-07-15
 
 ### Added
 
@@ -17,7 +17,7 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- Public version is now `4.4.2-prodev` across the MCP server, CLI, package lock,
+- Public version is now `4.4.3-prodev` across the MCP server, CLI, package lock,
   skill manifests, version assertions, and Windows tray app.
 - The public distribution contains only supported Community Edition source;
   future-roadmap experiment directories and their CI job are excluded.
@@ -321,7 +321,7 @@ Windows tray workflow.
 - Dashboard port `8788` remains reserved by the tunnel client; use the default
   dashboard port `8790`.
 
-[4.4.2-prodev]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.2-prodev
+[4.4.3-prodev]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.3-prodev
 [4.4.1-prodev]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.1-prodev
 [4.4.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.0-pro
 [4.3.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.3.0-pro

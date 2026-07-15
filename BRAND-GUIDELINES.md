@@ -4,7 +4,7 @@
 
 - Project name: **Local Coding Agent**
 - Edition: **Community Edition**
-- Stable public release: **v4.4.2-prodev**
+- Stable public release: **v4.4.3-prodev**
 - Official repository: <https://github.com/LongNgn204/local-coding-agent>
 - Official publisher/maintainer: **Long Nguyen (`@LongNgn204`)**
 
@@ -45,7 +45,7 @@ project. Local Coding Agent source: https://github.com/LongNgn204/local-coding-a
 
 - Tên dự án: **Local Coding Agent**
 - Phiên bản sản phẩm: **Community Edition**
-- Bản stable công khai: **v4.4.2-prodev**
+- Bản stable công khai: **v4.4.3-prodev**
 - Repository chính thức: <https://github.com/LongNgn204/local-coding-agent>
 - Chủ dự án: **Long Nguyễn (`@LongNgn204`)**
 

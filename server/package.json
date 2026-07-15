@@ -1,6 +1,6 @@
 {
   "name": "local-coding-agent",
-  "version": "4.4.2-prodev",
+  "version": "4.4.3-prodev",
   "private": true,
   "type": "module",
   "description": "Local Coding Agent Community Edition MCP server for controlled workspace file and command access.",

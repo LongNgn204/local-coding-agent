@@ -1,7 +1,7 @@
 {
   "schema": "lca-skill/v1",
   "name": "customer-doctor",
-  "version": "4.4.2-prodev",
+  "version": "4.4.3-prodev",
   "experimental": false,
   "description": "Diagnose a broken customer install and produce a redacted support report the customer can send back.",
   "tags": ["support", "diagnostics", "network", "customer"],

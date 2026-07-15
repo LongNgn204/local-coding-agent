@@ -35,7 +35,7 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
 > This tool can run commands on your computer. Read [SECURITY.md](SECURITY.md)
 > before using it. It is not an OS sandbox; only connect workspaces you trust.
 
-> **v4.4.2-prodev.** Customer-ready Prodev release focused on reducing ChatGPT
+> **v4.4.3-prodev.** Customer-ready Prodev release focused on reducing ChatGPT
 > Web lag, safer customer setup/update prompts, setup diagnostics, and clearer
 > support reports. The public branch contains only supported Community Edition
 > source.
@@ -277,7 +277,7 @@ or tokens.
 
 ### Prodev Anti-Lag Workflow
 
-v4.4.2-prodev reduces ChatGPT Web lag by keeping default tool outputs smaller
+v4.4.3-prodev reduces ChatGPT Web lag by keeping default tool outputs smaller
 and steering AI agents toward targeted reads instead of dumping huge logs,
 diffs, base64, or icon inventories into the chat.
 
@@ -560,7 +560,7 @@ cần tunnel client độc quyền và không bao giờ ghi key hay token.
 
 ### Quy Trình Chống Lag Prodev
 
-v4.4.2-prodev giảm lag ChatGPT Web bằng cách thu nhỏ default output của tool và
+v4.4.3-prodev giảm lag ChatGPT Web bằng cách thu nhỏ default output của tool và
 hướng AI agent đọc đúng phần cần thiết thay vì đổ log, diff, base64 hoặc danh
 sách icon khổng lồ vào chat.
 

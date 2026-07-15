@@ -112,7 +112,7 @@ try {
   let logOffset = server.readStdout().length;
   await fetch("http://127.0.0.1:19001/healthz", {
     headers: {
-      "user-agent": "LocalCodingAgentTray/4.4.2-prodev",
+      "user-agent": "LocalCodingAgentTray/4.4.3-prodev",
       "x-local-coding-agent-probe": "tray"
     }
   });
