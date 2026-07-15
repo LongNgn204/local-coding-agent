@@ -3,6 +3,35 @@
 All notable changes to Local Coding Agent are documented here. The project
 follows [Semantic Versioning](https://semver.org/).
 
+## [4.4.2-prodev] - 2026-07-15
+
+### Added
+
+- Community Edition ownership and brand boundaries through `NOTICE.md`,
+  `TRADEMARKS.md`, and `BRAND-GUIDELINES.md`, without changing the
+  AGPL-3.0-or-later rights granted for the public source code.
+- A bilingual trademark-registration checklist for ownership details,
+  clearance searches, filing records, use evidence, and post-filing controls.
+- A CI public-release boundary gate that rejects private experiment trees,
+  private desktop trees, private-channel paths, and tracked binary/secret assets.
+
+### Changed
+
+- Public version is now `4.4.2-prodev` across the MCP server, CLI, package lock,
+  skill manifests, version assertions, and Windows tray app.
+- The public distribution contains only supported Community Edition source;
+  future-roadmap experiment directories and their CI job are excluded.
+
+### Fixed
+
+- Windows tray health polling now identifies its internal `/healthz` probe, and
+  the MCP server suppresses only that routine request from stdout. Manual health
+  checks, failed requests, and MCP traffic remain visible, avoiding one noisy
+  log line every three seconds without hiding operational errors.
+- Network Doctor now identifies the tunnel's upstream `503`/reset-before-headers
+  pattern as a control-plane retry: isolated events are described as transient,
+  while repeated events point to an unstable or filtered network path.
+
 ## [4.4.1-prodev] - 2026-07-08
 
 ### Added
@@ -292,6 +321,7 @@ Windows tray workflow.
 - Dashboard port `8788` remains reserved by the tunnel client; use the default
   dashboard port `8790`.
 
+[4.4.2-prodev]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.2-prodev
 [4.4.1-prodev]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.1-prodev
 [4.4.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.0-pro
 [4.3.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.3.0-pro

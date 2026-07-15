@@ -21,7 +21,7 @@ const PID_PATH = join(dirname(CONFIG_PATH), "processes.json");
 const LOG_PATH = join(dirname(CONFIG_PATH), "launcher.log");
 const SETUP_WIZARD_REPORT = join(REPO_ROOT, "setup-wizard-report.txt");
 const REPO_URL = "https://github.com/LongNgn204/local-coding-agent";
-const RELEASE_VERSION = "4.4.1-prodev";
+const RELEASE_VERSION = "4.4.2-prodev";
 
 const DEFAULTS = {
   node: process.env.NODE || "node",

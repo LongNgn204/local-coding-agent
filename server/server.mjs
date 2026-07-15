@@ -29,7 +29,7 @@ import { z } from "zod";
 // ----------------------------------------------------------------------------
 // Configuration (all overridable via environment variables)
 // ----------------------------------------------------------------------------
-const VERSION = "4.4.1-prodev";
+const VERSION = "4.4.2-prodev";
 const PRODUCT_TIER = "pro";
 const PORT = Number(process.env.PORT || 8787);
 // Bind to loopback by default. The local OpenAI tunnel-client forwards to this,
@@ -44,6 +44,8 @@ const HOST = process.env.AGENT_HOST || "127.0.0.1";
 const DASHBOARD_PORT = Number(process.env.DASHBOARD_PORT ?? 8790);
 const DASHBOARD_HOST = process.env.DASHBOARD_HOST || "127.0.0.1";
 const CONFIG_ID = String(process.env.AGENT_CONFIG_ID || "");
+const INTERNAL_HEALTH_PROBE_HEADER = "x-local-coding-agent-probe";
+const INTERNAL_HEALTH_PROBE_TRAY = "tray";
 
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_WORKSPACE = path.resolve(APP_DIR, "..", "agent-workspace");
@@ -228,7 +230,9 @@ function detectRg() {
 const httpServer = http.createServer(async (req, res) => {
   try {
     const requestUrl = new URL(req.url || "/", `http://${req.headers.host || HOST}`);
-    log(`${req.method} ${requestUrl.pathname} ua=${req.headers["user-agent"] || ""}`);
+    if (shouldLogHttpRequest(req, requestUrl)) {
+      log(`${req.method} ${requestUrl.pathname} ua=${req.headers["user-agent"] || ""}`);
+    }
     if (!originAllowed(req)) {
       return sendJson(res, 403, { error: "browser_origin_not_allowed" });
     }
@@ -2591,6 +2595,14 @@ function summarizeArgs(args) {
 
 function log(message) {
   console.log(`${isoNow()} ${message}`);
+}
+
+function shouldLogHttpRequest(req, url) {
+  const isTrayHealthProbe =
+    req.method === "GET" &&
+    url.pathname === "/healthz" &&
+    String(req.headers[INTERNAL_HEALTH_PROBE_HEADER] || "").toLowerCase() === INTERNAL_HEALTH_PROBE_TRAY;
+  return !isTrayHealthProbe;
 }
 
 function audit(entry) {

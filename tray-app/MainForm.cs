@@ -10,6 +10,8 @@ namespace LocalCodingAgentTray;
 
 public sealed class MainForm : Form
 {
+    private const string HealthProbeUserAgent = "LocalCodingAgentTray/4.4.2-prodev";
+    private const string HealthProbeHeader = "X-Local-Coding-Agent-Probe";
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(2) };
 
     private readonly AppConfig _cfg = AppConfig.Load();
@@ -389,7 +391,12 @@ public sealed class MainForm : Form
         string status;
         try
         {
-            var json = await Http.GetStringAsync(_cfg.HealthUrl);
+            using var request = new HttpRequestMessage(HttpMethod.Get, _cfg.HealthUrl);
+            request.Headers.TryAddWithoutValidation("User-Agent", HealthProbeUserAgent);
+            request.Headers.TryAddWithoutValidation(HealthProbeHeader, "tray");
+            using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             var ver = root.TryGetProperty("version", out var v) ? v.GetString() : "?";

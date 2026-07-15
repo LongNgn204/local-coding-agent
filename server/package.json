@@ -1,9 +1,9 @@
 {
   "name": "local-coding-agent",
-  "version": "4.4.1-prodev",
+  "version": "4.4.2-prodev",
   "private": true,
   "type": "module",
-  "description": "Local MCP server that lets ChatGPT Web work with files and commands on your own machine.",
+  "description": "Local Coding Agent Community Edition MCP server for controlled workspace file and command access.",
   "author": "Long Nguyễn",
   "license": "AGPL-3.0-or-later",
   "repository": {

@@ -53,6 +53,9 @@ async function startServer(workspace, { port, dashboardPort = 0, policy = "stric
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"]
   });
+  let stdout = "";
+  child.stdout.on("data", (chunk) => (stdout += chunk));
+  child.readStdout = () => stdout;
   let stderr = "";
   child.stderr.on("data", (chunk) => (stderr += chunk));
   await waitFor(`http://127.0.0.1:${port}/healthz`).catch((error) => {
@@ -106,6 +109,21 @@ try {
   // Strict policy + browser-origin + body limit + latency telemetry.
   console.log("\n[phase] strict policy, origin, body limit, telemetry");
   server = await startServer(path.join(base, "strict"), { port: 19001, dashboardPort: 19002, policy: "strict", maxBody: "8192" });
+  let logOffset = server.readStdout().length;
+  await fetch("http://127.0.0.1:19001/healthz", {
+    headers: {
+      "user-agent": "LocalCodingAgentTray/4.4.2-prodev",
+      "x-local-coding-agent-probe": "tray"
+    }
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check("tray health probe does not flood request log", !server.readStdout().slice(logOffset).includes("GET /healthz"));
+
+  logOffset = server.readStdout().length;
+  await fetch("http://127.0.0.1:19001/healthz", { headers: { "user-agent": "manual-health-check" } });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  check("manual health check remains visible in request log", server.readStdout().slice(logOffset).includes("GET /healthz ua=manual-health-check"));
+
   const evil = await fetch("http://127.0.0.1:19001/mcp", {
     method: "OPTIONS",
     headers: { Origin: "https://evil.example", "Access-Control-Request-Method": "POST" }

@@ -12,6 +12,7 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-60a5fa" alt="platforms" />
   <img src="https://img.shields.io/badge/MCP-server-a78bfa" alt="mcp" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="license" /></a>
+  <img src="https://img.shields.io/badge/edition-Community-2dd4bf" alt="Community Edition" />
   <img src="https://img.shields.io/badge/node-%E2%89%A518-339933?logo=node.js&logoColor=white" alt="node" />
   <a href="https://github.com/LongNgn204/local-coding-agent/stargazers"><img src="https://img.shields.io/github/stars/LongNgn204/local-coding-agent?style=social" alt="stars" /></a>
 </p>
@@ -25,6 +26,8 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
 
 <sub>Compatible with any MCP client. Not affiliated with Anthropic, OpenAI, GitHub, or Microsoft.</sub>
 
+<sub>The Community Edition code is open source under AGPL. The project name and brand assets are governed separately by the <a href="TRADEMARKS.md">Trademark Policy</a>.</sub>
+
 <p><b>English</b> | <a href="#tiếng-việt">Tiếng Việt</a></p>
 
 </div>
@@ -32,10 +35,13 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
 > This tool can run commands on your computer. Read [SECURITY.md](SECURITY.md)
 > before using it. It is not an OS sandbox; only connect workspaces you trust.
 
-> **v4.4.1-prodev.** Customer-ready Prodev release focused on reducing ChatGPT
+> **v4.4.2-prodev.** Customer-ready Prodev release focused on reducing ChatGPT
 > Web lag, safer customer setup/update prompts, setup diagnostics, and clearer
-> support reports. Preview-only/internal experiments are not part of the public
-> release path.
+> support reports. The public branch contains only supported Community Edition
+> source.
+
+Existing customers can update safely with `scripts\lca.cmd update` on Windows
+or `bash scripts/lca update` on macOS/Linux, then restart the tray app/server.
 
 ---
 
@@ -271,7 +277,7 @@ or tokens.
 
 ### Prodev Anti-Lag Workflow
 
-v4.4.1-prodev reduces ChatGPT Web lag by keeping default tool outputs smaller
+v4.4.2-prodev reduces ChatGPT Web lag by keeping default tool outputs smaller
 and steering AI agents toward targeted reads instead of dumping huge logs,
 diffs, base64, or icon inventories into the chat.
 
@@ -364,10 +370,19 @@ cd tray-app
 dotnet build LocalCodingAgentTray.csproj -c Release
 ```
 
-### License
+### License And Trademark
 
-[AGPL-3.0-or-later](LICENSE) © 2026 Long Nguyễn
+The Local Coding Agent Community Edition code is licensed under
+[AGPL-3.0-or-later](LICENSE). Copyright © 2026 Long Nguyễn
 ([@LongNgn204](https://github.com/LongNgn204)).
+
+The code license does not grant permission to present a fork, service, or
+modified binary as an official Local Coding Agent release. See
+[NOTICE.md](NOTICE.md), [TRADEMARKS.md](TRADEMARKS.md), and
+[BRAND-GUIDELINES.md](BRAND-GUIDELINES.md). The owner can use the
+[trademark registration checklist](docs/TRADEMARK-REGISTRATION-CHECKLIST.md) to
+prepare a formal filing. Local Coding Agent is an independent project and is not
+an official product of OpenAI or any other MCP client vendor.
 
 ---
 
@@ -545,7 +560,7 @@ cần tunnel client độc quyền và không bao giờ ghi key hay token.
 
 ### Quy Trình Chống Lag Prodev
 
-v4.4.1-prodev giảm lag ChatGPT Web bằng cách thu nhỏ default output của tool và
+v4.4.2-prodev giảm lag ChatGPT Web bằng cách thu nhỏ default output của tool và
 hướng AI agent đọc đúng phần cần thiết thay vì đổ log, diff, base64 hoặc danh
 sách icon khổng lồ vào chat.
 
@@ -638,7 +653,16 @@ cd tray-app
 dotnet build LocalCodingAgentTray.csproj -c Release
 ```
 
-### Giấy Phép
+### Giấy Phép Và Nhãn Hiệu
 
-[AGPL-3.0-or-later](LICENSE) © 2026 Long Nguyễn
+Mã nguồn Local Coding Agent Community Edition được phát hành theo
+[AGPL-3.0-or-later](LICENSE). Bản quyền © 2026 Long Nguyễn
 ([@LongNgn204](https://github.com/LongNgn204)).
+
+Giấy phép code không cấp quyền giới thiệu một fork, dịch vụ hoặc binary đã sửa
+đổi như bản phát hành Local Coding Agent chính thức. Xem
+[NOTICE.md](NOTICE.md), [TRADEMARKS.md](TRADEMARKS.md) và
+[BRAND-GUIDELINES.md](BRAND-GUIDELINES.md). Chủ dự án có thể dùng
+[checklist đăng ký nhãn hiệu](docs/TRADEMARK-REGISTRATION-CHECKLIST.md) để chuẩn
+bị hồ sơ chính thức. Local Coding Agent là dự án độc lập, không phải sản phẩm
+chính thức của OpenAI hoặc bất kỳ nhà cung cấp MCP client nào khác.

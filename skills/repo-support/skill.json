@@ -1,7 +1,7 @@
 {
   "schema": "lca-skill/v1",
   "name": "repo-support",
-  "version": "4.4.1-prodev",
+  "version": "4.4.2-prodev",
   "experimental": false,
   "description": "Help an AI agent understand and work in this repo quickly using low-round-trip MCP tools and the anti-lag workflow.",
   "tags": ["repo", "navigation", "workflow", "anti-lag"],

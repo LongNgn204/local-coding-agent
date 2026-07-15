@@ -40,6 +40,8 @@ jobs:
           node --check ../evals/run.mjs
           node --check ../scripts/local-coding-agent.mjs
           node --check ../scripts/network-doctor.mjs
+          node --check ../scripts/release-public-gate.mjs
+          node ../scripts/release-public-gate.mjs
           node --test ../scripts/network-doctor.test.mjs
           node --check ../scripts/validate-skills.mjs
           node ../scripts/local-coding-agent.mjs --help
