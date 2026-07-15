@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>LocalCodingAgentTray</AssemblyName>
     <RootNamespace>LocalCodingAgentTray</RootNamespace>
-    <Version>4.4.0-pro</Version>
+    <Version>4.4.1-prodev</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>

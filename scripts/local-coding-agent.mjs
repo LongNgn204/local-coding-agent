@@ -19,6 +19,9 @@ const SERVER_SCRIPT = "server.mjs";
 const CONFIG_PATH = process.env.LCA_CONFIG_PATH || defaultConfigPath();
 const PID_PATH = join(dirname(CONFIG_PATH), "processes.json");
 const LOG_PATH = join(dirname(CONFIG_PATH), "launcher.log");
+const SETUP_WIZARD_REPORT = join(REPO_ROOT, "setup-wizard-report.txt");
+const REPO_URL = "https://github.com/LongNgn204/local-coding-agent";
+const RELEASE_VERSION = "4.4.1-prodev";
 
 const DEFAULTS = {
   node: process.env.NODE || "node",
@@ -71,7 +74,10 @@ Usage:
   node scripts/local-coding-agent.mjs config show|path|set <key> <value>|unset <key>
   node scripts/local-coding-agent.mjs key set|clear
   node scripts/local-coding-agent.mjs update
-  node scripts/local-coding-agent.mjs skills list|validate
+  node scripts/local-coding-agent.mjs support
+  node scripts/local-coding-agent.mjs setup-wizard [options]
+  node scripts/local-coding-agent.mjs prompt setup|update|diagnose
+  node scripts/local-coding-agent.mjs skills list|json|validate|doctor
 
 Common options:
   --workspace <path>          Workspace root the agent may access
@@ -101,6 +107,8 @@ Fast path:
   scripts\\lca.cmd setup       # Windows
   bash scripts/lca setup       # macOS/Linux
   node scripts/local-coding-agent.mjs setup
+  node scripts/local-coding-agent.mjs setup-wizard --workspace "C:\\path\\repo"
+  node scripts/local-coding-agent.mjs prompt setup
 
 One-shot examples:
   node scripts/local-coding-agent.mjs start --workspace "C:\\path\\repo" --no-tunnel
@@ -189,6 +197,24 @@ function parseArgs(argv) {
         break;
       case "--json":
         flags.json = true;
+        break;
+      case "--role":
+        flags.role = next();
+        break;
+      case "--task":
+        flags.task = next();
+        break;
+      case "--engine":
+        flags.engine = next();
+        break;
+      case "--status":
+        flags.status = next();
+        break;
+      case "--days":
+        flags.days = next();
+        break;
+      case "--dry-run":
+        flags.dryRun = true;
         break;
       default:
         if (arg.startsWith("--")) throw new Error(`Unknown argument: ${arg}`);
@@ -470,11 +496,22 @@ function stripRuntimeFields(cfg) {
 }
 
 async function installDeps(opts) {
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  const child = spawnLogged("install", npm, ["install"], { cwd: SERVER_DIR });
+  const npm = npmCommand(["install"]);
+  const child = spawnLogged("install", npm.command, npm.args, { cwd: SERVER_DIR });
   const code = await new Promise((resolveExit) => child.on("exit", resolveExit));
   if (code !== 0) throw new Error(`npm install failed with exit code ${code}`);
   console.log("Install complete.");
+}
+
+function quoteCmdArg(value) {
+  const text = String(value);
+  if (/^[A-Za-z0-9_./:=+-]+$/.test(text)) return text;
+  return `"${text.replace(/"/g, '\\"')}"`;
+}
+
+function npmCommand(args) {
+  if (process.platform !== "win32") return { command: "npm", args };
+  return { command: "cmd.exe", args: ["/d", "/s", "/c", ["npm", ...args].map(quoteCmdArg).join(" ")] };
 }
 
 async function runChecked(label, command, args, options = {}) {
@@ -488,13 +525,20 @@ async function capture(command, args, options = {}) {
   return new Promise((resolveCapture) => {
     let stdout = "";
     let stderr = "";
-    const child = spawn(command, args, {
-      cwd: options.cwd || process.cwd(),
-      env: options.env || process.env,
-      windowsHide: true,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"]
-    });
+    let child;
+    try {
+      child = spawn(command, args, {
+        cwd: options.cwd || process.cwd(),
+        env: options.env || process.env,
+        windowsHide: true,
+        shell: false,
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+    } catch (error) {
+      resolveCapture({ code: -1, signal: null, stdout, stderr: error?.message || String(error) });
+      return;
+    }
+    child.on("error", (error) => resolveCapture({ code: -1, signal: null, stdout, stderr: error?.message || String(error) }));
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => { stdout += chunk; });
@@ -710,6 +754,213 @@ async function doctor(flags) {
   if (failed) process.exitCode = 1;
 }
 
+function customerPrompt(kind, opts = {}) {
+  const workspace = opts.workspace || "<ask the user for the workspace path>";
+  const dashboard = `http://127.0.0.1:${opts.dashboardPort || "8790"}/ui`;
+  const mcp = `http://127.0.0.1:${opts.port || "8787"}/mcp`;
+  const commonRules = [
+    "- Read AGENTS.md first and follow it exactly.",
+    "- Do not install system dependencies without asking me first.",
+    "- Do not download, commit, or redistribute tunnel-client; I will provide it if needed.",
+    "- Do not commit secrets, API keys, tunnel IDs, local config, generated profiles, reports, or server/data.",
+    "- Default to AGENT_MODE=safe and AGENT_POLICY=balanced.",
+    "- Prefer the universal CLI before manual commands.",
+    "- If output is long, summarize it and save/report the file path instead of pasting everything.",
+    "- Do not paste full logs, diffs, base64, image/icon inventories, or generated reports into chat; use line ranges, globs, max_chars/max_output_chars, and local report files."
+  ].join("\n");
+
+  if (kind === "setup") {
+    return `Please install and verify Local Coding Agent for me.
+
+Repository:
+${REPO_URL}
+
+Target workspace:
+${workspace}
+
+Rules:
+${commonRules}
+
+Steps:
+1. Clone the repo if it is not already cloned.
+2. Enter the repo and read AGENTS.md.
+3. Check Node.js >= 18 with: node -v
+4. Install repo dependencies:
+   - Windows: scripts\\lca.cmd install
+   - macOS/Linux: bash scripts/lca install
+5. Run the setup wizard/report:
+   node scripts/local-coding-agent.mjs setup-wizard --workspace "${workspace}"
+6. If the report says dependencies/config are missing, fix only the missing items and explain them to me first.
+7. Start local server only for verification:
+   node scripts/local-coding-agent.mjs start --workspace "${workspace}" --no-tunnel
+8. Verify:
+   - ${mcp}
+   - ${dashboard}
+   - http://127.0.0.1:${opts.port || "8787"}/healthz returns status ok
+   - npm --prefix server run test:agent
+9. Tell me the MCP URL, dashboard URL, workspace path, mode, policy, release version, and any failed check.
+10. Keep the final answer concise and include exact next commands.`;
+  }
+
+  if (kind === "update") {
+    return `Please update my existing Local Coding Agent clone safely.
+
+Repository:
+${REPO_URL}
+
+Rules:
+${commonRules}
+
+Steps:
+1. Enter the existing local-coding-agent repo.
+2. Read AGENTS.md and inspect git status first.
+3. Preserve my local config, tunnel-client, tools/profiles, .env files, reports, and server/data.
+4. Fetch the latest main/tags.
+5. If there are local changes, summarize them and ask before overwriting anything.
+6. Run the guarded update flow:
+   node scripts/local-coding-agent.mjs update
+7. Run:
+   node scripts/local-coding-agent.mjs skills validate
+   node scripts/local-coding-agent.mjs skills doctor
+   node scripts/local-coding-agent.mjs setup-wizard
+8. Verify healthz reports version ${RELEASE_VERSION} or newer.
+9. Explain what changed, what passed, what failed, and the exact next command to fix failures.`;
+  }
+
+  if (kind === "diagnose") {
+    return `Please diagnose this Local Coding Agent install and produce a safe support report.
+
+Repository:
+${REPO_URL}
+
+Rules:
+${commonRules}
+
+Steps:
+1. Enter the local-coding-agent repo and read AGENTS.md.
+2. Do not paste secrets, full tokens, tunnel IDs, API keys, or private customer data.
+3. Run:
+   node scripts/local-coding-agent.mjs status
+   node scripts/local-coding-agent.mjs doctor
+   node scripts/local-coding-agent.mjs skills doctor
+   node scripts/local-coding-agent.mjs setup-wizard
+   node scripts/local-coding-agent.mjs support
+4. If the issue is network/tunnel related, also run:
+   node scripts/network-doctor.mjs
+5. Send me only:
+   - short diagnosis
+   - likely root cause
+   - exact failed checks
+   - paths to generated report files
+   - next commands to fix it
+6. Keep raw logs local unless I explicitly ask for a small excerpt.`;
+  }
+
+  throw new Error("Usage: prompt setup|update|diagnose");
+}
+
+function printPrompt(kind, flags = {}) {
+  const opts = effectiveOptions(flags);
+  console.log(customerPrompt(kind, opts));
+}
+
+function skillDoctorRows() {
+  const skills = new Map(listRepoSkills().map((s) => [s.name, s]));
+  const row = (symptom, skillName, command, why) => ({
+    symptom,
+    skill: skillName,
+    available: skills.has(skillName),
+    command,
+    why
+  });
+  return [
+    row("Fresh install, Node/npm/setup confusion", "setup-assistant", "node scripts/local-coding-agent.mjs prompt setup", "Guides install, safe defaults, health checks, and dashboard verification."),
+    row("Existing clone needs safe update", "update-local-coding-agent", "node scripts/local-coding-agent.mjs prompt update", "Preserves config, tunnel-client, secrets, and local customer files."),
+    row("Customer reports broken install", "customer-doctor", "node scripts/local-coding-agent.mjs prompt diagnose", "Collects redacted diagnostics and support files customers can send back."),
+    row("Tunnel, proxy, DNS, TLS, or office network blocked", "debug-tunnel-network", "node scripts/network-doctor.mjs", "Focuses on tunnel/network phases and avoids leaking runtime keys."),
+    row("ChatGPT Web lag, repeated tool calls, large_payloads, base64/icon inventory output", "repo-support", "node scripts/local-coding-agent.mjs prompt diagnose", "Switches to targeted ranges/globs and local reports instead of long pasted output."),
+    row("Need quick repo understanding with less ChatGPT lag", "repo-support", "node scripts/local-coding-agent.mjs skills list", "Uses snapshot/search/read_many/report workflow instead of long pasted output."),
+    row("Preparing a release build", "release-helper", "node scripts/local-coding-agent.mjs skills doctor", "Checks versions, changelog, CI, release notes, and release gates."),
+    row("Security-sensitive code or permission change", "security-hardening-review", "npm --prefix server run test:hardening", "Reviews file access, commands, approvals, token redaction, and tunnel exposure."),
+    row("Need to create or improve a project skill", "skill-creator", "node scripts/validate-skills.mjs", "Keeps skill frontmatter, trigger conditions, and validation clean."),
+    row("Review current code diff before finishing", "code-review", "git diff --stat", "Prioritizes bugs, security issues, regressions, and missing tests.")
+  ];
+}
+
+function printSkillsDoctor(flags = {}) {
+  const rows = skillDoctorRows();
+  if (flags.json) {
+    console.log(JSON.stringify({ release_version: RELEASE_VERSION, rows }, null, 2));
+    return;
+  }
+  console.log(`Local Coding Agent Skills Doctor (${RELEASE_VERSION})`);
+  console.log("Pick the row that matches the customer's symptom, then load/read that skill in the AI agent.\n");
+  for (const r of rows) {
+    const status = r.available ? "OK " : "MISS";
+    console.log(`${status} ${r.symptom}`);
+    console.log(`    skill:   ${r.skill}`);
+    console.log(`    command: ${r.command}`);
+    console.log(`    why:     ${r.why}`);
+  }
+}
+
+async function setupWizard(flags) {
+  const opts = effectiveOptions(flags);
+  const checks = [];
+  const add = (name, ok, detail = "", fix = "") => checks.push({ name, ok, detail, fix });
+  const nodeMajor = Number(String(process.versions.node || "0").split(".")[0]);
+  const gitBin = process.platform === "win32" ? "git.exe" : "git";
+  const npmCmd = npmCommand(["--version"]);
+  const npm = await capture(npmCmd.command, npmCmd.args, { cwd: REPO_ROOT });
+  const git = await capture(gitBin, ["--version"], { cwd: REPO_ROOT });
+  const skills = await capture(process.execPath, [join(SCRIPT_DIR, "validate-skills.mjs")], { cwd: REPO_ROOT });
+  const health = await readJson(`http://127.0.0.1:${opts.port}/healthz`);
+
+  add("Node.js >= 18", nodeMajor >= 18, process.version, "Install Node.js LTS from https://nodejs.org then rerun install.");
+  add("npm available", npm.code === 0, (npm.stdout || npm.stderr).trim(), "Install Node.js LTS; npm ships with Node.");
+  add("git available", git.code === 0, (git.stdout || git.stderr).trim(), "Install Git and reopen the terminal.");
+  add("repo root", existsSync(join(REPO_ROOT, "AGENTS.md")), REPO_ROOT, "Run this command from the local-coding-agent repo.");
+  add("server package", existsSync(join(SERVER_DIR, "package.json")), join(SERVER_DIR, "package.json"), "Restore the repo or reclone it.");
+  add("server dependencies", existsSync(join(SERVER_DIR, "node_modules")), join(SERVER_DIR, "node_modules"), "Run: node scripts/local-coding-agent.mjs install");
+  add("workspace configured", Boolean(opts.workspace), opts.workspace || "(not set)", "Pass --workspace <path> or run setup.");
+  add("workspace exists", Boolean(opts.workspace && existsSync(opts.workspace)), opts.workspace || "(not set)", "Create the workspace folder or choose an existing repo.");
+  add("policy valid", ["strict", "balanced", "full"].includes(opts.policy), opts.policy, "Use --policy balanced for customers.");
+  add("mode valid", ["safe", "full"].includes(opts.mode), opts.mode, "Use --mode safe for customers.");
+  add("tunnel-client", opts.noTunnel || existsSync(opts.tunnelBin), opts.noTunnel ? "disabled by --no-tunnel/config" : opts.tunnelBin, "Place proprietary tunnel-client in tools/ or pass --tunnel-bin.");
+  add("runtime key", opts.noTunnel || Boolean(process.env[opts.runtimeKeyEnv] || opts.runtimeKey), opts.noTunnel ? "disabled by --no-tunnel/config" : opts.runtimeKeyEnv, "Set the runtime key env var only when starting the tunnel.");
+  add("skills validate", skills.code === 0, skills.code === 0 ? "12 skills checked" : (skills.stdout + skills.stderr).trim().slice(0, 800), "Run: node scripts/validate-skills.mjs and fix reported skill files.");
+  add("server health", Boolean(health), health ? `${health.version} pid=${health.pid || "?"}` : "offline", `Start: node scripts/local-coding-agent.mjs start --workspace "${opts.workspace || "<path>"}" --no-tunnel`);
+
+  const failed = checks.filter((c) => !c.ok);
+  const lines = [
+    `Local Coding Agent setup wizard report`,
+    `Generated: ${new Date().toISOString()}`,
+    `Release target: ${RELEASE_VERSION}`,
+    `Repo: ${REPO_ROOT}`,
+    `Config: ${CONFIG_PATH}`,
+    `MCP URL: http://127.0.0.1:${opts.port}/mcp`,
+    `Dashboard: http://127.0.0.1:${opts.dashboardPort}/ui`,
+    `Workspace: ${opts.workspace || "(not set)"}`,
+    `Mode/policy: ${opts.mode}/${opts.policy}`,
+    "",
+    "Checks:"
+  ];
+  for (const c of checks) {
+    lines.push(`${c.ok ? "OK " : "ERR"} ${c.name}: ${c.detail || ""}`);
+    if (!c.ok && c.fix) lines.push(`    fix: ${c.fix}`);
+  }
+  lines.push("");
+  lines.push(failed.length ? `Result: ${failed.length} issue(s) need attention.` : "Result: ready for local verification.");
+  lines.push("");
+  lines.push("Recommended AI prompt:");
+  lines.push(customerPrompt(failed.length ? "diagnose" : "setup", opts));
+  const report = `${lines.join("\n")}\n`;
+  writeFileSync(SETUP_WIZARD_REPORT, report, "utf8");
+  console.log(report);
+  console.log(`Report written: ${SETUP_WIZARD_REPORT}`);
+  if (failed.length) process.exitCode = 1;
+}
+
 async function configCommand(rest) {
   const [sub, key, ...valueParts] = rest;
   const cfg = loadConfig();
@@ -777,33 +1028,62 @@ function parseSkillMeta(text, fallbackName) {
   return { name, description };
 }
 
+function readSkillManifest(dir) {
+  // Optional skill.json manifest alongside SKILL.md.
+  const file = join(dir, "skill.json");
+  if (!existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return { error: "invalid skill.json" };
+  }
+}
+
 function listRepoSkills() {
   const skillsDir = join(REPO_ROOT, "skills");
   if (!existsSync(skillsDir)) return [];
   return readdirSync(skillsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => {
-      const file = join(skillsDir, entry.name, "SKILL.md");
-      if (!existsSync(file)) return { folder: entry.name, name: entry.name, description: "(missing SKILL.md)" };
+      const dir = join(skillsDir, entry.name);
+      const file = join(dir, "SKILL.md");
+      const manifest = readSkillManifest(dir);
+      if (!existsSync(file)) return { folder: entry.name, name: entry.name, description: "(missing SKILL.md)", manifest };
       const meta = parseSkillMeta(readFileSync(file, "utf8"), entry.name);
-      return { folder: entry.name, ...meta };
+      return { folder: entry.name, ...meta, manifest };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function skillsCommand(rest) {
+async function skillsCommand(rest, flags = {}) {
   const [sub = "list"] = rest;
   if (sub === "list") {
     for (const skill of listRepoSkills()) {
-      console.log(`${skill.name} - ${skill.description}`);
+      const ver = skill.manifest && skill.manifest.version ? ` [v${skill.manifest.version}]` : "";
+      console.log(`${skill.name}${ver} - ${skill.description}`);
     }
+    return;
+  }
+  if (sub === "json") {
+    // Machine-readable manifest dump for AI setup/update tooling.
+    const skills = listRepoSkills().map((s) => ({
+      name: s.name,
+      folder: s.folder,
+      description: s.description,
+      manifest: s.manifest || null
+    }));
+    console.log(JSON.stringify({ count: skills.length, skills }, null, 2));
     return;
   }
   if (sub === "validate") {
     await runChecked("skills", process.execPath, [join(SCRIPT_DIR, "validate-skills.mjs")], { cwd: REPO_ROOT });
     return;
   }
-  throw new Error("Usage: skills list|validate");
+  if (sub === "doctor") {
+    printSkillsDoctor(flags);
+    return;
+  }
+  throw new Error("Usage: skills list|json|validate|doctor");
 }
 
 function openUrl(url) {
@@ -826,6 +1106,11 @@ async function main() {
   if (command === "stop") return stop(flags);
   if (command === "status") return status(flags);
   if (command === "doctor") return doctor(flags);
+  if (command === "setup-wizard" || command === "wizard") return setupWizard(flags);
+  if (command === "prompt" || command === "prompts") {
+    const [kind = "setup"] = rest;
+    return printPrompt(kind, flags);
+  }
   if (command === "profile") {
     const opts = effectiveOptions(flags);
     validate(opts);
@@ -850,7 +1135,15 @@ async function main() {
   if (command === "config") return configCommand(rest);
   if (command === "key") return keyCommand(rest);
   if (command === "update") return updateSelf(flags);
-  if (command === "skills") return skillsCommand(rest);
+  if (command === "support" || command === "report") {
+    const opts = effectiveOptions(flags);
+    const args = ["--port", String(opts.port), "--dashboard-port", String(opts.dashboardPort)];
+    return runChecked("support", process.execPath, [join(SCRIPT_DIR, "support-report.mjs"), ...args], { cwd: REPO_ROOT });
+  }
+  if (command === "network" || command === "netdoctor") {
+    return runChecked("network", process.execPath, [join(SCRIPT_DIR, "network-doctor.mjs"), ...rest], { cwd: REPO_ROOT });
+  }
+  if (command === "skills") return skillsCommand(rest, flags);
   throw new Error(`Unknown command: ${command}`);
 }
 

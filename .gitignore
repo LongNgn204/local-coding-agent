@@ -14,6 +14,11 @@ tools/
 **/cloudflared*.exe
 *.exe
 
+# ---- Diagnostic reports (redacted, but generated per-machine) ----
+support-report.txt
+network-doctor-report.txt
+setup-wizard-report.txt
+
 # ---- Node ----
 node_modules/
 server/data/

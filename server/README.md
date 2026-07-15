@@ -52,10 +52,10 @@ npm start
 | `MCP_ALLOWED_ORIGINS` | _(empty)_ | Trusted browser origins for `/mcp`. Empty rejects browser-origin MCP calls. |
 | `AGENT_APPROVAL_TOKEN` | _(empty)_ | Optional secret for MCP-based approval tools. Prefer dashboard approvals. |
 | `AGENT_APPROVAL_TTL_MINUTES` | `10` | Exact approval expiry, clamped to 1-30 minutes. |
-| `AGENT_MAX_BATCH_READ_CHARS` | `500000` | Combined text cap for one `read_many` response. |
+| `AGENT_MAX_BATCH_READ_CHARS` | `120000` | Combined text cap for one `read_many` response. Keeps ChatGPT Web responsive on large tasks. |
 | `DASHBOARD_PORT` | `8790` | Local-only metrics dashboard. `0` disables it. (Avoid 8788 — the OpenAI tunnel uses it.) |
-| `AGENT_READ_DEFAULT` | `30000` | Default chars `read_file` returns (raise per-call via `max_chars`). Keeps payloads + context small. |
-| `AGENT_CMD_OUTPUT_DEFAULT` | `20000` | Default chars of command output returned (use `tail_lines`/`head_lines`/`max_output_chars`). |
+| `AGENT_READ_DEFAULT` | `12000` | Default chars `read_file` returns (raise per-call via `max_chars`). Keeps payloads + context small. |
+| `AGENT_CMD_OUTPUT_DEFAULT` | `8000` | Default chars of command output returned (use `tail_lines`/`head_lines`/`max_output_chars`). |
 
 ## Test
 

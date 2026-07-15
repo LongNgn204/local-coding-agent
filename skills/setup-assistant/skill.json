@@ -1,0 +1,20 @@
+{
+  "schema": "lca-skill/v1",
+  "name": "setup-assistant",
+  "version": "4.4.1-prodev",
+  "experimental": false,
+  "description": "Guide a customer through installing, configuring, and verifying Local Coding Agent with safe defaults.",
+  "tags": ["setup", "install", "onboarding"],
+  "instructions": "SKILL.md",
+  "readme": "README.md",
+  "commands": [
+    "node -v",
+    "node scripts/local-coding-agent.mjs setup --workspace <path> --save",
+    "node scripts/local-coding-agent.mjs start --workspace <path> --no-tunnel",
+    "npm --prefix server run test:agent"
+  ],
+  "verify": [
+    "http://127.0.0.1:8787/healthz",
+    "http://127.0.0.1:8790/ui"
+  ]
+}

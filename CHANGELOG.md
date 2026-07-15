@@ -3,6 +3,46 @@
 All notable changes to Local Coding Agent are documented here. The project
 follows [Semantic Versioning](https://semver.org/).
 
+## [4.4.1-prodev] - 2026-07-08
+
+### Added
+
+- AI Agent Quick Setup flow near the top of the README, with matching English
+  and Vietnamese instructions for customer setup, update, and diagnosis.
+- CLI prompt generator for customer-facing AI agents:
+  - `node scripts/local-coding-agent.mjs prompt setup`
+  - `node scripts/local-coding-agent.mjs prompt update`
+  - `node scripts/local-coding-agent.mjs prompt diagnose`
+- `node scripts/local-coding-agent.mjs setup-wizard`, a non-destructive customer
+  readiness report that checks Node/npm/git, repo layout, server dependencies,
+  workspace config, tunnel prerequisites, skill validation, and local `/healthz`,
+  then writes `setup-wizard-report.txt`.
+- `node scripts/local-coding-agent.mjs skills doctor`, which maps common customer
+  symptoms to the best shipped skill and next command.
+- Dashboard prompt-copy panel for setup/update/diagnose prompts, independent of
+  internal experiments.
+
+### Changed
+
+- Public version is now `4.4.1-prodev` across the MCP server package and Windows
+  tray app.
+- Chat-facing defaults are tighter to reduce ChatGPT Web lag on large tasks:
+  `read_file` default output is 12k chars, `run_command` default output is 8k
+  chars, and `read_many` batch output defaults to 120k chars.
+- Customer prompts and MCP instructions now explicitly discourage pasting full
+  logs, diffs, base64, image/icon inventories, or generated reports into chat.
+  Agents should use line ranges, globs, `max_chars`, `max_output_chars`, compact
+  summaries, and local support/report files.
+- Skill manifests are synchronized to `4.4.1-prodev` for the public customer
+  support flow.
+- Public README and server README do not advertise internal-only experiments.
+
+### Fixed
+
+- Windows CLI npm execution now routes through `cmd.exe /c`, avoiding `spawn
+  EINVAL` on systems where spawning `npm.cmd` directly fails.
+- `setup-wizard` now reports missing/offline server health clearly instead of
+  crashing when a spawned check fails.
 ## [4.4.0-pro] - 2026-07-01
 
 ### Added
@@ -252,6 +292,7 @@ Windows tray workflow.
 - Dashboard port `8788` remains reserved by the tunnel client; use the default
   dashboard port `8790`.
 
+[4.4.1-prodev]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.1-prodev
 [4.4.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.0-pro
 [4.3.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.3.0-pro
 [4.2.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.2.0-pro

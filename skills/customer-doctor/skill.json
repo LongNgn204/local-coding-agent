@@ -1,0 +1,16 @@
+{
+  "schema": "lca-skill/v1",
+  "name": "customer-doctor",
+  "version": "4.4.1-prodev",
+  "experimental": false,
+  "description": "Diagnose a broken customer install and produce a redacted support report the customer can send back.",
+  "tags": ["support", "diagnostics", "network", "customer"],
+  "instructions": "SKILL.md",
+  "readme": "README.md",
+  "commands": [
+    "node scripts/local-coding-agent.mjs status",
+    "node scripts/network-doctor.mjs",
+    "node scripts/support-report.mjs"
+  ],
+  "outputs": ["support-report.txt", "network-doctor-report.txt"]
+}

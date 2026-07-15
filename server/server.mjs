@@ -29,7 +29,7 @@ import { z } from "zod";
 // ----------------------------------------------------------------------------
 // Configuration (all overridable via environment variables)
 // ----------------------------------------------------------------------------
-const VERSION = "4.4.0-pro";
+const VERSION = "4.4.1-prodev";
 const PRODUCT_TIER = "pro";
 const PORT = Number(process.env.PORT || 8787);
 // Bind to loopback by default. The local OpenAI tunnel-client forwards to this,
@@ -124,10 +124,10 @@ const SKILLS_DIRS = dedupe([
 const MAX_READ_CHARS = Number(process.env.AGENT_MAX_READ_CHARS || 200_000);
 // Default (not max) chars returned by read_file — keeps payloads small so the
 // ChatGPT UI does not choke on huge file dumps. Callers can raise via max_chars.
-const READ_DEFAULT = Number(process.env.AGENT_READ_DEFAULT || 30_000);
-const CMD_OUTPUT_DEFAULT = Number(process.env.AGENT_CMD_OUTPUT_DEFAULT || 20_000);
+const READ_DEFAULT = Number(process.env.AGENT_READ_DEFAULT || 12_000);
+const CMD_OUTPUT_DEFAULT = Number(process.env.AGENT_CMD_OUTPUT_DEFAULT || 8_000);
 const MAX_COMMAND_OUTPUT = Number(process.env.AGENT_MAX_COMMAND_OUTPUT || 200_000);
-const MAX_BATCH_READ_CHARS = boundedNumber(process.env.AGENT_MAX_BATCH_READ_CHARS, 500_000, 10_000, 2_000_000);
+const MAX_BATCH_READ_CHARS = boundedNumber(process.env.AGENT_MAX_BATCH_READ_CHARS, 120_000, 10_000, 2_000_000);
 const MAX_BODY_BYTES = Number(process.env.AGENT_MAX_BODY_BYTES || 16 * 1024 * 1024);
 const DEFAULT_CMD_TIMEOUT = 60_000;
 const MAX_PROCS = 24;
@@ -313,6 +313,7 @@ if (DASHBOARD_PORT > 0) {
       if (url.pathname === "/api/approvals" && req.method === "GET") return void dashApiApprovals(res);
       if (url.pathname.startsWith("/api/approvals/") && req.method === "POST") return void dashApiApprovalAction(url, res);
       if (url.pathname === "/api/clear-metrics" && req.method === "POST") return void dashApiClearMetrics(res);
+      if (url.pathname === "/api/customer-prompts") return void dashApiCustomerPrompts(res);
       if (url.pathname === "/") {
         res.writeHead(302, { Location: "/ui" });
         return res.end();
@@ -410,6 +411,8 @@ const SERVER_INSTRUCTIONS = [
   "- Combine multiple steps into ONE command (&& on cmd/bash, ; on PowerShell).",
   "- Keep output small with tail_lines/head_lines/max_output_chars.",
   "Keep the conversation light: do NOT re-read a file you already read; read only the line range you need; never dump a whole large file or large command output unless asked.",
+  "Anti-lag workflow: do not paste full logs, full diffs, base64 blobs, image/icon inventories, or repeated single-file reads into chat. Save detailed output to local files or reports, then return a compact summary with paths and next actions.",
+  "Prefer targeted line ranges, globs, read_many with max_chars, and run_command/run_commands with max_output_chars so long ChatGPT Web threads stay responsive.",
   "When the conversation grows long or feels slow, call checkpoint() with a compact summary + next steps, then tell the user to open a NEW chat; in that fresh chat call resume() first. This resets the heavy context (faster) while keeping your progress.",
   "If a task matches an available skill, call list_skills first, then read_skill(name) to load its instructions before doing the work.",
   "Prefer a few large, well-targeted calls over many tiny ones."
@@ -2811,6 +2814,65 @@ function dashApiClearMetrics(res) {
   }
 }
 
+function customerPrompt(kind = "setup") {
+  const repo = "https://github.com/LongNgn204/local-coding-agent";
+  if (kind === "update") {
+    return [
+      "You are setting up/updating Local Coding Agent for a customer.",
+      `Repo: ${repo}`,
+      "",
+      "Tasks:",
+      "1. Read AGENTS.md and README.md first.",
+      "2. Preserve customer config, tunnel-client binaries, runtime keys, and local workspace paths.",
+      "3. Run: git pull --ff-only, node scripts/local-coding-agent.mjs install, node scripts/local-coding-agent.mjs skills validate, node scripts/local-coding-agent.mjs skills doctor.",
+      "4. Run: node scripts/local-coding-agent.mjs setup-wizard.",
+      "5. Run health checks and server tests when dependencies are present.",
+      "6. Do not paste full logs/diffs/base64 output into chat. Save long output to local files and summarize with exact paths.",
+      "7. Report changed files, checks run, errors, and next action."
+    ].join("\n");
+  }
+  if (kind === "diagnose") {
+    return [
+      "You are diagnosing a customer's Local Coding Agent install.",
+      `Repo: ${repo}`,
+      "",
+      "Tasks:",
+      "1. Read AGENTS.md, README.md, and skills/customer-doctor/SKILL.md if present.",
+      "2. Run: node scripts/local-coding-agent.mjs status, doctor, skills doctor, setup-wizard, support.",
+      "3. Check Node.js, npm install, ports 8787/8790, dashboard health, tunnel-client location, workspace roots, and local firewall/proxy symptoms.",
+      "4. Redact secrets/tokens/keys before sharing anything.",
+      "5. Do not paste full logs/diffs/base64 output into chat. Save long output to local files and summarize with exact paths.",
+      "6. Return a clear diagnosis: likely cause, evidence, files/reports created, and exact fix steps."
+    ].join("\n");
+  }
+  return [
+    "You are installing Local Coding Agent for a customer.",
+    `Repo: ${repo}`,
+    "",
+    "Tasks:",
+    "1. Check Node.js >= 18 and git. Do not install system software without asking.",
+    "2. Clone the repo if needed, then read AGENTS.md and README.md.",
+    "3. Run: node scripts/local-coding-agent.mjs install.",
+    "4. Ask the customer for the workspace root that the AI may read/write.",
+    "5. Run: node scripts/local-coding-agent.mjs setup-wizard --workspace \"<customer workspace>\".",
+    "6. Start server-only first if tunnel-client is missing: node scripts/local-coding-agent.mjs start --workspace \"<customer workspace>\" --no-tunnel.",
+    "7. Verify: health endpoint, dashboard, skills validate, and npm --prefix server run test:agent.",
+    "8. Do not paste full logs/diffs/base64 output into chat. Save long output to local files and summarize with exact paths.",
+    "9. Return setup status, MCP URL, dashboard URL, checks run, and any missing customer action."
+  ].join("\n");
+}
+
+function dashApiCustomerPrompts(res) {
+  return sendJson(res, 200, {
+    version: VERSION,
+    prompts: {
+      setup: customerPrompt("setup"),
+      update: customerPrompt("update"),
+      diagnose: customerPrompt("diagnose")
+    }
+  });
+}
+
 function dashboardHtml() {
   return `<!doctype html>
 <html lang="en">
@@ -2873,6 +2935,17 @@ function dashboardHtml() {
     <div class="note">MCP endpoint: <span id="mcpep"></span> · Đây là thư mục mà ChatGPT đọc/ghi qua MCP. Để kiểm chứng, bảo ChatGPT chạy tool <b>workspace_info</b> — nó trả về đúng các path này.</div>
   </div>
 
+  <div class="panel" style="margin-bottom:16px">
+    <h3>AI Agent Quick Setup Prompts</h3>
+    <div class="note">Copy one prompt into ChatGPT, Claude Code, Codex, or Cursor so the customer's AI can setup, update, or diagnose this repo with safe defaults.</div>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <span class="btn" onclick="copyCustomerPrompt('setup')">Copy setup prompt</span>
+      <span class="btn" onclick="copyCustomerPrompt('update')">Copy update prompt</span>
+      <span class="btn" onclick="copyCustomerPrompt('diagnose')">Copy diagnose prompt</span>
+      <span class="dim" id="promptCopied"></span>
+    </div>
+  </div>
+
   <div class="cards" id="cards"></div>
 
   <div class="panel">
@@ -2913,6 +2986,26 @@ function dashboardHtml() {
 <script>
 function h(n){ return (n==null?0:n).toLocaleString(); }
 function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+var customerPrompts={};
+async function loadCustomerPrompts(){
+  try{
+    var r=await fetch('/api/customer-prompts',{cache:'no-store'});
+    var d=await r.json();
+    customerPrompts=d.prompts||{};
+  }catch(e){}
+}
+async function copyCustomerPrompt(kind){
+  if(!customerPrompts[kind]) await loadCustomerPrompts();
+  var text=customerPrompts[kind]||'';
+  var el=document.getElementById('promptCopied');
+  try{
+    await navigator.clipboard.writeText(text);
+    el.textContent='Copied '+kind+' prompt';
+    setTimeout(function(){ el.textContent=''; },1600);
+  }catch(e){
+    el.textContent='Copy failed';
+  }
+}
 function fmtDur(s){ var m=Math.floor(s/60),hh=Math.floor(m/60); if(hh>0) return hh+'h '+(m%60)+'m'; if(m>0) return m+'m '+(s%60)+'s'; return s+'s'; }
 function fmtMs(ms){ if(ms>=1000) return (ms/1000).toFixed(ms>=10000?1:2)+'s'; return Math.round(ms||0)+'ms'; }
 function card(label,val,sub){ return '<div class="card"><div class="clab">'+label+'</div><div class="cval">'+val+'</div><div class="csub">'+(sub||'')+'</div></div>'; }

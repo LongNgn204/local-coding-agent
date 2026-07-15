@@ -32,6 +32,67 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
 > This tool can run commands on your computer. Read [SECURITY.md](SECURITY.md)
 > before using it. It is not an OS sandbox; only connect workspaces you trust.
 
+> **v4.4.1-prodev.** Customer-ready Prodev release focused on reducing ChatGPT
+> Web lag, safer customer setup/update prompts, setup diagnostics, and clearer
+> support reports. Preview-only/internal experiments are not part of the public
+> release path.
+
+---
+
+## AI Agent Quick Setup
+
+### English
+
+Use this when you want ChatGPT, Claude Code, Codex, Cursor, or another AI coding
+agent to clone, install, verify, update, or diagnose this repo for a customer.
+
+```powershell
+node scripts\local-coding-agent.mjs prompt setup
+node scripts\local-coding-agent.mjs prompt update
+node scripts\local-coding-agent.mjs prompt diagnose
+node scripts\local-coding-agent.mjs setup-wizard --workspace "C:\path\repo"
+node scripts\local-coding-agent.mjs skills doctor
+```
+
+- `prompt setup` prints a copy-paste prompt for a fresh customer install.
+- `prompt update` prints a safe update prompt that preserves config, tunnel
+  client files, secrets, generated profiles, reports, and `server/data`.
+- `prompt diagnose` prints a support prompt that collects redacted reports
+  instead of pasting long logs into chat.
+- `setup-wizard` checks Node/npm/git, repo layout, server dependencies,
+  workspace, tunnel prerequisites, skill validation, and local health, then
+  writes `setup-wizard-report.txt`.
+- `skills doctor` maps common customer symptoms to the right shipped skill.
+
+Open the dashboard at `http://127.0.0.1:8790/ui` to copy the same setup,
+update, and diagnose prompts for ChatGPT/Claude.
+
+### Tiếng Việt
+
+Dùng phần này khi bạn muốn ChatGPT, Claude Code, Codex, Cursor hoặc một AI coding
+agent khác clone, cài đặt, kiểm tra, cập nhật hoặc chẩn đoán repo này cho khách.
+
+```powershell
+node scripts\local-coding-agent.mjs prompt setup
+node scripts\local-coding-agent.mjs prompt update
+node scripts\local-coding-agent.mjs prompt diagnose
+node scripts\local-coding-agent.mjs setup-wizard --workspace "C:\path\repo"
+node scripts\local-coding-agent.mjs skills doctor
+```
+
+- `prompt setup` in prompt copy-paste cho khách cài mới.
+- `prompt update` in prompt cập nhật an toàn, giữ nguyên config, tunnel-client,
+  secret, profile sinh ra, report và `server/data`.
+- `prompt diagnose` in prompt hỗ trợ/chẩn đoán, tạo report đã redact thay vì dán
+  log dài vào chat.
+- `setup-wizard` kiểm tra Node/npm/git, cấu trúc repo, dependency server,
+  workspace, điều kiện tunnel, validate skill và health cục bộ, rồi ghi
+  `setup-wizard-report.txt`.
+- `skills doctor` map lỗi khách hay gặp sang skill phù hợp trong repo.
+
+Mở dashboard tại `http://127.0.0.1:8790/ui` để copy cùng các prompt setup,
+update và diagnose cho ChatGPT/Claude.
+
 ---
 
 ## English
@@ -60,9 +121,9 @@ Rules:
 - If anything fails, show the exact error and the next command to fix it.
 
 Steps:
-1. Check Node.js version is >= 18.
-2. Clone https://github.com/LongNgn204/local-coding-agent if it is not already cloned.
-3. Enter the repo directory.
+1. Clone https://github.com/LongNgn204/local-coding-agent if it is not already cloned.
+2. Enter the repo directory and read AGENTS.md; follow it exactly.
+3. Check Node.js version is >= 18 (node -v).
 4. Install with:
    - Windows: scripts\lca.cmd install
    - macOS/Linux: bash scripts/lca install
@@ -78,8 +139,11 @@ Steps:
 9. Verify:
    - http://127.0.0.1:8787/healthz returns status ok
    - http://127.0.0.1:8790/ui opens the dashboard
+   - Run the tool suite: from server/ run npm run test:agent
    - status command works
-10. Report the MCP URL, dashboard URL, workspace path, mode, policy, and tunnel status.
+10. Explain the results to me in plain language: what passed, what failed, and
+    the exact next command to fix anything that failed.
+11. Report the MCP URL, dashboard URL, workspace path, mode, policy, and tunnel status.
 ```
 
 More prompt variants are in [docs/AI_AGENT_SETUP_PROMPT.md](docs/AI_AGENT_SETUP_PROMPT.md).
@@ -193,6 +257,39 @@ node scripts\network-doctor.mjs --tunnel-bin "tools\tunnel-client.exe" --tunnel-
 
 Guide: [docs/NETWORK_DOCTOR.md](docs/NETWORK_DOCTOR.md).
 
+For a full, redacted support bundle a customer can send back to the developer:
+
+```powershell
+node scripts\support-report.mjs
+scripts\lca.cmd support
+```
+
+It prints a compact summary and writes a redacted `support-report.txt`
+(versions, Node, ports 8787/8790, tunnel-client presence, health, recent
+errors). It never requires the proprietary tunnel client and never writes keys
+or tokens.
+
+### Prodev Anti-Lag Workflow
+
+v4.4.1-prodev reduces ChatGPT Web lag by keeping default tool outputs smaller
+and steering AI agents toward targeted reads instead of dumping huge logs,
+diffs, base64, or icon inventories into the chat.
+
+- `read_file` default output is tighter, while `max_chars` can still be raised
+  for a specific targeted read.
+- `run_command` default output is tighter, while `max_output_chars`,
+  `head_lines`, and `tail_lines` can still be used for focused debugging.
+- `read_many` has a smaller default batch cap so one call cannot flood a long
+  ChatGPT thread.
+- Dashboard tips now surface `large_payloads` and `command_heavy` as signals to
+  switch to line ranges, globs, and compact summaries.
+- Customer prompts now explicitly tell AI agents not to paste full logs, diffs,
+  base64, image/icon inventories, or generated reports into chat.
+
+For large tasks, start a fresh ChatGPT thread, use `workspace_snapshot` first,
+read only the line ranges you need, and keep raw artifacts as local files or
+support reports.
+
 ### Features
 
 | Area | What it does |
@@ -300,9 +397,9 @@ Quy tắc:
 - Nếu lỗi, hãy báo đúng lỗi và lệnh tiếp theo để sửa.
 
 Các bước:
-1. Kiểm tra Node.js version >= 18.
-2. Clone https://github.com/LongNgn204/local-coding-agent nếu repo chưa tồn tại.
-3. Đi vào thư mục repo.
+1. Clone https://github.com/LongNgn204/local-coding-agent nếu repo chưa tồn tại.
+2. Đi vào thư mục repo và đọc AGENTS.md; làm theo đúng hướng dẫn.
+3. Kiểm tra Node.js version >= 18 (node -v).
 4. Cài đặt bằng:
    - Windows: scripts\lca.cmd install
    - macOS/Linux: bash scripts/lca install
@@ -318,8 +415,11 @@ Các bước:
 9. Kiểm tra:
    - http://127.0.0.1:8787/healthz trả về status ok
    - http://127.0.0.1:8790/ui mở được dashboard
+   - Chạy bộ test tool: trong thư mục server/ chạy npm run test:agent
    - lệnh status chạy được
-10. Báo lại MCP URL, Dashboard URL, workspace path, mode, policy và trạng thái tunnel.
+10. Giải thích kết quả cho tôi bằng lời dễ hiểu: cái gì đạt, cái gì lỗi, và lệnh
+    tiếp theo chính xác để sửa phần lỗi.
+11. Báo lại MCP URL, Dashboard URL, workspace path, mode, policy và trạng thái tunnel.
 ```
 
 Các prompt khác nằm ở [docs/AI_AGENT_SETUP_PROMPT.md](docs/AI_AGENT_SETUP_PROMPT.md).
@@ -431,6 +531,38 @@ node scripts\network-doctor.mjs --tunnel-bin "tools\tunnel-client.exe" --tunnel-
 ```
 
 Hướng dẫn: [docs/NETWORK_DOCTOR.md](docs/NETWORK_DOCTOR.md).
+
+Để tạo gói hỗ trợ đầy đủ (đã che secret) mà khách gửi lại cho nhà phát triển:
+
+```powershell
+node scripts\support-report.mjs
+scripts\lca.cmd support
+```
+
+Lệnh in ra tóm tắt gọn và ghi file `support-report.txt` đã redact (phiên bản,
+Node, cổng 8787/8790, có tunnel-client hay không, health, lỗi gần đây). Nó không
+cần tunnel client độc quyền và không bao giờ ghi key hay token.
+
+### Quy Trình Chống Lag Prodev
+
+v4.4.1-prodev giảm lag ChatGPT Web bằng cách thu nhỏ default output của tool và
+hướng AI agent đọc đúng phần cần thiết thay vì đổ log, diff, base64 hoặc danh
+sách icon khổng lồ vào chat.
+
+- `read_file` có default output gọn hơn, nhưng vẫn tăng được `max_chars` khi cần
+  đọc đúng một phần mục tiêu.
+- `run_command` có default output gọn hơn, nhưng vẫn dùng được
+  `max_output_chars`, `head_lines` và `tail_lines` khi debug.
+- `read_many` có batch cap mặc định nhỏ hơn để một call không làm nghẹt thread
+  ChatGPT dài.
+- Dashboard tips báo `large_payloads` và `command_heavy` để nhắc chuyển sang
+  line range, glob và tóm tắt gọn.
+- Prompt cho khách giờ nhắc rõ AI agent không được dán full log, diff, base64,
+  image/icon inventory hoặc report dài vào chat.
+
+Với tác vụ lớn, hãy mở thread ChatGPT mới, gọi `workspace_snapshot` trước, chỉ
+đọc đúng line range cần thiết và giữ artifact thô trong file local hoặc support
+report.
 
 ### Tính Năng
 

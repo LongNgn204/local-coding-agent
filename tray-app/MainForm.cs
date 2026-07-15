@@ -45,7 +45,7 @@ public sealed class MainForm : Form
     {
         Text = "Local Coding Agent";
         Width = 660;
-        Height = 835;
+        Height = 863;
         StartPosition = FormStartPosition.CenterScreen;
         MinimizeBox = true;
         FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -127,7 +127,7 @@ public sealed class MainForm : Form
         y += 26;
         _chkOpenWeb = new CheckBox { Text = "Open tunnel web UI on start", Left = 150, Top = y, Width = 300 };
         Controls.Add(_chkOpenWeb);
-        y += 34;
+        y += 28;
 
         // Action buttons (row 1)
         _btnStart = new Button { Text = "Start", Left = 12, Top = y, Width = 100, Height = 32 };

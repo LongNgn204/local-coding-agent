@@ -1,6 +1,6 @@
 {
   "name": "local-coding-agent",
-  "version": "4.4.0-pro",
+  "version": "4.4.1-prodev",
   "private": true,
   "type": "module",
   "description": "Local MCP server that lets ChatGPT Web work with files and commands on your own machine.",
@@ -17,6 +17,7 @@
     "test:security:baseline": "node security-test.mjs",
     "test:hardening": "node test-hardening.mjs",
     "test:pro": "node test-pro.mjs",
+    "test:agents": "node --test test-agents.mjs",
     "eval": "node ../evals/run.mjs"
   },
   "dependencies": {

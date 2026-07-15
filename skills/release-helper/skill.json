@@ -1,0 +1,16 @@
+{
+  "schema": "lca-skill/v1",
+  "name": "release-helper",
+  "version": "4.4.1-prodev",
+  "experimental": false,
+  "description": "Prepare a safe Local Coding Agent release build, including version checks, tests, and changelog.",
+  "tags": ["release", "versioning", "ci", "changelog"],
+  "instructions": "SKILL.md",
+  "readme": "README.md",
+  "commands": [
+    "npm --prefix server run test:agent",
+    "npm --prefix server run test:pro",
+    "npm --prefix server run test:security",
+    "node scripts/validate-skills.mjs"
+  ]
+}
