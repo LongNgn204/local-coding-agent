@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Local Coding Agent - Chrome Companion Preview",
-  "version": "5.0.0.8",
-  "version_name": "5.0.0-preview.8",
-  "description": "Local-only preview bridge for one operator-armed Chrome tab.",
+  "version": "5.0.0.12",
+  "version_name": "5.0.0-preview.12",
+  "description": "Public preview bridge for one operator-armed Chrome tab.",
   "minimum_chrome_version": "116",
   "permissions": [
     "activeTab",

@@ -51,7 +51,40 @@ release. It keeps the stable server behavior opt-in behind
 - Prompt-requested shutdown is Windows-only, disabled by default, and exposed
   only through dedicated tools after an explicit local tray opt-in.
 
-## [4.4.1-prodev] - 2026-07-08
+## [4.4.3] - 2026-07-15
+
+### Added
+
+- Stable ChatGPT Web Compact & Resume tools: `context_status`,
+  `compact_context`, and `resume_context`.
+- Workspace-scoped immutable context checkpoints with bounded retention,
+  structured goals/decisions/constraints/tasks, Git state, recent test evidence,
+  task-plan progress, and MCP activity marks.
+- CLI and local-dashboard copy actions for `prompt compact` and `prompt resume`.
+- English/Vietnamese Compact & Resume documentation and dedicated storage,
+  redaction, retention, and pressure-estimate tests.
+
+### Changed
+
+- Stable version is now `4.4.3` across the MCP server, CLI, package metadata,
+  skill manifests, version assertions, brand docs, and Windows tray app.
+- The original `checkpoint` and `resume` tools remain compatibility aliases;
+  new ChatGPT Web integrations should use `compact_context` and
+  `resume_context`.
+- Removed a stale public `test:agents` package script that referenced a file not
+  included in the stable Community Edition source.
+
+### Security
+
+- Compact fields are size-bounded, common credential patterns are redacted on
+  a best-effort basis, and capsule contents are excluded from audit arguments.
+- Compact checkpoints stay in the Git-ignored, workspace-specific
+  `server/data/` store. Stable release gates continue to reject private trees,
+  private-channel markers, and tracked binary/secret artifacts.
+- Context pressure is explicitly labeled as an MCP traffic estimate; the server
+  does not claim access to ChatGPT Web's internal token count or context window.
+
+## [4.4.3-prodev] - 2026-07-15
 
 ### Added
 
@@ -60,6 +93,29 @@ release. It keeps the stable server behavior opt-in behind
   AGPL-3.0-or-later rights granted for the public source code.
 - A bilingual trademark-registration checklist for ownership details,
   clearance searches, filing records, use evidence, and post-filing controls.
+- A CI public-release boundary gate that rejects private experiment trees,
+  private desktop trees, private-channel paths, and tracked binary/secret assets.
+
+### Changed
+
+- Public version is now `4.4.3-prodev` across the MCP server, CLI, package lock,
+  skill manifests, version assertions, and Windows tray app.
+- The public distribution contains only supported Community Edition source;
+  future-roadmap experiment directories and their CI job are excluded.
+
+### Fixed
+
+- Windows tray health polling now identifies its internal `/healthz` probe, and
+  the MCP server suppresses only that routine request from stdout. Manual health
+  checks, failed requests, and MCP traffic remain visible, avoiding one noisy
+  log line every three seconds without hiding operational errors.
+- Network Doctor now identifies the tunnel's upstream `503`/reset-before-headers
+  pattern as a control-plane retry: isolated events are described as transient,
+  while repeated events point to an unstable or filtered network path.
+
+## [4.4.1-prodev] - 2026-07-08
+
+### Added
 - AI Agent Quick Setup flow near the top of the README, with matching English
   and Vietnamese instructions for customer setup, update, and diagnosis.
 - CLI prompt generator for customer-facing AI agents:
@@ -92,13 +148,6 @@ release. It keeps the stable server behavior opt-in behind
 
 ### Fixed
 
-- Windows tray health polling now identifies its internal `/healthz` probe, and
-  the MCP server suppresses only that routine request from stdout. Manual health
-  checks, failed requests, and MCP traffic remain visible, avoiding one noisy
-  log line every three seconds without hiding operational errors.
-- Network Doctor now identifies the tunnel's upstream `503`/reset-before-headers
-  pattern as a control-plane retry: isolated events are described as transient,
-  while repeated events point to an unstable or filtered network path.
 - Windows CLI npm execution now routes through `cmd.exe /c`, avoiding `spawn
   EINVAL` on systems where spawning `npm.cmd` directly fails.
 - `setup-wizard` now reports missing/offline server health clearly instead of
@@ -353,6 +402,8 @@ Windows tray workflow.
   dashboard port `8790`.
 
 [5.0.0-preview.12]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v5.0.0-preview.12
+[4.4.3]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.3
+[4.4.3-prodev]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.3-prodev
 [4.4.1-prodev]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.1-prodev
 [4.4.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.0-pro
 [4.3.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.3.0-pro

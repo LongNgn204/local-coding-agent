@@ -167,7 +167,7 @@ public sealed class MainForm : Form
         y += 28;
         _chkV5Preview = new CheckBox
         {
-            Text = "Enable private v5 preview (experimental)",
+            Text = "Enable public v5 preview (experimental)",
             Left = 150,
             Top = y,
             Width = 360

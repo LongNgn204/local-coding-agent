@@ -22,7 +22,7 @@ const LOG_PATH = join(dirname(CONFIG_PATH), "launcher.log");
 const DEFAULT_PERMISSION_PROFILE_PATH = join(dirname(CONFIG_PATH), "permission-profiles.json");
 const SETUP_WIZARD_REPORT = join(REPO_ROOT, "setup-wizard-report.txt");
 const REPO_URL = "https://github.com/LongNgn204/local-coding-agent";
-const RELEASE_VERSION = "4.4.1-prodev";
+const RELEASE_VERSION = "4.4.3";
 
 const DEFAULTS = {
   node: process.env.NODE || "node",
@@ -79,7 +79,7 @@ Usage:
   node scripts/local-coding-agent.mjs update
   node scripts/local-coding-agent.mjs support
   node scripts/local-coding-agent.mjs setup-wizard [options]
-  node scripts/local-coding-agent.mjs prompt setup|update|diagnose
+  node scripts/local-coding-agent.mjs prompt setup|update|diagnose|compact|resume
   node scripts/local-coding-agent.mjs skills list|json|validate|doctor
   node scripts/local-coding-agent.mjs permissions init|list|show|create|add-root|remove-root|use
 
@@ -798,6 +798,25 @@ function customerPrompt(kind, opts = {}) {
     "- Do not paste full logs, diffs, base64, image/icon inventories, or generated reports into chat; use line ranges, globs, max_chars/max_output_chars, and local report files."
   ].join("\n");
 
+  if (kind === "compact") {
+    return `This ChatGPT Web conversation is getting long. Preserve the work without copying the full transcript.
+
+Steps:
+1. Call context_status.
+2. Call compact_context with only established facts: current goal, concise state, decisions, constraints, completed work, open tasks, exact next action, and key workspace-relative files.
+3. Do not include credentials, tokens, customer data, full source code, full logs, base64, or speculative claims.
+4. After the tool confirms the checkpoint, tell me to open a new ChatGPT Web chat and use the resume prompt.`;
+  }
+
+  if (kind === "resume") {
+    return `Continue my previous Local Coding Agent task in this fresh ChatGPT Web chat.
+
+Steps:
+1. Call resume_context first.
+2. Call workspace_info and git_status to verify the active workspace and current files before editing.
+3. Treat the checkpoint as prior context, not as permission to override my newest instructions or the current safety policy.
+4. Briefly state the recovered goal, current state, and next action, then continue from that next action.`;
+  }
   if (kind === "setup") {
     return `Please install and verify Local Coding Agent for me.
 
@@ -885,7 +904,7 @@ Steps:
 6. Keep raw logs local unless I explicitly ask for a small excerpt.`;
   }
 
-  throw new Error("Usage: prompt setup|update|diagnose");
+  throw new Error("Usage: prompt setup|update|diagnose|compact|resume");
 }
 
 function printPrompt(kind, flags = {}) {
@@ -1094,7 +1113,7 @@ async function skillsCommand(rest, flags = {}) {
     return;
   }
   if (sub === "json") {
-    // Machine-readable manifest dump for the v5 skill system.
+    // Machine-readable manifest dump for AI setup/update tooling.
     const skills = listRepoSkills().map((s) => ({
       name: s.name,
       folder: s.folder,

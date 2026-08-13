@@ -32,6 +32,8 @@ jobs:
         run: |
           node -e "const b=require('fs').readFileSync('server.mjs');const n=[...b].filter(x=>x===0).length;if(n)throw new Error('server.mjs contains '+n+' NUL byte(s)')"
           node --check server.mjs
+          node --check context-memory.mjs
+          node --check context-memory.test.mjs
           node --check test-agent.mjs
           node --check test-security.mjs
           node --check security-test.mjs
@@ -40,12 +42,20 @@ jobs:
           node --check agent-manager.mjs
           node --check test-agents.mjs
           node --test test-agents.mjs
+          node --check browser-bridge.mjs
+          node --test browser-bridge.test.mjs
           node --check permission-resolver.mjs
           node --test permission-resolver.test.mjs
           node --test ../scripts/permission-cli.test.mjs
+          node --check system-power.mjs
+          npm run test:system-power
+          npm --prefix ../experiments/chrome-companion-preview run check
           node --check ../evals/run.mjs
           node --check ../scripts/local-coding-agent.mjs
           node --check ../scripts/network-doctor.mjs
+          node --check ../scripts/release-public-gate.mjs
+          node ../scripts/release-public-gate.mjs
+          npm run test:context
           node --test ../scripts/network-doctor.test.mjs
           node --check ../scripts/validate-skills.mjs
           node --check ../scripts/support-report.mjs
@@ -101,10 +111,12 @@ jobs:
               throw "server did not become healthy"
             }
             npm run test:agent
+            npm run test:context
             npm run test:pro
             npm run test:security
             npm run test:hardening
             npm run test:permissions
+            npm run test:browser-preview
           } finally {
             Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $ws -Recurse -Force -ErrorAction SilentlyContinue

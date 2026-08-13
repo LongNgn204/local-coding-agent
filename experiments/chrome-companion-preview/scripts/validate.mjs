@@ -36,4 +36,4 @@ assert.match(background, /max_bytes/);
 assert.match(background, /disarmTab/);
 assert.equal(/chrome\.debugger|chrome\.history|chrome\.bookmarks|chrome\.downloads/.test(background), false);
 
-console.log("Chrome Companion preview.8 check: 9 local capabilities, bounded screenshots, no broad privileged permissions, no remote code.");
+console.log("Chrome Companion preview.12 check: 9 local capabilities, bounded screenshots, no broad privileged permissions, no remote code.");
