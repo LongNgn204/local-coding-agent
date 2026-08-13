@@ -1,25 +1,32 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ROLES } from "./roles";
+import type { PermissionRoot } from "../env";
 
 interface Props {
   engine: "codex_cli" | "script_runner";
+  roots: PermissionRoot[];
   disabled: boolean;
-  onRun: (args: { role: string; task: string; title?: string }) => Promise<void>;
+  onRun: (args: { role: string; task: string; title?: string; workspaceRoot?: string }) => Promise<void>;
 }
 
-export function Composer({ engine, disabled, onRun }: Props) {
+export function Composer({ engine, roots, disabled, onRun }: Props) {
   const [role, setRole] = useState(ROLES[1].id); // bug_fix by default
   const [title, setTitle] = useState("");
   const [task, setTask] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [workspaceRoot, setWorkspaceRoot] = useState(roots[0]?.path || "");
+
+  useEffect(() => {
+    if (!roots.some((root) => root.path === workspaceRoot)) setWorkspaceRoot(roots[0]?.path || "");
+  }, [roots, workspaceRoot]);
 
   async function run() {
     if (!task.trim()) return;
     setBusy(true);
     setErr(null);
     try {
-      await onRun({ role, task: task.trim(), title: title.trim() || undefined });
+      await onRun({ role, task: task.trim(), title: title.trim() || undefined, workspaceRoot: workspaceRoot || undefined });
       setTask("");
       setTitle("");
     } catch (e) {
@@ -53,6 +60,14 @@ export function Composer({ engine, disabled, onRun }: Props) {
             onChange={(e) => setTitle(e.target.value)}
             disabled={disabled || busy}
           />
+        </div>
+        <div className="field" style={{ flex: 1, minWidth: 240 }}>
+          <label>Working path</label>
+          <select value={workspaceRoot} onChange={(event) => setWorkspaceRoot(event.target.value)} disabled={disabled || busy}>
+            {roots.map((root) => (
+              <option key={root.path} value={root.path}>{root.label} — {root.preset}</option>
+            ))}
+          </select>
         </div>
       </div>
       <textarea

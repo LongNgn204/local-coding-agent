@@ -1,4 +1,4 @@
-# setup-assistant (v5 preview)
+# setup-assistant
 
 **English.** A copy-ready playbook for an AI coding agent that installs and
 verifies Local Coding Agent for a customer. It uses the universal CLI, keeps

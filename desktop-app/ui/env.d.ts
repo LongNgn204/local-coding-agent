@@ -11,6 +11,7 @@ export interface HealthInfo {
   mode?: string;
   workspace?: string;
   roots?: string[];
+  permission_profile?: string | null;
   pid?: number | null;
   port?: number | null;
   dashboard_port?: number | null;
@@ -78,6 +79,30 @@ export interface AppConfig {
   workspace: string;
   mode: "safe" | "full";
   engine: "codex_cli" | "script_runner";
+  activePermissionProfile: string;
+}
+
+export type RootPreset = "observe" | "edit" | "develop" | "full_control";
+
+export interface PermissionRoot {
+  label: string;
+  path: string;
+  preset: RootPreset;
+  deny?: string[];
+}
+
+export interface PermissionProfile {
+  version?: number;
+  name: string;
+  description?: string;
+  working_directory: string;
+  roots: PermissionRoot[];
+}
+
+export interface PermissionStore {
+  version: number;
+  active_profile: string;
+  profiles: Record<string, PermissionProfile>;
 }
 
 export interface CreateTaskArgs {
@@ -85,13 +110,17 @@ export interface CreateTaskArgs {
   task: string;
   engine?: "codex_cli" | "script_runner";
   title?: string;
+  workspaceRoot?: string;
 }
 
 export interface StudioApi {
   pickWorkspace(): Promise<string | null>;
   getConfig(): Promise<AppConfig>;
   setConfig(cfg: Partial<AppConfig>): Promise<AppConfig>;
-  start(opts?: { workspace?: string; mode?: string }): Promise<HealthInfo>;
+  getPermissionProfiles(): Promise<{ file: string; store: PermissionStore }>;
+  setPermissionProfiles(store: PermissionStore): Promise<{ file: string; store: PermissionStore }>;
+  pickPermissionRoot(): Promise<string | null>;
+  start(opts?: { workspace?: string; mode?: string; permissionProfileName?: string; forceRestart?: boolean }): Promise<HealthInfo>;
   stop(): Promise<{ ok: boolean }>;
   health(): Promise<HealthInfo>;
   createTask(args: CreateTaskArgs): Promise<{ task_id: string; role: string; status: string; message?: string }>;

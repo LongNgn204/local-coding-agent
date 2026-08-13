@@ -23,7 +23,7 @@ import { createStudioSecurity } from "./core/security.mjs";
 import { SecretStore, assertProvider } from "./core/secret-store.mjs";
 import { ThreadStore } from "./core/thread-store.mjs";
 import { isAbortError, TurnManager } from "./core/turn-manager.mjs";
-import { UpdateService, loadUpdatePublicKey } from "./core/update-service.mjs";
+import { UpdateService, loadUpdatePublicKey, loadUpdateTrustPolicy } from "./core/update-service.mjs";
 
 const APP_DIR = dirname(fileURLToPath(import.meta.url));
 const UI_DIST_DIR = join(APP_DIR, "dist", "ui");
@@ -51,6 +51,7 @@ export function startStudio(manifest, options = {}) {
     storageDir,
     manifest,
     publicKeyPem: loadUpdatePublicKey(APP_DIR),
+    trustPolicy: loadUpdateTrustPolicy(APP_DIR),
     signatureVerifier: new PlatformSignatureVerifier()
   });
   const licenseService = new LicenseService({

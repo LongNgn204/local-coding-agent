@@ -1,4 +1,4 @@
-# repo-support (v5 preview)
+# repo-support
 
 **English.** Orient a coding agent inside a workspace with the fewest tool
 round-trips: snapshot first, search narrowly, patch with preview/validate, and

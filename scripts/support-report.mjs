@@ -3,7 +3,7 @@
 // Copyright (c) 2026 Long Nguyen
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// v5.0.0-preview.1 customer support report.
+// Customer support report.
 // Produces a compact, REDACTED diagnostic bundle a customer can send back to
 // the developer. It never requires the proprietary tunnel client and never
 // prints API keys, tokens, or tunnel ids.
@@ -20,7 +20,7 @@ const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 const DEFAULT_OUT = join(REPO_ROOT, "support-report.txt");
 
 function usage() {
-  console.log(`Local Coding Agent support report (v5 preview)
+  console.log(`Local Coding Agent support report
 
 Usage:
   node scripts/support-report.mjs [options]
@@ -63,16 +63,11 @@ function redact(value) {
 }
 
 function readVersions() {
-  let stable = "unknown";
-  let preview = "unknown";
+  let version = "unknown";
   try {
-    stable = JSON.parse(readFileSync(join(REPO_ROOT, "server", "package.json"), "utf8")).version || "unknown";
+    version = JSON.parse(readFileSync(join(REPO_ROOT, "server", "package.json"), "utf8")).version || "unknown";
   } catch { /* ignore */ }
-  try {
-    const server = readFileSync(join(REPO_ROOT, "server", "server.mjs"), "utf8");
-    preview = server.match(/PREVIEW_VERSION\s*=\s*"([^"]+)"/)?.[1] || "unknown";
-  } catch { /* ignore */ }
-  return { stable, preview };
+  return { version };
 }
 
 function tunnelClientStatus() {
@@ -139,7 +134,7 @@ async function main() {
     portStatus(8788)
   ]);
   const health = await httpGet(`http://127.0.0.1:${opts.port}/healthz`);
-  const dashboard = await httpGet(`http://127.0.0.1:${opts.dashboardPort}/api/v5`);
+  const dashboard = await httpGet(`http://127.0.0.1:${opts.dashboardPort}/metrics`);
 
   let healthJson = null;
   if (health.ok) { try { healthJson = JSON.parse(health.body); } catch { /* ignore */ } }
@@ -148,8 +143,7 @@ async function main() {
     tool: "local-coding-agent support-report",
     generated_at: new Date().toISOString(),
     versions: {
-      stable: versions.stable,
-      preview: versions.preview
+      version: versions.version
     },
     runtime: {
       node: process.version,
@@ -165,7 +159,7 @@ async function main() {
       tunnel_8788_reserved: port8788
     },
     health: health.ok
-      ? { reachable: true, status: healthJson?.status || null, version: healthJson?.version || null, preview_enabled: healthJson?.preview_enabled ?? null, mode: healthJson?.mode || null }
+      ? { reachable: true, status: healthJson?.status || null, version: healthJson?.version || null, mode: healthJson?.mode || null }
       : { reachable: false, error: health.error },
     dashboard: { reachable: dashboard.ok, status: dashboard.status || null },
     tunnel_client: tunnelClientStatus(),
@@ -175,7 +169,7 @@ async function main() {
 
   // Compact human summary.
   const summary = [];
-  summary.push(`Local Coding Agent support report (stable v${report.versions.stable}, preview v${report.versions.preview})`);
+  summary.push(`Local Coding Agent support report (v${report.versions.version})`);
   summary.push(`Node: ${report.runtime.node} (${report.runtime.node_ok ? "ok" : "TOO OLD - need >= 18"})  OS: ${report.runtime.platform} ${report.runtime.arch}`);
   summary.push(`MCP 8787: ${port8787.listening ? "listening" : "not listening"}   Dashboard 8790: ${portDash.listening ? "listening" : "not listening"}`);
   summary.push(`Health: ${report.health.reachable ? report.health.status + " (mode " + report.health.mode + ")" : "unreachable (" + report.health.error + ")"}`);

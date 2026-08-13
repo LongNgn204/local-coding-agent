@@ -6,6 +6,7 @@
 *.key
 *.pem
 config.json
+permission-profiles.json
 
 # ---- Proprietary binaries (do NOT redistribute) ----
 tools/
@@ -17,6 +18,7 @@ tools/
 # ---- Diagnostic reports (redacted, but generated per-machine) ----
 support-report.txt
 network-doctor-report.txt
+setup-wizard-report.txt
 
 # ---- Node ----
 node_modules/

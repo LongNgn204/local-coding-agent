@@ -1,9 +1,9 @@
 ---
 name: customer-doctor
-description: Diagnose a broken customer install and produce a redacted support report the customer can send back (v5 preview skill).
+description: Diagnose a broken customer install and produce a redacted support report the customer can send back.
 ---
 
-# Customer Doctor (v5 preview)
+# Customer Doctor
 
 Use this when a customer says "it does not work" and you need a fast, safe
 diagnosis. Prefer generating a local report over pasting long logs into chat.

@@ -12,6 +12,7 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-60a5fa" alt="platforms" />
   <img src="https://img.shields.io/badge/MCP-server-a78bfa" alt="mcp" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="license" /></a>
+  <img src="https://img.shields.io/badge/edition-Community-2dd4bf" alt="Community Edition" />
   <img src="https://img.shields.io/badge/node-%E2%89%A518-339933?logo=node.js&logoColor=white" alt="node" />
   <a href="https://github.com/LongNgn204/local-coding-agent/stargazers"><img src="https://img.shields.io/github/stars/LongNgn204/local-coding-agent?style=social" alt="stars" /></a>
 </p>
@@ -25,6 +26,8 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
 
 <sub>Compatible with any MCP client. Not affiliated with Anthropic, OpenAI, GitHub, or Microsoft.</sub>
 
+<sub>The Community Edition code is open source under AGPL. The project name and brand assets are governed separately by the <a href="TRADEMARKS.md">Trademark Policy</a>.</sub>
+
 <p><b>English</b> | <a href="#tiếng-việt">Tiếng Việt</a></p>
 
 </div>
@@ -32,12 +35,88 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
 > This tool can run commands on your computer. Read [SECURITY.md](SECURITY.md)
 > before using it. It is not an OS sandbox; only connect workspaces you trust.
 
-> **v5.0.0-preview.1 (experimental).** An opt-in "local-first anti-lag" workflow
-> keeps ChatGPT Web fast on huge tasks by storing long logs/reports on your
-> machine and sending ChatGPT only compact summaries + a local dashboard link.
-> Stable v4 behavior is unchanged unless you set `AGENT_V5_PREVIEW=1`. See
-> [docs/V5_PREVIEW.md](docs/V5_PREVIEW.md). / **Ban thu nghiem:** xem
-> [docs/V5_PREVIEW.md](docs/V5_PREVIEW.md).
+> **Latest: v5.0.0-preview.12.** The former private preview is now published as
+> an experimental public release. Stable v4 behavior remains available when
+> `AGENT_V5_PREVIEW` is disabled.
+
+### What's New In v5.0.0-preview.12
+
+- Named multi-root permission profiles with per-path `observe`, `edit`,
+  `develop`, and `full_control` rights, deny rules, and temporary grants.
+- A redesigned local dashboard with clearer connection health, permission
+  state, report browsing, workspace navigation, and recovery information.
+- More reliable tray startup and tunnel recovery, including Tunnel ID suffix
+  diagnostics and a manual reconnect action.
+- A public Chrome Companion preview that exposes only one manually paired and
+  armed tab through bounded `browser_*` tools.
+- Optional Windows prompt-requested shutdown. It is disabled by default and
+  requires the local tray opt-in. Once enabled, an explicit shutdown prompt can
+  execute immediately without a second dashboard approval; raw shutdown and
+  restart commands remain blocked.
+- Local-first anti-lag reports, task agents, customer setup/update/diagnostic
+  prompts, and compact MCP output defaults.
+
+**Tiếng Việt:** Bản `v5.0.0-preview.12` công khai toàn bộ preview trước đây:
+profile nhiều path và phân quyền theo từng path, dashboard mới, tray/tunnel tự
+phục hồi, Chrome Companion cho một tab được người dùng arm, báo cáo anti-lag và
+tùy chọn tắt Windows bằng prompt rõ ràng. Tính năng tắt máy mặc định **tắt**;
+chỉ hoạt động sau khi người dùng bật công tắc trong tray.
+
+---
+
+## AI Agent Quick Setup
+
+### English
+
+Use this when you want ChatGPT, Claude Code, Codex, Cursor, or another AI coding
+agent to clone, install, verify, update, or diagnose this repo for a customer.
+
+```powershell
+node scripts\local-coding-agent.mjs prompt setup
+node scripts\local-coding-agent.mjs prompt update
+node scripts\local-coding-agent.mjs prompt diagnose
+node scripts\local-coding-agent.mjs setup-wizard --workspace "C:\path\repo"
+node scripts\local-coding-agent.mjs skills doctor
+```
+
+- `prompt setup` prints a copy-paste prompt for a fresh customer install.
+- `prompt update` prints a safe update prompt that preserves config, tunnel
+  client files, secrets, generated profiles, reports, and `server/data`.
+- `prompt diagnose` prints a support prompt that collects redacted reports
+  instead of pasting long logs into chat.
+- `setup-wizard` checks Node/npm/git, repo layout, server dependencies,
+  workspace, tunnel prerequisites, skill validation, and local health, then
+  writes `setup-wizard-report.txt`.
+- `skills doctor` maps common customer symptoms to the right shipped skill.
+
+Open the dashboard at `http://127.0.0.1:8790/ui` to copy the same setup,
+update, and diagnose prompts for ChatGPT/Claude.
+
+### Tiếng Việt
+
+Dùng phần này khi bạn muốn ChatGPT, Claude Code, Codex, Cursor hoặc một AI coding
+agent khác clone, cài đặt, kiểm tra, cập nhật hoặc chẩn đoán repo này cho khách.
+
+```powershell
+node scripts\local-coding-agent.mjs prompt setup
+node scripts\local-coding-agent.mjs prompt update
+node scripts\local-coding-agent.mjs prompt diagnose
+node scripts\local-coding-agent.mjs setup-wizard --workspace "C:\path\repo"
+node scripts\local-coding-agent.mjs skills doctor
+```
+
+- `prompt setup` in prompt copy-paste cho khách cài mới.
+- `prompt update` in prompt cập nhật an toàn, giữ nguyên config, tunnel-client,
+  secret, profile sinh ra, report và `server/data`.
+- `prompt diagnose` in prompt hỗ trợ/chẩn đoán, tạo report đã redact thay vì dán
+  log dài vào chat.
+- `setup-wizard` kiểm tra Node/npm/git, cấu trúc repo, dependency server,
+  workspace, điều kiện tunnel, validate skill và health cục bộ, rồi ghi
+  `setup-wizard-report.txt`.
+- `skills doctor` map lỗi khách hay gặp sang skill phù hợp trong repo.
+
+Mở dashboard tại `http://127.0.0.1:8790/ui` để copy cùng các prompt setup,
+update và diagnose cho ChatGPT/Claude.
 
 ---
 
@@ -160,6 +239,9 @@ Download the self-contained `.exe` from
 [Releases](https://github.com/LongNgn204/local-coding-agent/releases), or build
 it yourself:
 
+Direct Windows x64 download for the latest preview:
+[LocalCodingAgentTray-5.0.0-preview.12-win-x64.exe](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.0-preview.12/LocalCodingAgentTray-5.0.0-preview.12-win-x64.exe).
+
 ```powershell
 cd tray-app
 powershell -ExecutionPolicy Bypass -File build.ps1
@@ -215,68 +297,26 @@ It prints a compact summary and writes a redacted `support-report.txt`
 errors). It never requires the proprietary tunnel client and never writes keys
 or tokens.
 
-### v5 Preview (Experimental)
+### Prodev Anti-Lag Workflow
 
-**Why:** ChatGPT Web gets laggy when a thread accumulates many messages, logs,
-code blocks, screenshots, and long tool outputs. v5 preview keeps the heavy
-information **local** and sends ChatGPT only compact summaries plus links.
+v4.4.1-prodev reduces ChatGPT Web lag by keeping default tool outputs smaller
+and steering AI agents toward targeted reads instead of dumping huge logs,
+diffs, base64, or icon inventories into the chat.
 
-**Enable it (opt-in):**
+- `read_file` default output is tighter, while `max_chars` can still be raised
+  for a specific targeted read.
+- `run_command` default output is tighter, while `max_output_chars`,
+  `head_lines`, and `tail_lines` can still be used for focused debugging.
+- `read_many` has a smaller default batch cap so one call cannot flood a long
+  ChatGPT thread.
+- Dashboard tips now surface `large_payloads` and `command_heavy` as signals to
+  switch to line ranges, globs, and compact summaries.
+- Customer prompts now explicitly tell AI agents not to paste full logs, diffs,
+  base64, image/icon inventories, or generated reports into chat.
 
-```powershell
-$env:AGENT_V5_PREVIEW="1"
-node scripts\local-coding-agent.mjs start --workspace "C:\path\repo" --no-tunnel
-```
-
-Stable v4 behavior is unchanged when the flag is off.
-
-**What it adds when enabled:**
-
-- New MCP tools: `save_report`, `read_report`, `list_reports`, `preview_status`.
-  Instead of pasting a huge log into chat, the agent calls
-  `save_report(title, content)`; ChatGPT receives a short head/tail summary + a
-  report id + the local dashboard link. Retrieve any slice later with
-  `read_report(id, offset_lines, limit_lines)`.
-- A **v5 preview panel** on the local dashboard (`http://127.0.0.1:8790/ui`):
-  version, health, workspace roots, tool-call counts, recent errors, and a
-  **paginated** list of local reports (never dumps thousands of rows at once).
-- `healthz` reports `preview_version` and `preview_enabled`.
-
-**Workflow for large tasks (reduce lag):**
-
-1. Start a **new ChatGPT thread** for a big task; do not keep piling onto a long
-   laggy one.
-2. Ask the agent to read files with the MCP tools instead of pasting large
-   content into chat.
-3. When output is long (build logs, test failures, diffs), tell the agent to
-   `save_report` it and share only the id + dashboard link.
-4. Open the dashboard to read the full content locally; page through it there or
-   with `read_report`.
-
-Full guide: [docs/V5_PREVIEW.md](docs/V5_PREVIEW.md).
-
-#### v5.0.0-preview.2: Local Sub-Agent Manager
-
-> **ChatGPT Web does not run native sub-agents here. ChatGPT calls MCP tools;
-> Local Coding Agent runs and tracks sub-agent tasks locally.**
-
-When the preview is enabled, the server can run specialist "sub-agent" tasks
-locally and keep their heavy logs/reports on your machine. ChatGPT only receives
-a compact status + summary + a local path.
-
-- **MCP tools:** `create_local_task`, `list_local_tasks`, `get_local_task_status`,
-  `get_local_task_result` (compact, `max_chars`), `cancel_local_task`.
-- **Roles:** `repo_setup`, `bug_fix`, `network_check`,
-  `release_prep`, `docs_update`, `safety_review`.
-- **Dashboard:** a **Local sub-agents** panel (status badges, roles, summaries,
-  click an id to load the latest lines locally).
-- **CLI:** `node scripts/local-coding-agent.mjs agents list|roles|spawn|clean`.
-
-Reports/logs are stored under `server/data/workspaces/<id>/agents/` and are
-redacted (keys, tokens, tunnel ids) before writing. Provider `script_runner` is
-implemented; `claude_cli`/`codex_cli`/`openai_api` are detected but not yet run.
-
-Full guide: [docs/V5_SUBAGENTS.md](docs/V5_SUBAGENTS.md).
+For large tasks, start a fresh ChatGPT thread, use `workspace_snapshot` first,
+read only the line ranges you need, and keep raw artifacts as local files or
+support reports.
 
 ### Features
 
@@ -288,6 +328,9 @@ Full guide: [docs/V5_SUBAGENTS.md](docs/V5_SUBAGENTS.md).
 | Commands | `run_command`, `run_commands`, `proc_start`, `proc_output`, `quality_gate` |
 | Git | `git_status`, `git_diff`, `review_diff`, guarded `git` helper |
 | Safety | `policy_status`, `explain_risk`, `request_approval`, `request_approval_batch` |
+| Permissions | named multi-root profiles, per-path rights, deny rules, temporary grants |
+| Browser preview | one paired/armed Chrome tab through bounded `browser_*` tools |
+| Windows power | opt-in `system_power_status`, `schedule_system_shutdown`, `cancel_system_shutdown` |
 | Dashboard | health score, latency, tool calls, approvals, file viewer, git diff |
 | Workflow | notes, checkpoints, session reports, task state, decision log, skills |
 
@@ -352,10 +395,19 @@ cd tray-app
 dotnet build LocalCodingAgentTray.csproj -c Release
 ```
 
-### License
+### License And Trademark
 
-[AGPL-3.0-or-later](LICENSE) © 2026 Long Nguyễn
+The Local Coding Agent Community Edition code is licensed under
+[AGPL-3.0-or-later](LICENSE). Copyright © 2026 Long Nguyễn
 ([@LongNgn204](https://github.com/LongNgn204)).
+
+The code license does not grant permission to present a fork, service, or
+modified binary as an official Local Coding Agent release. See
+[NOTICE.md](NOTICE.md), [TRADEMARKS.md](TRADEMARKS.md), and
+[BRAND-GUIDELINES.md](BRAND-GUIDELINES.md). The owner can use the
+[trademark registration checklist](docs/TRADEMARK-REGISTRATION-CHECKLIST.md) to
+prepare a formal filing. Local Coding Agent is an independent project and is not
+an official product of OpenAI or any other MCP client vendor.
 
 ---
 
@@ -478,6 +530,9 @@ Tải file `.exe` self-contained từ
 [Releases](https://github.com/LongNgn204/local-coding-agent/releases), hoặc tự
 build:
 
+Tải trực tiếp bản Windows x64 mới nhất:
+[LocalCodingAgentTray-5.0.0-preview.12-win-x64.exe](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.0-preview.12/LocalCodingAgentTray-5.0.0-preview.12-win-x64.exe).
+
 ```powershell
 cd tray-app
 powershell -ExecutionPolicy Bypass -File build.ps1
@@ -531,65 +586,26 @@ Lệnh in ra tóm tắt gọn và ghi file `support-report.txt` đã redact (phi
 Node, cổng 8787/8790, có tunnel-client hay không, health, lỗi gần đây). Nó không
 cần tunnel client độc quyền và không bao giờ ghi key hay token.
 
-### v5 Preview (Thử Nghiệm)
+### Quy Trình Chống Lag Prodev
 
-**Vì sao:** ChatGPT Web bị lag khi một thread tích nhiều tin nhắn, log, khối
-code, ảnh chụp và output tool dài. v5 preview giữ thông tin nặng ở **máy cục bộ**
-và chỉ gửi cho ChatGPT tóm tắt gọn kèm liên kết.
+v4.4.1-prodev giảm lag ChatGPT Web bằng cách thu nhỏ default output của tool và
+hướng AI agent đọc đúng phần cần thiết thay vì đổ log, diff, base64 hoặc danh
+sách icon khổng lồ vào chat.
 
-**Bật (tùy chọn):**
+- `read_file` có default output gọn hơn, nhưng vẫn tăng được `max_chars` khi cần
+  đọc đúng một phần mục tiêu.
+- `run_command` có default output gọn hơn, nhưng vẫn dùng được
+  `max_output_chars`, `head_lines` và `tail_lines` khi debug.
+- `read_many` có batch cap mặc định nhỏ hơn để một call không làm nghẹt thread
+  ChatGPT dài.
+- Dashboard tips báo `large_payloads` và `command_heavy` để nhắc chuyển sang
+  line range, glob và tóm tắt gọn.
+- Prompt cho khách giờ nhắc rõ AI agent không được dán full log, diff, base64,
+  image/icon inventory hoặc report dài vào chat.
 
-```powershell
-$env:AGENT_V5_PREVIEW="1"
-node scripts\local-coding-agent.mjs start --workspace "C:\path\repo" --no-tunnel
-```
-
-Khi tắt cờ, hành vi ổn định của v4 không đổi.
-
-**Khi bật sẽ có thêm:**
-
-- Tool MCP mới: `save_report`, `read_report`, `list_reports`, `preview_status`.
-  Thay vì dán log khổng lồ vào chat, agent gọi `save_report(title, content)`;
-  ChatGPT chỉ nhận tóm tắt đầu/cuối + report id + link dashboard cục bộ. Lấy
-  từng phần sau bằng `read_report(id, offset_lines, limit_lines)`.
-- **Bảng v5 preview** trên dashboard cục bộ (`http://127.0.0.1:8790/ui`): phiên
-  bản, health, workspace roots, số lượt gọi tool, lỗi gần đây, và danh sách
-  report cục bộ có **phân trang** (không đổ hàng nghìn dòng cùng lúc).
-- `healthz` báo `preview_version` và `preview_enabled`.
-
-**Quy trình cho tác vụ lớn (giảm lag):**
-
-1. Mở **thread ChatGPT mới** cho tác vụ lớn; đừng dồn tiếp vào thread dài đang lag.
-2. Yêu cầu agent đọc file bằng tool MCP thay vì dán nội dung lớn vào chat.
-3. Khi output dài (log build, test lỗi, diff), bảo agent `save_report` rồi chỉ
-   chia sẻ id + link dashboard.
-4. Mở dashboard để đọc toàn bộ nội dung cục bộ; xem từng trang ở đó hoặc dùng
-   `read_report`.
-
-Hướng dẫn đầy đủ: [docs/V5_PREVIEW.md](docs/V5_PREVIEW.md).
-
-#### v5.0.0-preview.2: Trình quản lý sub-agent cục bộ
-
-> **ChatGPT Web không chạy sub-agent thật ở đây. ChatGPT gọi tool MCP; Local
-> Coding Agent chạy và theo dõi các tác vụ sub-agent cục bộ.**
-
-Khi bật preview, server có thể chạy các tác vụ "sub-agent" chuyên biệt ngay tại
-máy và giữ log/report nặng ở máy bạn. ChatGPT chỉ nhận trạng thái gọn + tóm tắt
-+ đường dẫn cục bộ.
-
-- **Tool MCP:** `create_local_task`, `list_local_tasks`, `get_local_task_status`,
-  `get_local_task_result` (gọn, `max_chars`), `cancel_local_task`.
-- **Vai trò:** `repo_setup`, `bug_fix`, `network_check`,
-  `release_prep`, `docs_update`, `safety_review`.
-- **Dashboard:** bảng **Local sub-agents** (huy hiệu trạng thái, vai trò, tóm
-  tắt, bấm id để tải các dòng mới nhất tại máy).
-- **CLI:** `node scripts/local-coding-agent.mjs agents list|roles|spawn|clean`.
-
-Report/log lưu tại `server/data/workspaces/<id>/agents/` và được redact (key,
-token, tunnel id) trước khi ghi. Provider `script_runner` đã có;
-`claude_cli`/`codex_cli`/`openai_api` được phát hiện nhưng chưa chạy.
-
-Hướng dẫn đầy đủ: [docs/V5_SUBAGENTS.md](docs/V5_SUBAGENTS.md).
+Với tác vụ lớn, hãy mở thread ChatGPT mới, gọi `workspace_snapshot` trước, chỉ
+đọc đúng line range cần thiết và giữ artifact thô trong file local hoặc support
+report.
 
 ### Tính Năng
 
@@ -601,6 +617,9 @@ Hướng dẫn đầy đủ: [docs/V5_SUBAGENTS.md](docs/V5_SUBAGENTS.md).
 | Command | `run_command`, `run_commands`, `proc_start`, `proc_output`, `quality_gate` |
 | Git | `git_status`, `git_diff`, `review_diff`, helper `git` có guard |
 | An toàn | `policy_status`, `explain_risk`, `request_approval`, `request_approval_batch` |
+| Phân quyền | profile nhiều root, quyền theo path, deny rule, quyền tạm thời |
+| Browser preview | một tab Chrome được pair/arm qua các tool `browser_*` có giới hạn |
+| Nguồn Windows | `system_power_status`, `schedule_system_shutdown`, `cancel_system_shutdown` có opt-in |
 | Dashboard | health score, latency, tool calls, approvals, file viewer, git diff |
 | Workflow | notes, checkpoints, session reports, task state, decision log, skills |
 
@@ -665,7 +684,16 @@ cd tray-app
 dotnet build LocalCodingAgentTray.csproj -c Release
 ```
 
-### Giấy Phép
+### Giấy Phép Và Nhãn Hiệu
 
-[AGPL-3.0-or-later](LICENSE) © 2026 Long Nguyễn
+Mã nguồn Local Coding Agent Community Edition được phát hành theo
+[AGPL-3.0-or-later](LICENSE). Bản quyền © 2026 Long Nguyễn
 ([@LongNgn204](https://github.com/LongNgn204)).
+
+Giấy phép code không cấp quyền giới thiệu một fork, dịch vụ hoặc binary đã sửa
+đổi như bản phát hành Local Coding Agent chính thức. Xem
+[NOTICE.md](NOTICE.md), [TRADEMARKS.md](TRADEMARKS.md) và
+[BRAND-GUIDELINES.md](BRAND-GUIDELINES.md). Chủ dự án có thể dùng
+[checklist đăng ký nhãn hiệu](docs/TRADEMARK-REGISTRATION-CHECKLIST.md) để chuẩn
+bị hồ sơ chính thức. Local Coding Agent là dự án độc lập, không phải sản phẩm
+chính thức của OpenAI hoặc bất kỳ nhà cung cấp MCP client nào khác.

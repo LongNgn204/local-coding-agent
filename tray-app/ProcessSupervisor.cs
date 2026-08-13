@@ -32,6 +32,11 @@ public sealed class ProcessSupervisor : IDisposable
             StopServer();
             System.Threading.Thread.Sleep(400);
         }
+        else if (_node is not null)
+        {
+            _node.Dispose();
+            _node = null;
+        }
 
         if (!File.Exists(Path.Combine(cfg.McpAppDir, cfg.ServerScript)))
             throw new FileNotFoundException($"server script not found: {Path.Combine(cfg.McpAppDir, cfg.ServerScript)}");
@@ -53,9 +58,12 @@ public sealed class ProcessSupervisor : IDisposable
         psi.Environment["AGENT_MODE"] = cfg.Mode;
         psi.Environment["AGENT_POLICY"] = cfg.Policy;
         psi.Environment["AGENT_EXTRA_ROOTS"] = cfg.ExtraRoots;
+        psi.Environment["AGENT_PERMISSION_PROFILE_FILE"] = cfg.PermissionProfileFile;
+        psi.Environment["AGENT_PERMISSION_PROFILE_NAME"] = cfg.PermissionProfileName;
         psi.Environment["MCP_AUTH_TOKEN"] = cfg.AuthToken;
-        // v5.0.0-preview.1 opt-in anti-lag preview (off by default keeps stable v4).
+        // Public preview flag; users can disable it to retain stable behavior.
         psi.Environment["AGENT_V5_PREVIEW"] = cfg.V5Preview ? "1" : "0";
+        psi.Environment["AGENT_ALLOW_SYSTEM_SHUTDOWN"] = cfg.AllowSystemShutdown ? "1" : "0";
 
         _node = new Process { StartInfo = psi, EnableRaisingEvents = true };
         _node.OutputDataReceived += (_, e) => { if (e.Data is not null) Log("[server] " + e.Data); };
@@ -64,12 +72,20 @@ public sealed class ProcessSupervisor : IDisposable
         _node.Start();
         _node.BeginOutputReadLine();
         _node.BeginErrorReadLine();
-        Log($"[supervisor] started node {cfg.ServerScript} (PORT={cfg.Port}, mode={cfg.Mode})");
+        var permissionState = string.IsNullOrWhiteSpace(cfg.PermissionProfileName)
+            ? $"legacy mode={cfg.Mode}"
+            : $"profile={cfg.PermissionProfileName}";
+        Log($"[supervisor] started node {cfg.ServerScript} (PORT={cfg.Port}, {permissionState})");
     }
 
     public void StartTunnel(AppConfig cfg, string key)
     {
         if (TunnelRunning) return;
+        if (_tunnel is not null)
+        {
+            _tunnel.Dispose();
+            _tunnel = null;
+        }
         if (!File.Exists(cfg.TunnelExe))
             throw new FileNotFoundException($"tunnel-client.exe not found: {cfg.TunnelExe}");
         if (string.IsNullOrEmpty(key))
@@ -139,6 +155,7 @@ public sealed class ProcessSupervisor : IDisposable
             if (p is { HasExited: false })
             {
                 p.Kill(entireProcessTree: true);
+                p.WaitForExit(3000);
                 Log($"[supervisor] stopped {label}");
             }
         }
@@ -170,6 +187,7 @@ public sealed class ProcessSupervisor : IDisposable
             try
             {
                 p.Kill(entireProcessTree: true);
+                p.WaitForExit(3000);
                 killed++;
                 log?.Invoke($"[supervisor] killed stray node PID {p.Id}");
             }
@@ -183,6 +201,7 @@ public sealed class ProcessSupervisor : IDisposable
             try
             {
                 p.Kill(entireProcessTree: true);
+                p.WaitForExit(3000);
                 killed++;
                 log?.Invoke($"[supervisor] killed tunnel PID {p.Id}");
             }

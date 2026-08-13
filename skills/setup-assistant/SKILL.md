@@ -1,13 +1,13 @@
 ---
 name: setup-assistant
-description: Guide a customer through installing, configuring, and verifying Local Coding Agent with safe defaults (v5 preview skill).
+description: Guide a customer through installing, configuring, and verifying Local Coding Agent with safe defaults.
 ---
 
-# Setup Assistant (v5 preview)
+# Setup Assistant
 
 Use this when a customer wants their AI agent to install and verify Local
-Coding Agent from scratch. This is a v5 preview skill: it keeps the ChatGPT
-thread light by pointing at local tools instead of pasting long output.
+Coding Agent from scratch. It keeps the ChatGPT thread light by pointing at
+local tools instead of pasting long output.
 
 ## Rules
 
@@ -32,12 +32,11 @@ thread light by pointing at local tools instead of pasting long output.
    - Health: `http://127.0.0.1:8787/healthz`
    - Dashboard: `http://127.0.0.1:8790/ui`
    - Tools: run `npm run test:agent` from `server/`.
-6. Optional v5 preview: set `AGENT_V5_PREVIEW=1` before start to expose the
-   anti-lag report tools and the dashboard v5 panel.
+6. For long output, keep raw logs in local report/support files and return only
+   a compact summary.
 
 ## Report Back
 
 Return: repo path, workspace path, MCP URL, dashboard URL, mode/policy,
 whether health is `ok`, and the exact next fix for anything missing. For long
-logs, save them with `save_report` (v5) or attach the local file path instead
-of pasting them into chat.
+logs, attach the local file path instead of pasting them into chat.

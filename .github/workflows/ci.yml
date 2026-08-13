@@ -40,6 +40,9 @@ jobs:
           node --check agent-manager.mjs
           node --check test-agents.mjs
           node --test test-agents.mjs
+          node --check permission-resolver.mjs
+          node --test permission-resolver.test.mjs
+          node --test ../scripts/permission-cli.test.mjs
           node --check ../evals/run.mjs
           node --check ../scripts/local-coding-agent.mjs
           node --check ../scripts/network-doctor.mjs
@@ -101,6 +104,7 @@ jobs:
             npm run test:pro
             npm run test:security
             npm run test:hardening
+            npm run test:permissions
           } finally {
             Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $ws -Recurse -Force -ErrorAction SilentlyContinue
@@ -147,6 +151,30 @@ jobs:
         working-directory: server
       - run: npm run eval
         working-directory: server
+
+  desktop-app:
+    name: Local Codex Studio (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop-app/package-lock.json
+      - name: Install locked desktop dependencies
+        run: npm ci
+        working-directory: desktop-app
+      - name: Test, build, and audit desktop app
+        run: |
+          npm test
+          npm run build
+          npm audit --audit-level=high
+        working-directory: desktop-app
 
   studio-v5:
     name: Studio v5 security (${{ matrix.os }})

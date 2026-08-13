@@ -322,6 +322,11 @@ export function codexSandboxForMode(mode) {
   return String(mode) === "full" ? "workspace-write" : "read-only";
 }
 
+export function codexSandboxForMeta(meta = {}) {
+  if (["read-only", "workspace-write"].includes(String(meta.sandbox_mode))) return String(meta.sandbox_mode);
+  return codexSandboxForMode(meta.mode);
+}
+
 /**
  * Pure builder for the `codex exec` argument vector (unit-tested). Does NOT
  * include the prompt itself: the prompt is fed on stdin (args end with "-").
@@ -329,10 +334,22 @@ export function codexSandboxForMode(mode) {
  */
 export function buildCodexExecArgs(meta, opts = {}) {
   const args = ["exec"];
-  args.push("--sandbox", codexSandboxForMode(meta.mode));
+  const sandbox = codexSandboxForMeta(meta);
+  args.push("--sandbox", sandbox);
   args.push("--skip-git-repo-check");
   args.push("--color", "never");
   if (meta.workspace_root) args.push("--cd", meta.workspace_root);
+  if (sandbox === "workspace-write") {
+    const working = meta.workspace_root ? path.resolve(meta.workspace_root) : null;
+    const seen = new Set(working ? [process.platform === "win32" ? working.toLowerCase() : working] : []);
+    for (const root of Array.isArray(meta.writable_roots) ? meta.writable_roots : []) {
+      const absolute = path.resolve(String(root));
+      const key = process.platform === "win32" ? absolute.toLowerCase() : absolute;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      args.push("--add-dir", absolute);
+    }
+  }
   if (opts.outputFile) args.push("--output-last-message", opts.outputFile);
   args.push("-"); // read the prompt from stdin (no shell quoting of user text)
   return args;
@@ -342,13 +359,21 @@ export function buildCodexExecArgs(meta, opts = {}) {
 export function buildCodexPrompt(meta) {
   const role = ROLES[meta.role];
   const roleLine = role ? `You are acting as the "${role.name}" specialist: ${role.description}` : "";
+  const permissionLines = Array.isArray(meta.permission_roots) && meta.permission_roots.length
+    ? [
+        "",
+        `Permission profile: ${meta.permission_profile || "task"}`,
+        ...meta.permission_roots.map((root) => `- ${root.path} [${root.preset}; fs=${root.filesystem}; commands=${root.commands}]`)
+      ]
+    : [];
   return [
     roleLine,
     "Keep your output concise. Do the task, then end your final message with a short",
     "3-6 line summary of what you did or found.",
     "",
     "TASK:",
-    meta.task
+    meta.task,
+    ...permissionLines
   ].filter(Boolean).join("\n");
 }
 
@@ -432,7 +457,7 @@ const codexCli = {
     const logLines = [
       `[${isoNow()}] agent ${meta.agent_id} started (role=${meta.role}, provider=codex_cli)`,
       `[${isoNow()}] codex ${args.join(" ")}`,
-      `[${isoNow()}] sandbox=${codexSandboxForMode(meta.mode)} cwd=${meta.workspace_root} timeout=${runtimeMs}ms`,
+      `[${isoNow()}] sandbox=${codexSandboxForMeta(meta)} cwd=${meta.workspace_root} writable_roots=${(meta.writable_roots || []).length} timeout=${runtimeMs}ms`,
       ""
     ];
 
@@ -683,7 +708,7 @@ export class AgentManager {
     await writeFile(this.indexPath, `${JSON.stringify(list, null, 2)}\n`, "utf8");
   }
 
-  async spawn({ role, title, task, workspace_root, max_runtime_ms, dry_run = false, provider = "script_runner" } = {}) {
+  async spawn({ role, title, task, workspace_root, max_runtime_ms, dry_run = false, provider = "script_runner", sandbox_mode, writable_roots = [], permission_profile = null, permission_roots = [] } = {}) {
     getRole(role); // throws on invalid role
     if (!task || !String(task).trim()) throw new Error("task is required");
     if (!this.providers[provider]) throw new Error(`Unknown provider "${provider}".`);
@@ -697,6 +722,10 @@ export class AgentManager {
       workspace_root: workspace_root || this.defaultWorkspace,
       mode: this.mode,
       policy: this.policy,
+      sandbox_mode: sandbox_mode || null,
+      writable_roots: Array.isArray(writable_roots) ? writable_roots.map(String) : [],
+      permission_profile: permission_profile ? String(permission_profile) : null,
+      permission_roots: Array.isArray(permission_roots) ? permission_roots : [],
       max_runtime_ms: Number(max_runtime_ms) || null,
       dry_run: Boolean(dry_run),
       pid: null,

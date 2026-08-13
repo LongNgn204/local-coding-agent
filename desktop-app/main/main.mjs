@@ -90,6 +90,18 @@ function registerIpc() {
 
   ipcMain.handle("studio:setConfig", (_e, cfg) => config.set(cfg || {}));
 
+  ipcMain.handle("studio:getPermissionProfiles", () => ({ file: config.permissionFile, store: config.getPermissionStore() }));
+
+  ipcMain.handle("studio:setPermissionProfiles", (_e, store) => config.setPermissionStore(store));
+
+  ipcMain.handle("studio:pickPermissionRoot", async () => {
+    const res = await dialog.showOpenDialog(win, {
+      title: "Add authorized path",
+      properties: ["openDirectory", "createDirectory"]
+    });
+    return res.canceled || !res.filePaths.length ? null : res.filePaths[0];
+  });
+
   ipcMain.handle("studio:pickWorkspace", async () => {
     const res = await dialog.showOpenDialog(win, {
       title: "Pick workspace folder",
@@ -98,6 +110,22 @@ function registerIpc() {
     if (res.canceled || !res.filePaths.length) return null;
     const picked = res.filePaths[0];
     config.set({ workspace: picked });
+    const store = config.getPermissionStore();
+    const active = store.active_profile || "default";
+    const profile = store.profiles[active] || {
+      version: 1,
+      name: active,
+      description: "Private Local Codex Studio profile",
+      roots: []
+    };
+    profile.working_directory = picked;
+    const roots = Array.isArray(profile.roots) ? profile.roots : [];
+    if (roots.length) roots[0] = { ...roots[0], label: roots[0].label || "Primary workspace", path: picked };
+    else roots.push({ label: "Primary workspace", path: picked, preset: "develop" });
+    profile.roots = roots;
+    store.profiles[active] = profile;
+    store.active_profile = active;
+    config.setPermissionStore(store);
     return picked;
   });
 
@@ -107,23 +135,32 @@ function registerIpc() {
     const mode = opts.mode || cfg.mode || "safe";
     if (workspace) config.set({ workspace });
     if (mode) config.set({ mode });
+    const permission = config.setPermissionStore(config.getPermissionStore());
+    const permissionProfileName = opts.permissionProfileName || permission.store.active_profile;
 
     if (backend && backend.running) {
       // Already running: if mode/workspace changed, restart to apply.
       const h = await backend.health();
       const sameWs = !workspace || h.workspace === path.resolve(workspace);
       const sameMode = h.mode === mode;
-      if (sameWs && sameMode) return h;
+      const sameProfile = h.permission_profile === permissionProfileName;
+      if (!opts.forceRestart && sameWs && sameMode && sameProfile) return h;
       await backend.stop();
       backend = null;
     }
     if (!backend) {
-      backend = new StudioBackend({ workspace, mode, onLog: pushLog });
+      backend = new StudioBackend({
+        workspace,
+        mode,
+        permissionProfileFile: permission.file,
+        permissionProfileName,
+        onLog: pushLog
+      });
     }
     console.log(`[studio] starting server: workspace=${workspace || "(none)"} mode=${mode}`);
     dbg(`start invoked workspace=${workspace || "(none)"} mode=${mode}`);
     try {
-      const h = await backend.start({ workspace, mode });
+      const h = await backend.start({ workspace, mode, permissionProfileFile: permission.file, permissionProfileName });
       console.log(`[studio] server ${h.ok ? "up" : "not-ok"} port=${h.port} pid=${h.pid} preview=${h.preview_version}`);
       dbg(`start result ok=${h.ok} port=${h.port} pid=${h.pid} preview=${h.preview_version} reason=${h.reason || ""}`);
       return h;

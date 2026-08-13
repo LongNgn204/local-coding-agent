@@ -1,9 +1,9 @@
 {
   "schema": "lca-skill/v1",
   "name": "release-helper",
-  "version": "5.0.0-preview.1",
-  "experimental": true,
-  "description": "Prepare a safe Local Coding Agent release or preview build, including version checks, tests, and changelog.",
+  "version": "4.4.1-prodev",
+  "experimental": false,
+  "description": "Prepare a safe Local Coding Agent release build, including version checks, tests, and changelog.",
   "tags": ["release", "versioning", "ci", "changelog"],
   "instructions": "SKILL.md",
   "readme": "README.md",

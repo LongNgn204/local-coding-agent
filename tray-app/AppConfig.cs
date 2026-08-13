@@ -21,6 +21,8 @@ public class AppConfig
     public string OrganizationId { get; set; } = "";
     public string Workspace { get; set; } = "";
     public string ExtraRoots { get; set; } = "";
+    public string PermissionProfileFile { get; set; } = "";
+    public string PermissionProfileName { get; set; } = "";
     public string Mode { get; set; } = "safe";
     public string Policy { get; set; } = "balanced";
     public int Port { get; set; } = 8787;
@@ -28,10 +30,16 @@ public class AppConfig
     public string AuthToken { get; set; } = "";
     public bool OpenWebUi { get; set; } = true;
 
-    /// <summary>v5.0.0-preview.1 (experimental). When true, the server starts with
-    /// AGENT_V5_PREVIEW=1 to enable the opt-in local-first anti-lag tools and the
-    /// dashboard v5 panel. Off = unchanged stable v4 behavior.</summary>
-    public bool V5Preview { get; set; } = false;
+    /// <summary>Experimental public-preview features. Stable behavior remains
+    /// available when this switch is disabled.</summary>
+    public bool V5Preview { get; set; } = true;
+
+    /// <summary>
+    /// Explicit local opt-in for the dedicated schedule_system_shutdown tool.
+    /// Once enabled, an explicit prompt can shut down immediately without a
+    /// second dashboard approval. Raw power commands remain blocked.
+    /// </summary>
+    public bool AllowSystemShutdown { get; set; } = false;
 
     /// <summary>DPAPI-encrypted (CurrentUser) tunnel key, base64. Never stored in plain text.</summary>
     public string EncryptedKey { get; set; } = "";
@@ -42,6 +50,10 @@ public class AppConfig
 
     [JsonIgnore]
     public static string ConfigPath => Path.Combine(ConfigDir, "config.json");
+
+    [JsonIgnore]
+    public static string DefaultPermissionProfilePath =>
+        Path.Combine(ConfigDir, "permission-profiles.json");
 
     [JsonIgnore]
     public bool HasKey => !string.IsNullOrEmpty(EncryptedKey);

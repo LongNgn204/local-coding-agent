@@ -367,6 +367,9 @@ function diagnoseTunnelLog(raw) {
   if (text.includes("poll failed") || text.includes("backing off")) {
     hints.push("Tunnel polling failed and backed off: network path to the control plane is unstable or blocked.");
   }
+  if (/\b503\b/.test(text) && (text.includes("upstream connect error") || text.includes("reset before headers") || text.includes("connection termination"))) {
+    hints.push("Control plane returned HTTP 503 before response headers. The tunnel is already retrying; one isolated event is usually transient upstream, while repeated events indicate an unstable or filtered network path.");
+  }
   if (text.includes("tunnel_active_organization_required")) {
     hints.push("Organization header is required. Provide --organization-id for the OpenAI organization that owns the tunnel.");
   }

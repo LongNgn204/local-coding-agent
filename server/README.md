@@ -48,16 +48,15 @@ npm start
 | `AGENT_MODE` | `safe` | Command guardrail. `safe` = conservative blocklist; `full` = fewer app-level command blocks. Not an OS sandbox. |
 | `AGENT_POLICY` | `balanced` | Tool policy. `strict` = read-only; `balanced` = local approval for risky actions; `full` = no policy approval gate. |
 | `AGENT_ALLOW_DANGEROUS` | _(unset)_ | `1` allows even catastrophic system commands. Leave unset. |
+| `AGENT_ALLOW_SYSTEM_SHUTDOWN` | _(unset)_ | Public preview, Windows only. `1` enables the dedicated prompt-requested shutdown tools. Explicit shutdown prompts execute immediately by default without dashboard approval; raw power commands remain blocked. |
 | `MCP_AUTH_TOKEN` | _(empty)_ | If set, every `/mcp` request must send `Authorization: Bearer <token>`. |
 | `MCP_ALLOWED_ORIGINS` | _(empty)_ | Trusted browser origins for `/mcp`. Empty rejects browser-origin MCP calls. |
 | `AGENT_APPROVAL_TOKEN` | _(empty)_ | Optional secret for MCP-based approval tools. Prefer dashboard approvals. |
 | `AGENT_APPROVAL_TTL_MINUTES` | `10` | Exact approval expiry, clamped to 1-30 minutes. |
-| `AGENT_MAX_BATCH_READ_CHARS` | `500000` | Combined text cap for one `read_many` response. |
+| `AGENT_MAX_BATCH_READ_CHARS` | `120000` | Combined text cap for one `read_many` response. Keeps ChatGPT Web responsive on large tasks. |
 | `DASHBOARD_PORT` | `8790` | Local-only metrics dashboard. `0` disables it. (Avoid 8788 — the OpenAI tunnel uses it.) |
-| `AGENT_READ_DEFAULT` | `30000` | Default chars `read_file` returns (raise per-call via `max_chars`). Keeps payloads + context small. |
-| `AGENT_CMD_OUTPUT_DEFAULT` | `20000` | Default chars of command output returned (use `tail_lines`/`head_lines`/`max_output_chars`). |
-| `AGENT_V5_PREVIEW` | _(unset)_ | v5.0.0-preview.1 (experimental). `1` enables opt-in anti-lag tools (`save_report`/`read_report`/`list_reports`/`preview_status`) + the dashboard v5 panel. Off = unchanged stable v4. See [../docs/V5_PREVIEW.md](../docs/V5_PREVIEW.md). |
-| `AGENT_MAX_REPORTS` | `200` | Max stored preview reports before trimming oldest (10-5000). Only used when the preview is enabled. |
+| `AGENT_READ_DEFAULT` | `12000` | Default chars `read_file` returns (raise per-call via `max_chars`). Keeps payloads + context small. |
+| `AGENT_CMD_OUTPUT_DEFAULT` | `8000` | Default chars of command output returned (use `tail_lines`/`head_lines`/`max_output_chars`). |
 
 ## Test
 

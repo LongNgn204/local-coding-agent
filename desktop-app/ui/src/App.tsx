@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AppConfig, HealthInfo, TaskRow, TaskDetail as Detail } from "../env";
+import type { AppConfig, HealthInfo, PermissionStore, TaskRow, TaskDetail as Detail } from "../env";
 import { TaskList } from "./TaskList";
 import { Composer } from "./Composer";
 import { TaskDetail } from "./TaskDetail";
+import { PermissionPanel } from "./PermissionPanel";
 
 const REFRESH_MS = 3000;
 
@@ -16,6 +17,9 @@ export function App() {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [lastLog, setLastLog] = useState<string>("");
+  const [permissionFile, setPermissionFile] = useState("");
+  const [permissionStore, setPermissionStore] = useState<PermissionStore | null>(null);
+  const [showPermissions, setShowPermissions] = useState(true);
 
   const engine = config?.engine || "codex_cli";
   const running = health.ok;
@@ -25,6 +29,9 @@ export function App() {
     (async () => {
       const cfg = await window.studio.getConfig();
       setConfig(cfg);
+      const permissions = await window.studio.getPermissionProfiles();
+      setPermissionFile(permissions.file);
+      setPermissionStore(permissions.store);
       if (cfg.workspace) {
         await startServer(cfg);
       }
@@ -40,7 +47,8 @@ export function App() {
     try {
       const h = await window.studio.start({
         workspace: cfg?.workspace,
-        mode: cfg?.mode
+        mode: cfg?.mode,
+        permissionProfileName: cfg?.activePermissionProfile
       });
       setHealth(h);
       if (!h.ok) setBanner(`Server failed to start: ${h.reason || "unknown"}`);
@@ -107,6 +115,9 @@ export function App() {
     if (ws && config) {
       const next = { ...config, workspace: ws };
       setConfig(next);
+      const permissions = await window.studio.getPermissionProfiles();
+      setPermissionFile(permissions.file);
+      setPermissionStore(permissions.store);
       await startServer(next);
     }
   }
@@ -125,7 +136,32 @@ export function App() {
     setConfig({ ...config, engine: eng });
   }
 
-  async function runTask(args: { role: string; task: string; title?: string }) {
+  async function savePermissionProfiles(store: PermissionStore, restart = false) {
+    setStarting(true);
+    setBanner(null);
+    try {
+      const saved = await window.studio.setPermissionProfiles(store);
+      setPermissionFile(saved.file);
+      setPermissionStore(saved.store);
+      const cfg = await window.studio.getConfig();
+      setConfig(cfg);
+      if (running) {
+        const h = await window.studio.start({
+          workspace: cfg.workspace,
+          mode: cfg.mode,
+          permissionProfileName: cfg.activePermissionProfile,
+          forceRestart: restart || running
+        });
+        setHealth(h);
+      }
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : String(error));
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  async function runTask(args: { role: string; task: string; title?: string; workspaceRoot?: string }) {
     const res = await window.studio.createTask({ ...args, engine });
     await refresh();
     if (res.task_id) setSelectedId(res.task_id);
@@ -165,6 +201,9 @@ export function App() {
         </div>
         <button className="btn small" onClick={pickWorkspace}>
           Change
+        </button>
+        <button className="btn small" onClick={() => setShowPermissions((value) => !value)}>
+          Paths ({permissionStore?.profiles[permissionStore.active_profile]?.roots.length || health.roots?.length || 0})
         </button>
 
         <div className="field">
@@ -211,7 +250,22 @@ export function App() {
             </div>
           )}
 
-          <Composer engine={engine} disabled={!running} onRun={runTask} />
+          {showPermissions && permissionStore && Object.keys(permissionStore.profiles).length > 0 && (
+            <PermissionPanel
+              file={permissionFile}
+              store={permissionStore}
+              busy={starting}
+              onSave={savePermissionProfiles}
+              onPickRoot={() => window.studio.pickPermissionRoot()}
+            />
+          )}
+
+          <Composer
+            engine={engine}
+            roots={permissionStore?.profiles[permissionStore.active_profile]?.roots || []}
+            disabled={!running}
+            onRun={runTask}
+          />
 
           {detail ? (
             <TaskDetail detail={detail} onCancel={cancelTask} />

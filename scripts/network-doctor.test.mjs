@@ -32,6 +32,14 @@ test("recognizes a successful tunnel smoke test", () => {
   });
 });
 
+test("classifies upstream 503 polling failure as retrying control-plane trouble", () => {
+  const log = '{"level":"WARN","msg":"poll failed; backing off","error":"controlplane client: unexpected status 503: upstream connect error or disconnect/reset before headers. reset reason: connection termination","retry_in_ms":200,"status_code":503}';
+  const hints = diagnoseTunnelLog(log);
+
+  assert.equal(hints.some((hint) => hint.includes("HTTP 503 before response headers")), true);
+  assert.equal(hints.some((hint) => hint.includes("already retrying")), true);
+});
+
 test("explains Node CA mismatch without declaring a working tunnel blocked", () => {
   const tlsFailure = (host) => ({
     name: `tls:${host}:443`,

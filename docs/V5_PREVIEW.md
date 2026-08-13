@@ -1,8 +1,23 @@
-# v5.0.0-preview.1 — Local-first anti-lag workflow
+# v5.0.0-preview.12 — Local-first, multi-root workflow
 
 > **Experimental.** This is a preview channel. Stable v4 behavior is unchanged
 > unless you opt in with `AGENT_V5_PREVIEW=1`. Do not depend on the preview API
 > shape staying stable across previews.
+
+Preview.8 also includes the local task-agent manager documented in
+[V5_SUBAGENTS.md](V5_SUBAGENTS.md), plus customer AI prompt generation, a
+non-destructive setup wizard report, a skills doctor for support triage, and
+the local-only Chrome Companion experiment documented in
+[`experiments/chrome-companion-preview/README.md`](../experiments/chrome-companion-preview/README.md).
+
+Preview.9 adds named multi-root permission profiles, per-path rights, deny
+rules, approved runtime grants, Codex CLI `--add-dir` integration, and a local
+profile manager. See [V5_MULTI_ROOT_PERMISSIONS.md](V5_MULTI_ROOT_PERMISSIONS.md).
+
+Preview.12 lets the Windows tray's explicit shutdown opt-in authorize the
+dedicated power tool directly. An explicit shutdown prompt now uses a zero-second
+delay by default and does not create a second dashboard approval request. Raw
+shutdown/restart commands remain blocked.
 
 English below, Tiếng Việt bên dưới. Both sections have the same meaning.
 
@@ -53,6 +68,24 @@ When enabled you get:
    **paginated** report list (max 20 rows per page, so the page never renders
    thousands of DOM nodes at once). JSON endpoint: `GET /api/v5`.
 4. **`healthz` fields** `preview_version` and `preview_enabled`.
+5. **Customer flow helpers:**
+   - `node scripts/local-coding-agent.mjs prompt setup`
+   - `node scripts/local-coding-agent.mjs prompt update`
+   - `node scripts/local-coding-agent.mjs prompt diagnose`
+   - `node scripts/local-coding-agent.mjs setup-wizard`
+   - `node scripts/local-coding-agent.mjs skills doctor`
+   The dashboard v5 panel also has copy buttons for the same ChatGPT/Claude
+   prompts.
+6. **Chrome Companion preview:** an unpacked Manifest V3 extension pairs with
+   the loopback dashboard server and exposes one operator-armed Chrome tab via
+   `browser_status`, `browser_snapshot`, `browser_screenshot`,
+   `browser_navigate`, `browser_tab_action`, `browser_click`, `browser_type`,
+   `browser_scroll`, `browser_press`, and `browser_select`. Preview.8 adds
+   compressed screenshots, viewport metadata, back/forward/reload, double
+   click, scrolling, bounded key presses, native select changes, manual Disarm,
+   capability reporting, and redacted last-action status. It is disabled unless
+   `AGENT_V5_PREVIEW=1` and is distributed as experimental source that users
+   load manually through Chrome's developer mode.
 
 ### How to actually reduce lag (recommended workflow)
 
@@ -71,6 +104,12 @@ When enabled you get:
 ### Limits and knobs
 
 - `AGENT_V5_PREVIEW` — enable the preview tools and instructions (default off).
+- `AGENT_BROWSER_PREVIEW=0` — keep the rest of v5 enabled but disable Chrome
+  Companion. Chrome Companion is enabled by default only inside the v5 preview.
+- When preview is enabled, chat-facing defaults are intentionally smaller:
+  `AGENT_READ_DEFAULT` defaults to 12,000 chars, `AGENT_CMD_OUTPUT_DEFAULT`
+  defaults to 8,000 chars, and `AGENT_MAX_BATCH_READ_CHARS` defaults to
+  120,000 chars. You can still override them for targeted reads.
 - `AGENT_MAX_REPORTS` — max stored reports before old ones are trimmed
   (default 200, bounded 10–5000).
 - Existing output limits still apply: `AGENT_READ_DEFAULT`,
@@ -129,6 +168,23 @@ Khi bật, bạn có:
    sách report **có phân trang** (tối đa 20 dòng mỗi trang, nên trang không bao
    giờ render hàng nghìn node DOM cùng lúc). Endpoint JSON: `GET /api/v5`.
 4. **Trường trong `healthz`:** `preview_version` và `preview_enabled`.
+5. **Công cụ hỗ trợ khách hàng:**
+   - `node scripts/local-coding-agent.mjs prompt setup`
+   - `node scripts/local-coding-agent.mjs prompt update`
+   - `node scripts/local-coding-agent.mjs prompt diagnose`
+   - `node scripts/local-coding-agent.mjs setup-wizard`
+   - `node scripts/local-coding-agent.mjs skills doctor`
+   Panel v5 trên dashboard cũng có nút copy cùng các prompt cho ChatGPT/Claude.
+6. **Chrome Companion preview:** extension Manifest V3 dạng load-unpacked ghép
+   với dashboard server loopback và chỉ cho MCP thao tác trên một tab do người
+   dùng chủ động bật. Các tool gồm `browser_status`, `browser_snapshot`,
+   `browser_screenshot`, `browser_navigate`, `browser_tab_action`,
+   `browser_click`, `browser_type`, `browser_scroll`, `browser_press` và
+   `browser_select`. Preview.8 bổ sung screenshot nén, metadata viewport,
+   back/forward/reload, double click, cuộn trang, nhấn phím giới hạn, đổi native
+   select, Disarm thủ công, báo capability và trạng thái hành động cuối đã rút
+   gọn. Tính năng chỉ bật khi `AGENT_V5_PREVIEW=1`. Phải giữ thử nghiệm này ở
+   local: không stage, commit, đóng gói hoặc phát hành chung với bản stable.
 
 ### Cách giảm lag thực sự (quy trình khuyến nghị)
 
@@ -146,6 +202,12 @@ Khi bật, bạn có:
 ### Giới hạn và tùy chỉnh
 
 - `AGENT_V5_PREVIEW` — bật tool và hướng dẫn preview (mặc định tắt).
+- `AGENT_BROWSER_PREVIEW=0` — vẫn bật các phần v5 khác nhưng tắt Chrome
+  Companion. Chrome Companion chỉ mặc định bật bên trong kênh v5 preview.
+- Khi bật preview, default trả dữ liệu vào chat sẽ nhỏ hơn có chủ ý:
+  `AGENT_READ_DEFAULT` mặc định 12.000 ký tự, `AGENT_CMD_OUTPUT_DEFAULT` mặc
+  định 8.000 ký tự, và `AGENT_MAX_BATCH_READ_CHARS` mặc định 120.000 ký tự. Bạn
+  vẫn có thể override khi cần đọc đúng phần mục tiêu.
 - `AGENT_MAX_REPORTS` — số report tối đa trước khi cắt bớt cái cũ
   (mặc định 200, trong khoảng 10–5000).
 - Các giới hạn output hiện có vẫn áp dụng: `AGENT_READ_DEFAULT`,

@@ -4,13 +4,14 @@
 
 import { spawnSync } from "node:child_process";
 import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-const ENDPOINT = process.env.TEST_ENDPOINT || "http://127.0.0.1:8787/mcp";
+const ENDPOINT = process.env.TEST_ENDPOINT;
+if (!ENDPOINT) throw new Error("Refusing destructive security test without explicit TEST_ENDPOINT.");
 const client = new Client({ name: "agent-security-test-client", version: "1.0.0" });
 const transport = new StreamableHTTPClientTransport(new URL(ENDPOINT));
 await client.connect(transport);
@@ -36,6 +37,17 @@ async function call(name, args) {
 
 const info = JSON.parse((await call("workspace_info", {})).text);
 const root = info.primary_root;
+
+function assertIsolatedTestWorkspace(workspace) {
+  const tempRoot = realpathSync.native(os.tmpdir());
+  const workspaceRoot = realpathSync.native(workspace);
+  const relative = path.relative(tempRoot, workspaceRoot);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Refusing destructive security test outside the system temp directory: ${workspaceRoot}`);
+  }
+}
+
+assertIsolatedTestWorkspace(root);
 
 // Default macOS volumes are commonly case-insensitive. A differently-cased
 // absolute path to the same root must remain inside the root after canonicalization.

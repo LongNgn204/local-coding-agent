@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
-import { createUpdateEnvelope, UpdateService } from "../core/update-service.mjs";
+import { createUpdateEnvelope, normalizeUpdateTrustPolicy, UpdateService } from "../core/update-service.mjs";
 
 const manifest = {
   productName: "Local Agent Studio",
@@ -172,6 +172,124 @@ test("update staging rejects an invalid platform signature and removes the artif
   } finally {
     rmSync(storage, { recursive: true, force: true });
   }
+});
+
+test("update trust policy rejects revoked signed releases before download", () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const storage = mkdtempSync(join(tmpdir(), "lca-update-trust-policy-"));
+  const revokedSha = "c".repeat(64);
+  try {
+    const service = new UpdateService({
+      storageDir: storage,
+      manifest,
+      publicKeyPem: publicKey.export({ type: "spki", format: "pem" }),
+      trustPolicy: {
+        revokedBuildNumbers: [500101],
+        revokedVersions: ["v5.0.2"],
+        revokedSha256: [revokedSha],
+        revokedCertificateThumbprints: ["D4".repeat(20)]
+      }
+    });
+    const revokedBuild = createUpdateEnvelope({
+      payload: updatePayload({ buildNumber: 500101, version: "v5.0.1" }),
+      privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" })
+    });
+    assert.throws(() => service.verifyEnvelope(revokedBuild), /build has been revoked/);
+
+    const revokedVersion = createUpdateEnvelope({
+      payload: updatePayload({ buildNumber: 500102, version: "v5.0.2" }),
+      privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" })
+    });
+    assert.throws(() => service.verifyEnvelope(revokedVersion), /version has been revoked/);
+
+    const revokedHash = createUpdateEnvelope({
+      payload: updatePayload({ buildNumber: 500103, version: "v5.0.3", sha256: revokedSha }),
+      privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" })
+    });
+    assert.throws(() => service.verifyEnvelope(revokedHash), /artifact hash has been revoked/);
+
+    const revokedManifestCert = createUpdateEnvelope({
+      payload: updatePayload({
+        buildNumber: 500104,
+        version: "v5.0.4",
+        signature: {
+          type: "authenticode",
+          publisher: "Local Coding Agent",
+          thumbprints: ["D4".repeat(20)]
+        }
+      }),
+      privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" })
+    });
+    assert.throws(() => service.verifyEnvelope(revokedManifestCert), /signing certificate has been revoked/);
+
+    assert.equal(service.status().trustPolicy.enabled, true);
+    assert.equal(service.status().trustPolicy.revokedBuilds, 1);
+  } finally {
+    rmSync(storage, { recursive: true, force: true });
+  }
+});
+
+test("update staging rejects a verified but revoked platform certificate", async () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const storage = mkdtempSync(join(tmpdir(), "lca-update-revoked-cert-"));
+  const bytes = Buffer.from("verified artifact signed by revoked cert");
+  try {
+    const service = new UpdateService({
+      storageDir: storage,
+      manifest,
+      publicKeyPem: publicKey.export({ type: "spki", format: "pem" }),
+      trustPolicy: { revokedCertificateThumbprints: ["E5".repeat(20)] },
+      signatureVerifier: {
+        verify: async (request) => ({
+          required: true,
+          verified: true,
+          platform: request.platform,
+          type: "authenticode",
+          publisher: "Local Coding Agent",
+          thumbprint: "E5".repeat(20),
+          reason: "Authenticode signature is valid."
+        })
+      }
+    });
+    const envelope = createUpdateEnvelope({
+      payload: updatePayload({
+        buildNumber: 500105,
+        version: "v5.0.5",
+        size: bytes.length,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        signature: {
+          type: "authenticode",
+          publisher: "Local Coding Agent",
+          thumbprints: []
+        }
+      }),
+      privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" })
+    });
+
+    await assert.rejects(() => service.stageArtifact(envelope, {
+      platform: "win32",
+      arch: "x64",
+      fetchImpl: async (url) => ({
+        ok: true,
+        status: 200,
+        url,
+        headers: { get: () => String(bytes.length) },
+        body: Readable.from([bytes])
+      })
+    }), /platform certificate has been revoked/);
+    const dir = join(storage, "updates", "staging");
+    assert.equal(readdirSync(dir).some((name) => name.includes(".partial-")), false);
+    assert.equal(service.readState().lastStaged, undefined);
+  } finally {
+    rmSync(storage, { recursive: true, force: true });
+  }
+});
+
+test("update trust policy normalization rejects malformed revocation entries", () => {
+  assert.throws(() => normalizeUpdateTrustPolicy({ revokedBuildNumbers: [0] }), /invalid build number/);
+  assert.throws(() => normalizeUpdateTrustPolicy({ revokedSha256: ["not-a-hash"] }), /invalid SHA-256/);
+  assert.throws(() => normalizeUpdateTrustPolicy({ revokedCertificateThumbprints: ["1234"] }), /invalid certificate thumbprint/);
+  assert.throws(() => normalizeUpdateTrustPolicy({ revokedTeamIds: ["bad"] }), /invalid TeamIdentifier/);
 });
 
 test("update staging rejects hash mismatch and removes partial files", async () => {

@@ -354,11 +354,40 @@ test("buildCodexExecArgs sets sandbox, cwd, non-interactive flags, stdin prompt"
   assert.equal(full[oIdx + 1], "/tmp/last.txt");
 });
 
+test("buildCodexExecArgs passes distinct writable roots through --add-dir", () => {
+  const working = path.resolve("/workspace");
+  const extraA = path.resolve("/shared-a");
+  const extraB = path.resolve("/shared-b");
+  const args = buildCodexExecArgs({
+    sandbox_mode: "workspace-write",
+    workspace_root: working,
+    writable_roots: [working, extraA, extraB, extraA]
+  });
+  const addDirs = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--add-dir") addDirs.push(args[i + 1]);
+  }
+  assert.deepEqual(addDirs, [extraA, extraB]);
+  const readOnly = buildCodexExecArgs({
+    sandbox_mode: "read-only",
+    workspace_root: working,
+    writable_roots: [extraA]
+  });
+  assert.equal(readOnly.includes("--add-dir"), false);
+});
+
 test("buildCodexPrompt includes the role and the task", () => {
-  const p = buildCodexPrompt({ role: "docs_update", task: "update the readme" });
+  const p = buildCodexPrompt({
+    role: "docs_update",
+    task: "update the readme",
+    permission_profile: "mono",
+    permission_roots: [{ path: "/workspace", preset: "develop", filesystem: "write", commands: "safe" }]
+  });
   assert.match(p, /docs_update/);
   assert.match(p, /update the readme/);
   assert.match(p, /summary/i);
+  assert.match(p, /Permission profile: mono/);
+  assert.match(p, /preset|develop/i);
 });
 
 test("detectProviders marks codex_cli implemented and honors PATH", () => {

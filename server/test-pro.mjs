@@ -4,8 +4,12 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { realpathSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
-const ENDPOINT = process.env.TEST_ENDPOINT || "http://127.0.0.1:8787/mcp";
+const ENDPOINT = process.env.TEST_ENDPOINT;
+if (!ENDPOINT) throw new Error("Refusing Pro fixture writes without explicit TEST_ENDPOINT.");
 const client = new Client({ name: "agent-pro-test-client", version: "1.0.0" });
 const transport = new StreamableHTTPClientTransport(new URL(ENDPOINT));
 await client.connect(transport);
@@ -30,7 +34,18 @@ async function callJson(name, args = {}) {
   return JSON.parse(text);
 }
 
+function assertIsolatedTestWorkspace(workspace) {
+  const tempRoot = realpathSync.native(os.tmpdir());
+  const workspaceRoot = realpathSync.native(workspace);
+  const relative = path.relative(tempRoot, workspaceRoot);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Refusing Pro fixture writes outside the system temp directory: ${workspaceRoot}`);
+  }
+}
+
 try {
+  const info = await callJson("workspace_info");
+  assertIsolatedTestWorkspace(info.primary_root);
   await callJson("write_file", {
     path: "package.json",
     content: JSON.stringify({ scripts: { test: "node --version", build: "node --version", lint: "node --version", typecheck: "node --version" }, dependencies: { express: "^4.0.0" } }, null, 2)
@@ -38,14 +53,13 @@ try {
   await callJson("write_file", { path: "README.md", content: "# Pro workspace\n" });
   await callJson("write_file", { path: "src/index.js", content: "export function hello(){ return 'pro'; }\n" });
 
-  const info = await callJson("workspace_info");
   check("workspace_info exposes pro tier", info.tier === "pro", `tier=${info.tier}`);
   check("workspace_info exposes policy", typeof info.policy === "string" && info.policy.length > 0);
 
   const snap = await callJson("workspace_snapshot", { depth: 3, max_entries: 120, include_symbols: true, refresh: true });
   check("snapshot kind is workspace_snapshot", snap.kind === "workspace_snapshot");
   check("snapshot is pro", snap.pro === true && snap.tier === "pro");
-  check("snapshot version is 4.4.0-pro", snap.version === "4.4.0-pro", `version=${snap.version}`);
+  check("snapshot version is 4.4.1-prodev", snap.version === "4.4.1-prodev", `version=${snap.version}`);
   check("snapshot includes safety model", snap.safety?.file_tools_root_confined === true && snap.safety?.command_os_sandbox === false);
   check("snapshot detects javascript", snap.profile?.languages?.includes("javascript"), JSON.stringify(snap.profile));
   check("snapshot detects test command", snap.commands?.test === "npm test", JSON.stringify(snap.commands));

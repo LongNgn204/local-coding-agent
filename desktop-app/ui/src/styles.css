@@ -369,6 +369,93 @@ textarea:focus {
   font-weight: 600;
 }
 
+.permission-card {
+  border-color: #31506f;
+}
+
+.permission-head,
+.permission-actions,
+.root-row,
+.root-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.permission-head {
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.permission-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.permission-note {
+  color: var(--text-dim);
+  background: #12283f;
+  border: 1px solid #1c3a5c;
+  border-radius: 6px;
+  padding: 7px 9px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.root-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.root-row {
+  align-items: flex-end;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-3);
+  padding: 8px;
+  flex-wrap: wrap;
+}
+
+.root-path {
+  min-width: 230px;
+  flex: 1 1 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.root-path code {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.root-path .tag {
+  align-self: flex-start;
+}
+
+.root-preset {
+  min-width: 205px;
+}
+
+.root-deny {
+  min-width: 190px;
+  flex: 1 1 210px;
+}
+
+.root-deny input {
+  width: 100%;
+}
+
+.root-buttons {
+  padding-bottom: 1px;
+}
+
 .composer-grid {
   display: flex;
   gap: 10px;

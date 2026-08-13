@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chrome Companion</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <div class="mark">LC</div>
+    <div>
+      <h1>Chrome Companion</h1>
+      <p>Local preview</p>
+    </div>
+    <span id="connectionBadge" class="badge off">Offline</span>
+  </header>
+
+  <main>
+    <section id="pairSection">
+      <label for="bridgeUrl">Bridge</label>
+      <input id="bridgeUrl" value="http://127.0.0.1:8790" spellcheck="false" />
+      <label for="pairingCode">Pairing code</label>
+      <div class="row">
+        <input id="pairingCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000" />
+        <button id="pairButton" class="primary">Pair</button>
+      </div>
+    </section>
+
+    <section id="tabSection" hidden>
+      <div class="label-row">
+        <span>Armed tab</span>
+        <span id="tabBadge" class="badge neutral">None</span>
+      </div>
+      <strong id="tabTitle">No tab armed</strong>
+      <p id="tabOrigin">Open a target page, then arm that tab.</p>
+      <div class="tab-actions">
+        <button id="armButton" class="primary">Arm current tab</button>
+        <button id="disarmButton" class="quiet" hidden>Disarm</button>
+      </div>
+      <div class="runtime-state">
+        <span id="capabilityCount">0 capabilities</span>
+        <span id="lastAction">No MCP action yet</span>
+      </div>
+    </section>
+
+    <div id="message" role="status"></div>
+  </main>
+
+  <footer>
+    <button id="dashboardButton" class="quiet">Dashboard</button>
+    <button id="disconnectButton" class="danger" hidden>Disconnect</button>
+  </footer>
+  <script src="popup.js"></script>
+</body>
+</html>

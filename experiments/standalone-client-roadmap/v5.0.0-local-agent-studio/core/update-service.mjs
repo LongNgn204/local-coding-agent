@@ -7,14 +7,16 @@ import { validateSignatureMetadata } from "./platform-signature.mjs";
 
 const MAX_ARTIFACT_BYTES = 5_000_000_000;
 const ALLOWED_EXTENSIONS = new Set([".exe", ".msi", ".zip", ".dmg", ".pkg", ".appimage", ".deb", ".rpm"]);
+const TRUST_POLICY_FILE = "update-trust-policy.json";
 
 export class UpdateService {
-  constructor({ storageDir, manifest, publicKeyPem = "", signatureVerifier = null, now = () => Date.now() }) {
+  constructor({ storageDir, manifest, publicKeyPem = "", signatureVerifier = null, trustPolicy = {}, now = () => Date.now() }) {
     this.stateFile = join(storageDir, "update-state.json");
     this.stagingDir = join(storageDir, "updates", "staging");
     this.manifest = manifest;
     this.publicKeyPem = publicKeyPem;
     this.signatureVerifier = signatureVerifier;
+    this.trustPolicy = normalizeUpdateTrustPolicy(trustPolicy);
     this.now = now;
     this.preview = manifest.releaseStage !== "stable";
   }
@@ -30,6 +32,7 @@ export class UpdateService {
       highestVerifiedBuild: state.highestVerifiedBuild || currentBuildNumber(this.manifest),
       lastVerified: state.lastVerified || null,
       lastStaged: publicStagedState(state.lastStaged),
+      trustPolicy: publicTrustPolicy(this.trustPolicy),
       reason: this.publicKeyPem
         ? "Signed update manifest verification is available."
         : "No update verification key is configured."
@@ -57,6 +60,7 @@ export class UpdateService {
     if (payload.minAppVersion && compareVersions(this.manifest.version, payload.minAppVersion) < 0) {
       throw new Error(`Update requires app ${payload.minAppVersion} or newer.`);
     }
+    enforceUpdateTrustPolicy(payload, this.trustPolicy);
     const publicPayload = publicUpdatePayload(payload, currentBuild);
     if (persist) {
       this.writeState({
@@ -111,6 +115,7 @@ export class UpdateService {
       const platformSignature = artifact.signature
         ? await verifyPlatformSignature(this.signatureVerifier, tempPath, platform, artifact.signature)
         : { required: false, verified: false, platform, reason: "No platform signature requirement in signed manifest." };
+      enforcePlatformSignatureTrust(platformSignature, this.trustPolicy);
       await rm(finalPath, { force: true });
       await rename(tempPath, finalPath);
       const state = this.readState();
@@ -184,6 +189,15 @@ export function loadUpdatePublicKey(appDir) {
   return existsSync(releaseFile) ? readFileSync(releaseFile, "utf8") : "";
 }
 
+export function loadUpdateTrustPolicy(appDir) {
+  if (process.env.LCA_UPDATE_TRUST_POLICY_JSON) {
+    return normalizeUpdateTrustPolicy(JSON.parse(process.env.LCA_UPDATE_TRUST_POLICY_JSON));
+  }
+  const file = join(appDir, TRUST_POLICY_FILE);
+  if (!existsSync(file)) return normalizeUpdateTrustPolicy({});
+  return normalizeUpdateTrustPolicy(JSON.parse(readFileSync(file, "utf8")));
+}
+
 export function parseEnvelope(envelope) {
   if (!envelope || typeof envelope !== "object") throw new Error("Update manifest envelope is required.");
   const payloadBytes = Buffer.from(String(envelope.payload || ""), "base64url");
@@ -194,6 +208,19 @@ export function parseEnvelope(envelope) {
     throw new Error("Update manifest payload is invalid.");
   }
   return { payload, payloadBytes };
+}
+
+export function normalizeUpdateTrustPolicy(policy = {}) {
+  if (!policy || typeof policy !== "object") {
+    throw new Error("Update trust policy must be an object.");
+  }
+  return {
+    revokedBuildNumbers: normalizeBuildNumbers(policy.revokedBuildNumbers),
+    revokedVersions: normalizeStringSet(policy.revokedVersions, "version"),
+    revokedSha256: normalizeSha256Set(policy.revokedSha256),
+    revokedCertificateThumbprints: normalizeThumbprintSet(policy.revokedCertificateThumbprints),
+    revokedTeamIds: normalizeTeamIdSet(policy.revokedTeamIds)
+  };
 }
 
 function normalizePayload(payload) {
@@ -221,6 +248,41 @@ function normalizePayload(payload) {
       signature: validateSignatureMetadata(artifact.signature, artifact.platform)
     })).sort((a, b) => `${a.platform}-${a.arch}`.localeCompare(`${b.platform}-${b.arch}`))
   };
+}
+
+function enforceUpdateTrustPolicy(payload, policy) {
+  if (policy.revokedBuildNumbers.includes(payload.buildNumber)) {
+    throw new Error("Update build has been revoked by the local trust policy.");
+  }
+  if (policy.revokedVersions.includes(String(payload.version))) {
+    throw new Error("Update version has been revoked by the local trust policy.");
+  }
+  for (const artifact of payload.artifacts) {
+    const sha256 = String(artifact.sha256 || "").toLowerCase();
+    if (policy.revokedSha256.includes(sha256)) {
+      throw new Error("Update artifact hash has been revoked by the local trust policy.");
+    }
+    const signature = validateSignatureMetadata(artifact.signature, artifact.platform);
+    if (!signature) continue;
+    if (signature.type === "authenticode" && signature.thumbprints.some((thumbprint) => policy.revokedCertificateThumbprints.includes(thumbprint))) {
+      throw new Error("Update signing certificate has been revoked by the local trust policy.");
+    }
+    if (signature.type === "apple-codesign" && policy.revokedTeamIds.includes(signature.teamId)) {
+      throw new Error("Update signing team has been revoked by the local trust policy.");
+    }
+  }
+}
+
+function enforcePlatformSignatureTrust(platformSignature, policy) {
+  if (!platformSignature || !platformSignature.verified) return;
+  const thumbprint = normalizeThumbprintValue(platformSignature.thumbprint);
+  if (thumbprint && policy.revokedCertificateThumbprints.includes(thumbprint)) {
+    throw new Error("Verified platform certificate has been revoked by the local trust policy.");
+  }
+  const teamId = String(platformSignature.teamId || "").trim();
+  if (teamId && policy.revokedTeamIds.includes(teamId)) {
+    throw new Error("Verified platform signing team has been revoked by the local trust policy.");
+  }
 }
 
 function validateUpdatePayload(payload, manifest) {
@@ -292,6 +354,22 @@ function publicStagedState(value) {
   };
 }
 
+function publicTrustPolicy(policy) {
+  const revokedBuilds = policy.revokedBuildNumbers.length;
+  const revokedVersions = policy.revokedVersions.length;
+  const revokedArtifacts = policy.revokedSha256.length;
+  const revokedCertificates = policy.revokedCertificateThumbprints.length;
+  const revokedTeams = policy.revokedTeamIds.length;
+  return {
+    enabled: revokedBuilds + revokedVersions + revokedArtifacts + revokedCertificates + revokedTeams > 0,
+    revokedBuilds,
+    revokedVersions,
+    revokedArtifacts,
+    revokedCertificates,
+    revokedTeams
+  };
+}
+
 function compareVersions(left, right) {
   const a = String(left || "").replace(/^v/, "").split(/[+-]/)[0].split(".").map(Number);
   const b = String(right || "").replace(/^v/, "").split(/[+-]/)[0].split(".").map(Number);
@@ -338,4 +416,47 @@ async function verifyPlatformSignature(verifier, file, platform, signature) {
   const result = await verifier.verify({ file, platform, signature });
   if (!result?.verified) throw new Error(result?.reason || "Platform signature verification failed.");
   return result;
+}
+
+function normalizeBuildNumbers(values) {
+  if (values == null) return [];
+  if (!Array.isArray(values)) throw new Error("revokedBuildNumbers must be an array.");
+  const output = values.map((value) => Number(value));
+  if (output.some((value) => !Number.isSafeInteger(value) || value < 1)) throw new Error("revokedBuildNumbers contains an invalid build number.");
+  return [...new Set(output)].sort((a, b) => a - b);
+}
+
+function normalizeStringSet(values, label) {
+  if (values == null) return [];
+  if (!Array.isArray(values)) throw new Error(`revoked ${label}s must be an array.`);
+  const output = values.map((value) => String(value || "").trim()).filter(Boolean);
+  return [...new Set(output)].sort();
+}
+
+function normalizeSha256Set(values) {
+  if (values == null) return [];
+  if (!Array.isArray(values)) throw new Error("revokedSha256 must be an array.");
+  const output = values.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean);
+  if (output.some((value) => !/^[a-f0-9]{64}$/.test(value))) throw new Error("revokedSha256 contains an invalid SHA-256 value.");
+  return [...new Set(output)].sort();
+}
+
+function normalizeThumbprintSet(values) {
+  if (values == null) return [];
+  if (!Array.isArray(values)) throw new Error("revokedCertificateThumbprints must be an array.");
+  const output = values.map(normalizeThumbprintValue).filter(Boolean);
+  if (output.some((value) => !/^[A-F0-9]{40,64}$/.test(value))) throw new Error("revokedCertificateThumbprints contains an invalid certificate thumbprint.");
+  return [...new Set(output)].sort();
+}
+
+function normalizeTeamIdSet(values) {
+  if (values == null) return [];
+  if (!Array.isArray(values)) throw new Error("revokedTeamIds must be an array.");
+  const output = values.map((value) => String(value || "").trim()).filter(Boolean);
+  if (output.some((value) => !/^[A-Z0-9]{10}$/.test(value))) throw new Error("revokedTeamIds contains an invalid TeamIdentifier.");
+  return [...new Set(output)].sort();
+}
+
+function normalizeThumbprintValue(value) {
+  return String(value || "").replace(/[^a-f0-9]/gi, "").toUpperCase();
 }

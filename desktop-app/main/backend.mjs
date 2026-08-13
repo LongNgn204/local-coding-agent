@@ -102,6 +102,8 @@ export class StudioBackend {
     this.host = opts.host || "127.0.0.1";
     this.mode = opts.mode === "full" ? "full" : "safe";
     this.workspace = opts.workspace ? path.resolve(opts.workspace) : REPO_ROOT;
+    this.permissionProfileFile = opts.permissionProfileFile ? path.resolve(opts.permissionProfileFile) : "";
+    this.permissionProfileName = String(opts.permissionProfileName || "");
     this.requestedPort = opts.port || null;
     this.requestedDashboardPort = opts.dashboardPort || null;
     this.nodePath = opts.nodePath || process.execPath;
@@ -142,6 +144,8 @@ export class StudioBackend {
   async _doStart(overrides) {
     if (overrides.workspace) this.workspace = path.resolve(overrides.workspace);
     if (overrides.mode) this.mode = overrides.mode === "full" ? "full" : "safe";
+    if (overrides.permissionProfileFile) this.permissionProfileFile = path.resolve(overrides.permissionProfileFile);
+    if (overrides.permissionProfileName) this.permissionProfileName = String(overrides.permissionProfileName);
 
     if (!existsSync(SERVER_ENTRY)) {
       throw new Error(`server entry not found: ${SERVER_ENTRY}`);
@@ -160,6 +164,8 @@ export class StudioBackend {
       DASHBOARD_PORT: String(this.dashboardPort),
       AGENT_WORKSPACE: this.workspace,
       AGENT_MODE: this.mode,
+      AGENT_PERMISSION_PROFILE_FILE: this.permissionProfileFile,
+      AGENT_PERMISSION_PROFILE_NAME: this.permissionProfileName,
       AGENT_HOST: this.host
     };
 
@@ -258,6 +264,7 @@ export class StudioBackend {
         mode: json?.mode || this.mode,
         workspace: json?.workspace || this.workspace,
         roots: json?.roots || [],
+        permission_profile: json?.permission_profile || this.permissionProfileName || null,
         pid: json?.pid || this.child?.pid || null,
         port: this.port,
         dashboard_port: this.dashboardPort ?? json?.dashboard_port ?? null,

@@ -1,10 +1,13 @@
-# v5.0.0-preview.5 — Local Sub-Agent Manager
+# v5.0.0-preview.9 — Local Sub-Agent Manager
 
 > **Experimental.** Opt-in preview. Stable v4 behavior is unchanged unless you
 > set `AGENT_V5_PREVIEW=1`. The preview API shape may change between previews.
 
 > **ChatGPT Web does not run native sub-agents here. ChatGPT calls MCP tools;
 > Local Coding Agent runs and tracks sub-agent tasks locally.**
+
+Preview.6 keeps the same local task-agent model and adds customer setup/update/
+diagnose prompt helpers in the CLI and dashboard v5 panel.
 
 English first, Tiếng Việt bên dưới. Both sections have the same meaning.
 

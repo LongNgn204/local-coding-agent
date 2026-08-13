@@ -1,4 +1,4 @@
-# customer-doctor (v5 preview)
+# customer-doctor
 
 **English.** Diagnose a broken customer setup without leaking secrets. Runs
 status, network doctor, and the redacted support report, then reports the most

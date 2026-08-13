@@ -1,8 +1,8 @@
 {
   "schema": "lca-skill/v1",
   "name": "setup-assistant",
-  "version": "5.0.0-preview.1",
-  "experimental": true,
+  "version": "4.4.1-prodev",
+  "experimental": false,
   "description": "Guide a customer through installing, configuring, and verifying Local Coding Agent with safe defaults.",
   "tags": ["setup", "install", "onboarding"],
   "instructions": "SKILL.md",

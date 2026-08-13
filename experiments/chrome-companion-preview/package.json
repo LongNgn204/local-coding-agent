@@ -1,0 +1,9 @@
+{
+  "name": "local-coding-agent-chrome-companion-preview",
+  "version": "5.0.0-preview.8",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node scripts/validate.mjs"
+  }
+}

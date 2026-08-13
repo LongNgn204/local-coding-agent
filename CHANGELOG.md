@@ -3,279 +3,106 @@
 All notable changes to Local Coding Agent are documented here. The project
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## [5.0.0-preview.12] - 2026-08-13
 
-### Fixed — v5.0.0-preview.5 (experimental, opt-in)
-
-Two production bugs in the Local Sub-Agent Manager (`server/agent-manager.mjs`),
-observed live with the `codex_cli` engine. Still gated behind `AGENT_V5_PREVIEW`;
-stable v4 behavior unchanged; `const VERSION` stays `4.4.0-pro`; `PREVIEW_VERSION`
--> `5.0.0-preview.5`.
-
-- **Shared-store cross-manager interference.** The CLI (`agents spawn`) and the
-  tray server both use the same workspace-scoped store
-  (`server/data/workspaces/<id>/agents/index.json`) via separate in-memory
-  `AgentManager` instances. Previously `init()` flipped *every* non-terminal task
-  it found to `failed` ("interrupted by server restart"), so a second manager
-  starting over the store would wrongly kill a task the first manager had
-  genuinely `running` — orphaning a live `codex.exe`. Now each run stamps an
-  `owner_pid` (the manager's `process.pid`) when it goes `running`, and `init()`
-  marks a non-terminal task interrupted **only if** its `owner_pid` is missing or
-  that pid is not alive. The liveness probe is cross-platform and non-throwing
-  (`process.kill(pid, 0)`; `EPERM` = alive-but-not-ours, `ESRCH` = gone; our own
-  pid counts as alive). When init *does* mark a task interrupted, it best-effort
-  tree-kills that run's recorded `child_pid` to clean up its own orphans, without
-  ever throwing or hanging. The normal single-manager restart case is unchanged
-  (a task whose owner is truly dead is still marked interrupted).
-- **Timeout/cancel could hang when the child could not be killed.** On Windows
-  `taskkill /PID <pid> /T /F` can fail with "Access is denied"; the provider's run
-  promise waited on the child's `close` event, so a failed kill (or a child that
-  ignored it) meant the promise never resolved and the CLI hung past the timeout
-  (a codex child was seen alive 11+ minutes under a 5-minute timeout). The codex
-  provider now resolves on a **grace race**: when a timeout or cancel fires it
-  issues the tree-kill and starts a short grace timer (`killGraceMs`, default
-  5000 ms, injectable for tests); if the child has not closed by then it resolves
-  anyway with `ok:false` and a clear error (`timed out after Xms` / `cancelled`),
-  appending `" (child pid <n> may still be running; kill it manually)"` when the
-  kill returned non-zero. It never waits unbounded on `close` after a kill is
-  requested, so `settle()` / `cancel()` always return and the manager cannot
-  deadlock. The child pid is recorded on the task meta (`child_pid`) via the
-  existing `ctx.onChild` hook and persisted, so a later `init()` can clean up an
-  orphan. `killProcessTree` was hardened to accept a bare pid (for orphan
-  cleanup), only ever kill a specific pid/tree (never `/IM`), and return its
-  `taskkill` exit status instead of throwing.
-- New export `isPidAlive(pid)`; new `AgentManager` option `killGraceMs`. Added 5
-  unit tests (pid-liveness, cross-manager no-clobber of a live task,
-  dead-owner-is-interrupted, timeout-no-hang, cancel-no-hang) proven entirely with
-  fake providers (no real codex run); the agents suite is now 32/0.
-
-### Added — v5.0.0-preview.4 (experimental, opt-in): codex_cli engine
-
-Adds a real `codex_cli` engine to the Local Sub-Agent Manager (still gated behind
-`AGENT_V5_PREVIEW`; stable v4 behavior unchanged; `const VERSION` stays
-`4.4.0-pro`; `PREVIEW_VERSION` -> `5.0.0-preview.4`).
-
-- New `codex_cli` provider runs the locally installed, already-authenticated
-  OpenAI Codex CLI in its non-interactive `codex exec` mode. It maps the agent
-  `mode` to a Codex sandbox (`safe` -> `read-only`, `full` -> `workspace-write`),
-  runs in the task's `workspace_root`, passes `--skip-git-repo-check`, and
-  captures the agent's final message via `--output-last-message` (falling back to
-  stdout). The task text is fed on Codex's stdin, so user input never touches a
-  shell command line. On Windows the `.cmd` shim is invoked via `cmd.exe` with a
-  self-quoted command line (`windowsVerbatimArguments`) instead of `shell:true`.
-- `AgentManager` now creates an `AbortController` per running agent and passes
-  `ctx = { signal, onChild }` to `provider.run(meta, ctx)` (2nd arg is optional,
-  so `script_runner` is unchanged). A central runtime timeout (`max_runtime_ms`,
-  default 300000 ms, hard cap 600000 ms) aborts the signal and fails the task with
-  a `timed out after Xms` error; `cancel_local_task` aborts the signal and
-  tree-kills the child (on Windows via `taskkill /PID <pid> /T /F`). Partial
-  log/report from an interrupted codex run are kept for inspection.
-- `create_local_task` gains an optional `engine` input
-  (`script_runner` | `codex_cli`, default `script_runner`); an unavailable
-  `codex_cli` returns a clear "install / `codex login`" error.
-  `get_local_task_status` and the dashboard agents table now report the `provider`
-  (engine) per task. The CLI `agents spawn` gains `--engine <name>` and prints
-  `running codex, this may take a while...` for codex runs.
-- New pure helpers exported for unit tests: `buildCodexExecArgs`,
-  `buildCodexPrompt`, `codexSandboxForMode`, `resolveOnPath`, `killProcessTree`.
-  Added 8 unit tests (engine selection, unknown-engine rejection, timeout via
-  `ctx.signal`, cancel via `ctx.signal`, and the codex arg-builder); the full
-  agents suite is 27/0 and runs without requiring Codex to execute.
-
-### Added — v5.0.0-preview.3 (experimental, opt-in): Agents dashboard page
-
-Improves the dashboard Local sub-agents panel (still gated behind
-`AGENT_V5_PREVIEW`; stable v4 behavior unchanged; `PREVIEW_VERSION` ->
-`5.0.0-preview.3`).
-
-- Status **filter chips** (All / running / queued / done / failed / cancelled)
-  with live counts; the agents table now shows agent id, role, title, a colored
-  status badge, and the created time.
-- A per-agent **viewer** with **Report / Log** tabs and **Prev / Next 200** line
-  pagination (`lines X-Y of N`), so the page never renders thousands of DOM rows.
-- New `AgentManager.readArtifact(id, kind, {offset, limit})` and a `source` +
-  `offset`/`limit` mode on the loopback `GET /api/agent` endpoint (back-compatible
-  when `source` is omitted). Added a `readArtifact` unit test (test-agents 19/0).
-- Renamed the MCP sub-agent tools to neutral, benign names so strict MCP clients
-  (e.g. ChatGPT's safety guard) do not block them: `spawn_agent` ->
-  `create_local_task`, `list_agents` -> `list_local_tasks`, `get_agent_status` ->
-  `get_local_task_status`, `get_agent_result` -> `get_local_task_result`,
-  `cancel_agent` -> `cancel_local_task` (id field is now `task_id`). Descriptions
-  now state plainly that the tools run a local deterministic planner and do NOT
-  execute shell commands, spawn processes, or access the network. The manager,
-  dashboard, and CLI are unchanged.
-- Renamed roles to plain, benign names for the same reason (dropped `_agent`,
-  softened `doctor`/`security`): `repo_setup`, `bug_fix`, `network_check`,
-  `release_prep`, `docs_update`, `safety_review`. `create_local_task`'s
-  description was shortened to a short, boring line.
-- Fixed a dashboard blank-page bug: agents filter/rows built `onclick` handlers
-  with `\'` inside the HTML template literal, producing invalid browser JS that
-  broke the whole inline script. Switched to `data-*` attributes + delegated
-  click listeners.
-
-### Added — v5.0.0-preview.2 (experimental, opt-in): Local Sub-Agent Manager
-
-Builds on preview.1's anti-lag store. ChatGPT Web does not run native
-sub-agents; it calls MCP tools and the server runs/tracks specialist sub-agent
-tasks locally, keeping heavy logs/reports on disk and returning compact
-summaries. All new tools/UI are gated behind `AGENT_V5_PREVIEW`; stable v4
-behavior is unchanged by default. `PREVIEW_VERSION` is now `5.0.0-preview.2`
-(stable `VERSION` stays `4.4.0-pro`).
-
-- New `server/agent-manager.mjs` module (Node-only, unit-testable): `AgentManager`
-  with create/list/status/result/cancel/clean, states
-  `queued|running|done|failed|cancelled`, workspace-scoped persistence under
-  `server/data/workspaces/<id>/agents/`, and helpers `generateAgentId`,
-  `redactSecrets`, `truncateForChat`, `makeLocalReportPath`, `detectProviders`.
-- Six specialist roles: `repo_setup_agent`, `bug_fix_agent`,
-  `network_doctor_agent`, `release_agent`, `readme_agent`,
-  `security_review_agent` (each with description, allowed task type, safety
-  notes, default output).
-- Provider abstraction: `script_runner` implemented (local deterministic planner,
-  no network/subprocess); `claude_cli`/`codex_cli`/`openai_api` are safely
-  detected but not executed (roadmap in `docs/V5_SUBAGENTS.md`).
-- Opt-in MCP tools: `spawn_agent`, `list_agents`, `get_agent_status`,
-  `get_agent_result` (compact, `max_chars`), `cancel_agent`. Outputs are compact
-  by default; full logs/reports stay local. `preview_status` now reports roles +
-  provider availability.
-- Dashboard: loopback `GET /api/agents` and `GET /api/agent`, plus a **Local
-  sub-agents** panel with status badges and a truncated per-agent viewer.
-- CLI: `agents list|roles|spawn|clean` in `scripts/local-coding-agent.mjs`,
-  sharing the same workspace-scoped store as the server.
-- Reports/logs are redacted (keys, tokens, tunnel ids, secret fields, opaque
-  blobs) before writing. New `server/test-agents.mjs` (18 unit tests) covers id
-  generation, the full lifecycle, truncation, redaction, invalid role, and
-  missing report/log handling.
-- Docs: `docs/V5_SUBAGENTS.md` (English + Vietnamese) and README subsections in
-  both languages.
-
-### Added — v5.0.0-preview.1 (experimental, opt-in)
-
-Experimental "local-first anti-lag" preview. It reduces ChatGPT Web lag on large
-threads by keeping long logs/reports/tool output on the local machine and giving
-ChatGPT only compact summaries plus a local dashboard link. **Stable v4 behavior
-is unchanged unless `AGENT_V5_PREVIEW=1` is set.** The stable server version
-constant stays `4.4.0-pro`; the preview is surfaced through a separate
-`PREVIEW_VERSION` (`5.0.0-preview.1`) so the current stable version is not
-broken.
-
-- Opt-in preview MCP tools (only registered when `AGENT_V5_PREVIEW` is truthy):
-  `save_report`, `read_report`, `list_reports`, and `preview_status`. Long
-  output is stored under `server/data/workspaces/<id>/reports/`; `save_report`
-  returns a compact head/tail summary + `sha256` + id + local dashboard link
-  instead of echoing the full content into chat. `read_report` is line-paginated
-  and path-confined to the report store.
-- Dashboard v5 preview panel plus a `GET /api/v5` JSON endpoint (loopback only):
-  version, health, roots, tool-call counts, recent errors, and a paginated
-  report list (max 20 rows/page, so the page never renders thousands of DOM
-  nodes). `healthz` now reports `preview_version` and `preview_enabled`.
-- `scripts/support-report.mjs` and CLI `support` command produce a redacted
-  customer diagnostic bundle (versions, Node, ports 8787/8790, tunnel-client
-  presence, health, recent errors) written to `support-report.txt`. It never
-  requires the proprietary tunnel client and never writes keys/tokens. CLI also
-  gains `network` as an alias for the network doctor.
-- Four v5 skills with the new optional `skill.json` manifest (alongside the
-  existing `SKILL.md`): `setup-assistant`, `customer-doctor`, `release-helper`,
-  `repo-support`. `skills json` lists manifests; `skills list` shows the version.
-- `docs/V5_PREVIEW.md` (English + Vietnamese) documents the anti-lag workflow and
-  how to start a fresh ChatGPT thread for large tasks. README gains a v5 preview
-  section in both languages and an experimental warning.
+The former private v5 preview is now available as an experimental public
+release. It keeps the stable server behavior opt-in behind
+`AGENT_V5_PREVIEW=1` and ships a self-contained Windows x64 tray executable.
 
 ### Added
 
-- `experiments/standalone-client-roadmap/` documents the path from
-  `v4.4.0-pro` to `v5.0.0` for a standalone Local Agent Studio that can run
-  without ChatGPT Web.
-- `v4.5.0-pro-local-client-mvp/` prototype adds a local browser UI and backend
-  that connect to the existing MCP server, list MCP tools, call tools manually,
-  and run an OpenAI Responses API tool loop when `OPENAI_API_KEY` is provided.
-- All standalone roadmap folders now contain runnable entry points, manifests,
-  package metadata, lockfiles, and version-specific feature flags.
-- The shared standalone runtime implements OpenAI, Anthropic, and Ollama model
-  adapters, tool loops, retry handling, model presets, profile CRUD/activation,
-  skill browsing/validation, metrics, approvals, file/diff views, managed MCP
-  start/stop, support bundles, and guarded customer updates.
-- A self-contained .NET Windows launcher and `build-all.ps1` produce a separate
-  `dist/LocalAgentStudio.exe` for every standalone version folder.
-- Studio v5 now has a loopback capability-token boundary, Origin/Host/JSON
-  enforcement, CSP headers, SQLite thread/turn persistence, recursive support
-  redaction, signed-license verification, signed release-integrity support,
-  anti-backdoor auditing, and cross-platform regression tests.
-- Studio v5 now includes an Electron desktop shell plus a React/Vite renderer
-  with virtualized chat, thread navigation, MCP controls, tool inventory, and
-  tool timeline for long local-agent sessions without relying on ChatGPT Web.
-- Studio v5 can store OpenAI and Anthropic provider keys in a local encrypted
-  vault, reports only provider-key metadata through the API, and keeps env-based
-  keys as readonly overrides for operators who prefer external secret handling.
-- Studio v5 adds a server-side permission broker for privileged routes such as
-  manual tool calls, provider-key changes, managed server control, customer
-  updates, approval mutations, and support-bundle exports. These routes now
-  require structured intent confirmation and write redacted audit metadata.
-- Studio v5 desktop now exposes a typed IPC bridge for privileged actions. The
-  Electron main process maps renderer requests through a small allowlist,
-  injects the local session token and structured intent, and rejects untrusted
-  renderer origins.
-- Studio v5 desktop now runs its HTTP server and SQLite store inside Electron's
-  main process. Customer packages no longer need system Node.js; managed MCP
-  and maintenance scripts use Electron's embedded Node mode.
-- Studio v5 now verifies signed release update manifests with Ed25519, artifact
-  SHA-256 metadata, channel/product checks, and rollback protection. Release CI
-  can generate envelopes with `npm run update:manifest`.
-- Studio v5 desktop now stores OpenAI and Anthropic credentials through
-  Electron `safeStorage`, syncs decrypted values to the server only in memory
-  through a separate per-process bridge token, removes legacy vault copies, and
-  rejects Linux `basic_text` fallback storage.
-- Studio v5 desktop now stores admin-issued commercial license tokens through
-  the same OS-backed secure store, verifies them in server memory, removes
-  legacy plaintext `license.json`, and reports only public license metadata.
-- Studio v5 can stream signed update artifacts into a private staging area,
-  enforce HTTPS, exact signed size, SHA-256, target OS/arch, and minimum app
-  version, remove partial files on failure, and deliberately refuse automatic
-  execution until installer signing is complete.
-- Studio v5 now verifies Windows Authenticode publisher/certificate policies
-  and macOS code-signing TeamIdentifier metadata after download and before an
-  artifact leaves private staging. Stable Windows/macOS manifests fail closed
-  when no platform-signature policy is present.
-- Studio v5 production files are now packed into ASAR with development scripts,
-  CLI entry points, and external runtime folders excluded. Development and
-  packaged smoke tests verify Studio health, SQLite, the embedded runtime,
-  managed MCP startup/shutdown, and the actual `app.asar` execution path.
-- Studio v5 now ships an original cross-platform application icon with local
-  provenance notes instead of the default Electron icon. UI-only React packages
-  moved to development dependencies, shrinking ASAR from about 41.3 MB to
-  12.7 MB, and the unused Winstaller lifecycle script is explicitly denied.
-- Studio v5 now runs agent turns through a streaming TurnManager with buffered
-  SSE replay, cancellation, interrupted-turn recovery, bounded context
-  compaction, and model tool-policy modes (`read-only`, `workspace`, `full`) so
-  long conversations stay responsive and model-requested tools cannot bypass
-  the server permission boundary.
-- Network doctor now summarizes tunnel smoke-test phases, marks expected
-  doctor-terminated runs, avoids false proxy/403 matches from log timestamps,
-  and explains the common Node.js CA trust-store mismatch separately from a
-  blocked tunnel.
-- Studio v5 now has a `release:doctor` gate that lets Preview builds pass with
-  explicit warnings, but fails Stable readiness unless release-stage, public
-  keys, integrity manifest, packaged artifact, and platform signing evidence
-  are all present.
-- Studio v5 now includes an admin-side `license:issue` tool that signs
-  customer-specific commercial license tokens from an external Ed25519 private
-  key file and self-verifies the output against the matching public key.
-- Studio v5 now includes `license:keygen` for admin-only Ed25519 license keypair
-  creation with overwrite protection, making the commercial-key setup flow
-  repeatable without committing private keys.
-- Studio v5 support bundles now include redacted, bounded agent-session
-  diagnostics: recent thread items, persisted turn provider/model/tool policy,
-  blocked-tool evidence, and turn failures for customer troubleshooting.
-- Studio v5 now includes a Workspace Review modal for bounded file browsing,
-  large-file preview, colored Git diff, and exact-action approval decisions.
-  Its dashboard proxy is restricted to loopback HTTP plus an explicit
-  route/method allowlist, and MCP connection/listing now fails fast on timeout.
-- Studio v5 now includes a two-phase Reviewed Patch workflow. Parallel dry-run
-  and validation produce a SHA-256-bound, ten-minute, one-time in-memory ticket;
-  apply uses only the reviewed private diff, MCP creates a backup batch before
-  writes, and guarded undo restores the latest batch. The generic manual-tool
-  endpoint is now read-only and honors destructive MCP metadata over tool names.
+- Named multi-root permission profiles with separate working directories,
+  per-root `observe`, `edit`, `develop`, and `full_control` rights, deny globs,
+  and bounded temporary grants.
+- Permission tools: `permission_status`, `check_path_access`,
+  `request_path_access`, `activate_path_access`, and `revoke_path_access`.
+- Public Chrome Companion source with one paired and explicitly armed tab,
+  compact snapshots/screenshots, bounded navigation and input actions, and
+  strict handling for sensitive fields.
+- Optional Windows power tools: `system_power_status`,
+  `schedule_system_shutdown`, and `cancel_system_shutdown`.
+- Tray UI for managing authorized paths, permission profiles, tunnel recovery,
+  active runtime state, and the prompt-requested shutdown opt-in.
+- Public-preview release builder and SHA-256 manifest for the self-contained
+  Windows x64 tray executable.
 
+### Changed
+
+- The local dashboard has a clearer control-center layout, lazy workspace tree,
+  permission state, report navigation, browser pairing, and connection health.
+- Tunnel startup waits for MCP health and retries transient failures with
+  bounded backoff; operators can reconnect the tunnel without restarting a
+  healthy server.
+- Explicit shutdown prompts default to a zero-second delay after the local tray
+  opt-in. No second dashboard approval is required. Vague wording never grants
+  permission, and raw shutdown/restart commands remain blocked.
+- Preview documentation and UI labels now identify the channel as a public
+  experimental preview instead of an internal/private build.
+
+### Security
+
+- The OpenAI tunnel client remains proprietary and is not included in the
+  repository or release assets.
+- Generated config, permission profiles, tokens, reports, logs, and
+  `server/data` remain ignored.
+- Chrome page content is always treated as untrusted data. Browser mutations
+  still follow policy approval, and the extension refuses password, payment,
+  file-upload, and one-time-code fields.
+- Prompt-requested shutdown is Windows-only, disabled by default, and exposed
+  only through dedicated tools after an explicit local tray opt-in.
+
+## [4.4.1-prodev] - 2026-07-08
+
+### Added
+
+- Community Edition ownership and brand boundaries through `NOTICE.md`,
+  `TRADEMARKS.md`, and `BRAND-GUIDELINES.md`, without changing the
+  AGPL-3.0-or-later rights granted for the public source code.
+- A bilingual trademark-registration checklist for ownership details,
+  clearance searches, filing records, use evidence, and post-filing controls.
+- AI Agent Quick Setup flow near the top of the README, with matching English
+  and Vietnamese instructions for customer setup, update, and diagnosis.
+- CLI prompt generator for customer-facing AI agents:
+  - `node scripts/local-coding-agent.mjs prompt setup`
+  - `node scripts/local-coding-agent.mjs prompt update`
+  - `node scripts/local-coding-agent.mjs prompt diagnose`
+- `node scripts/local-coding-agent.mjs setup-wizard`, a non-destructive customer
+  readiness report that checks Node/npm/git, repo layout, server dependencies,
+  workspace config, tunnel prerequisites, skill validation, and local `/healthz`,
+  then writes `setup-wizard-report.txt`.
+- `node scripts/local-coding-agent.mjs skills doctor`, which maps common customer
+  symptoms to the best shipped skill and next command.
+- Dashboard prompt-copy panel for setup/update/diagnose prompts, independent of
+  internal experiments.
+
+### Changed
+
+- Public version is now `4.4.1-prodev` across the MCP server package and Windows
+  tray app.
+- Chat-facing defaults are tighter to reduce ChatGPT Web lag on large tasks:
+  `read_file` default output is 12k chars, `run_command` default output is 8k
+  chars, and `read_many` batch output defaults to 120k chars.
+- Customer prompts and MCP instructions now explicitly discourage pasting full
+  logs, diffs, base64, image/icon inventories, or generated reports into chat.
+  Agents should use line ranges, globs, `max_chars`, `max_output_chars`, compact
+  summaries, and local support/report files.
+- Skill manifests are synchronized to `4.4.1-prodev` for the public customer
+  support flow.
+- Public README and server README do not advertise internal-only experiments.
+
+### Fixed
+
+- Windows tray health polling now identifies its internal `/healthz` probe, and
+  the MCP server suppresses only that routine request from stdout. Manual health
+  checks, failed requests, and MCP traffic remain visible, avoiding one noisy
+  log line every three seconds without hiding operational errors.
+- Network Doctor now identifies the tunnel's upstream `503`/reset-before-headers
+  pattern as a control-plane retry: isolated events are described as transient,
+  while repeated events point to an unstable or filtered network path.
+- Windows CLI npm execution now routes through `cmd.exe /c`, avoiding `spawn
+  EINVAL` on systems where spawning `npm.cmd` directly fails.
+- `setup-wizard` now reports missing/offline server health clearly instead of
+  crashing when a spawned check fails.
 ## [4.4.0-pro] - 2026-07-01
 
 ### Added
@@ -525,6 +352,8 @@ Windows tray workflow.
 - Dashboard port `8788` remains reserved by the tunnel client; use the default
   dashboard port `8790`.
 
+[5.0.0-preview.12]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v5.0.0-preview.12
+[4.4.1-prodev]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.1-prodev
 [4.4.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.0-pro
 [4.3.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.3.0-pro
 [4.2.0-pro]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.2.0-pro
