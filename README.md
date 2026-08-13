@@ -35,12 +35,12 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
 > This tool can run commands on your computer. Read [SECURITY.md](SECURITY.md)
 > before using it. It is not an OS sandbox; only connect workspaces you trust.
 
-> **Latest: v5.0.0-preview.12.** The former private preview is now published as
-> an experimental public release. Stable v4 behavior remains available when
-> `AGENT_V5_PREVIEW` is disabled; the preview is based on the `v4.4.3` stable
-> core and includes Compact & Resume.
+> **Latest stable release: v5.0.0.** The complete v5 feature set is now the
+> official release channel and is enabled by default. It includes the v4.4.3
+> core improvements, Compact & Resume, multi-root permissions, the redesigned
+> dashboard, tunnel recovery, Chrome Companion, and optional system power tools.
 
-### What's New In v5.0.0-preview.12
+### What's New In v5.0.0
 
 - Named multi-root permission profiles with per-path `observe`, `edit`,
   `develop`, and `full_control` rights, deny rules, and temporary grants.
@@ -48,7 +48,7 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
   state, report browsing, workspace navigation, and recovery information.
 - More reliable tray startup and tunnel recovery, including Tunnel ID suffix
   diagnostics and a manual reconnect action.
-- A public Chrome Companion preview that exposes only one manually paired and
+- Chrome Companion exposes only one manually paired and
   armed tab through bounded `browser_*` tools.
 - Optional Windows prompt-requested shutdown. It is disabled by default and
   requires the local tray opt-in. Once enabled, an explicit shutdown prompt can
@@ -57,7 +57,7 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
 - Local-first anti-lag reports, task agents, customer setup/update/diagnostic
   prompts, and compact MCP output defaults.
 
-**Tiếng Việt:** Bản `v5.0.0-preview.12` công khai toàn bộ preview trước đây:
+**Tiếng Việt:** Bản `v5.0.0` là bản phát hành chính thức với đầy đủ tính năng v5:
 profile nhiều path và phân quyền theo từng path, dashboard mới, tray/tunnel tự
 phục hồi, Chrome Companion cho một tab được người dùng arm, báo cáo anti-lag và
 tùy chọn tắt Windows bằng prompt rõ ràng. Tính năng tắt máy mặc định **tắt**;
@@ -255,8 +255,8 @@ Download the self-contained `.exe` from
 [Releases](https://github.com/LongNgn204/local-coding-agent/releases), or build
 it yourself:
 
-Direct Windows x64 download for the latest preview:
-[LocalCodingAgentTray-5.0.0-preview.12-win-x64.exe](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.0-preview.12/LocalCodingAgentTray-5.0.0-preview.12-win-x64.exe).
+Direct Windows x64 download for the latest stable release:
+[LocalCodingAgentTray-5.0.0-win-x64.exe](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.0/LocalCodingAgentTray-5.0.0-win-x64.exe).
 
 ```powershell
 cd tray-app
@@ -572,7 +572,7 @@ Tải file `.exe` self-contained từ
 build:
 
 Tải trực tiếp bản Windows x64 mới nhất:
-[LocalCodingAgentTray-5.0.0-preview.12-win-x64.exe](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.0-preview.12/LocalCodingAgentTray-5.0.0-preview.12-win-x64.exe).
+[LocalCodingAgentTray-5.0.0-win-x64.exe](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.0/LocalCodingAgentTray-5.0.0-win-x64.exe).
 
 ```powershell
 cd tray-app

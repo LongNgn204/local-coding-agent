@@ -61,7 +61,8 @@ public sealed class ProcessSupervisor : IDisposable
         psi.Environment["AGENT_PERMISSION_PROFILE_FILE"] = cfg.PermissionProfileFile;
         psi.Environment["AGENT_PERMISSION_PROFILE_NAME"] = cfg.PermissionProfileName;
         psi.Environment["MCP_AUTH_TOKEN"] = cfg.AuthToken;
-        // Public preview flag; users can disable it to retain stable behavior.
+        // Legacy environment name retained for compatibility. v5 is official
+        // and enabled by default; users may disable it for v4 compatibility.
         psi.Environment["AGENT_V5_PREVIEW"] = cfg.V5Preview ? "1" : "0";
         psi.Environment["AGENT_ALLOW_SYSTEM_SHUTDOWN"] = cfg.AllowSystemShutdown ? "1" : "0";
 

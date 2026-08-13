@@ -1,6 +1,6 @@
 # Chrome Companion Preview
 
-Manifest V3 extension for the experimental public v5 channel. ChatGPT Web
+Manifest V3 extension for the official v5 release. ChatGPT Web
 calls `browser_*` MCP tools on the Local Coding Agent server; the server queues
 compact commands for this extension over the loopback dashboard port. The
 extension never connects to the public tunnel.
@@ -11,10 +11,10 @@ never connects directly to the public MCP tunnel.
 
 ## Run
 
-1. Start the preview server with `AGENT_V5_PREVIEW=1` and dashboard port `8790`.
+1. Start the v5 server with dashboard port `8790`.
 2. Open `http://127.0.0.1:8790/ui#v5` and copy the six-digit Chrome pairing code.
 3. Open `chrome://extensions`, enable Developer mode, select **Load unpacked**,
-   and choose `experiments/chrome-companion-preview/extension`.
+   and choose `experiments/chrome-companion/extension`.
 4. Open the extension popup, enter the pairing code, and select **Pair**.
 5. Open the target HTTP(S) page and select **Arm current tab**. Chrome asks for
    access only to that website origin.
@@ -56,5 +56,5 @@ never connects directly to the public MCP tunnel.
 
 ```powershell
 node --test server/browser-bridge.test.mjs
-npm --prefix experiments/chrome-companion-preview run check
+npm --prefix experiments/chrome-companion run check
 ```

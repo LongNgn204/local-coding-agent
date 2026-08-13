@@ -1,4 +1,4 @@
-// Chrome Companion preview static release check
+// Chrome Companion static release check
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import assert from "node:assert/strict";
@@ -12,7 +12,7 @@ const manifest = JSON.parse(await readFile(path.join(extension, "manifest.json")
 
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.background?.type, "module");
-assert.match(manifest.version_name, /preview/);
+assert.equal(manifest.version_name, "5.0.0");
 assert.deepEqual(manifest.host_permissions.sort(), ["http://127.0.0.1/*", "http://localhost/*"].sort());
 
 const forbidden = new Set(["debugger", "history", "bookmarks", "downloads", "nativeMessaging", "management"]);
@@ -36,4 +36,4 @@ assert.match(background, /max_bytes/);
 assert.match(background, /disarmTab/);
 assert.equal(/chrome\.debugger|chrome\.history|chrome\.bookmarks|chrome\.downloads/.test(background), false);
 
-console.log("Chrome Companion preview.12 check: 9 local capabilities, bounded screenshots, no broad privileged permissions, no remote code.");
+console.log("Chrome Companion v5.0.0 check: 9 local capabilities, bounded screenshots, no broad privileged permissions, no remote code.");

@@ -8,7 +8,7 @@ It does **not** run its own server or turn-manager stack. On launch, the Electro
 main process:
 
 1. Spawns `server/server.mjs` as a loopback-only child with
-   `AGENT_V5_PREVIEW=1`, a free `PORT` and `DASHBOARD_PORT`, your chosen
+   the official v5 feature set, a free `PORT` and `DASHBOARD_PORT`, your chosen
    `AGENT_WORKSPACE`, `AGENT_MODE` (safe/full), `AGENT_HOST=127.0.0.1`.
 2. Waits for `GET /healthz` to return ok (polled, ~15s budget).
 3. Connects an MCP client (`StreamableHTTPClientTransport`) to

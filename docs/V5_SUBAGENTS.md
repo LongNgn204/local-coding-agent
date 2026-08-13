@@ -1,7 +1,7 @@
-# v5.0.0-preview.9 — Local Sub-Agent Manager
+# v5.0.0 — Local Sub-Agent Manager
 
-> **Experimental.** Opt-in preview. Stable v4 behavior is unchanged unless you
-> set `AGENT_V5_PREVIEW=1`. The preview API shape may change between previews.
+> **Official v5 feature.** Enabled by default. Set the legacy compatibility
+> switch `AGENT_V5_PREVIEW=0` only when temporary v4 behavior is required.
 
 > **ChatGPT Web does not run native sub-agents here. ChatGPT calls MCP tools;
 > Local Coding Agent runs and tracks sub-agent tasks locally.**
@@ -37,7 +37,7 @@ diffs, and screenshots that the browser must keep in the DOM. With sub-agents,
 the heavy work and its output stay **local**; the thread only carries small
 summaries and ids. You inspect full output on the local dashboard or via the CLI.
 
-### MCP tools (only when `AGENT_V5_PREVIEW=1`)
+### MCP tools
 
 | Tool | Purpose | Output |
 |---|---|---|
@@ -84,7 +84,7 @@ the server restarts are marked `failed` (interrupted) on next start.
 
 ### Use it from the local dashboard
 
-Open `http://127.0.0.1:8790/ui` and scroll to the **v5 preview → Local
+Open `http://127.0.0.1:8790/ui` and open the **v5 → Local
 sub-agents** panel:
 
 - **Status filter chips** (All / running / queued / done / failed / cancelled)
@@ -172,7 +172,8 @@ a while...` while it waits. The dashboard agents table shows the engine per task
 - `workspace_root` must be inside the configured roots.
 - The dashboard endpoints (`/api/agents`, `/api/agent`) are loopback-only and
   never tunneled.
-- This is an experimental preview; do not rely on the API shape yet.
+- This is part of the official v5 API. Provider CLIs still have their own
+  version and authentication compatibility requirements.
 
 ---
 
@@ -200,7 +201,7 @@ trình duyệt phải giữ trong DOM. Với sub-agent, phần việc nặng và
 **máy cục bộ**; thread chỉ mang tóm tắt nhỏ và id. Bạn xem output đầy đủ trên
 dashboard hoặc bằng CLI.
 
-### Tool MCP (chỉ khi `AGENT_V5_PREVIEW=1`)
+### Tool MCP
 
 | Tool | Mục đích | Output |
 |---|---|---|
@@ -247,7 +248,7 @@ server khởi động lại sẽ được đánh dấu `failed` (bị gián đo�
 
 ### Dùng từ dashboard cục bộ
 
-Mở `http://127.0.0.1:8790/ui`, kéo tới bảng **v5 preview → Local sub-agents**:
+Mở `http://127.0.0.1:8790/ui`, vào bảng **v5 → Local sub-agents**:
 
 - **Chip lọc trạng thái** (All / running / queued / done / failed / cancelled)
   kèm số đếm — bấm để lọc danh sách.
@@ -331,4 +332,5 @@ while...` trong lúc chờ. Bảng agents trên dashboard hiển thị engine c�
   `mode`/`policy` của server.
 - `workspace_root` phải nằm trong các root đã cấu hình.
 - Endpoint dashboard (`/api/agents`, `/api/agent`) chỉ loopback, không qua tunnel.
-- Đây là bản preview thử nghiệm; chưa nên phụ thuộc vào hình dạng API.
+- Đây là một phần của API v5 chính thức. Các CLI provider vẫn có yêu cầu tương
+  thích phiên bản và xác thực riêng.

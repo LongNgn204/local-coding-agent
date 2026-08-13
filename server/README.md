@@ -48,7 +48,7 @@ npm start
 | `AGENT_MODE` | `safe` | Command guardrail. `safe` = conservative blocklist; `full` = fewer app-level command blocks. Not an OS sandbox. |
 | `AGENT_POLICY` | `balanced` | Tool policy. `strict` = read-only; `balanced` = local approval for risky actions; `full` = no policy approval gate. |
 | `AGENT_ALLOW_DANGEROUS` | _(unset)_ | `1` allows even catastrophic system commands. Leave unset. |
-| `AGENT_ALLOW_SYSTEM_SHUTDOWN` | _(unset)_ | Public preview, Windows only. `1` enables the dedicated prompt-requested shutdown tools. Explicit shutdown prompts execute immediately by default without dashboard approval; raw power commands remain blocked. |
+| `AGENT_ALLOW_SYSTEM_SHUTDOWN` | _(unset)_ | v5, Windows only. `1` enables the dedicated prompt-requested shutdown tools. Explicit shutdown prompts execute immediately by default without dashboard approval; raw power commands remain blocked. |
 | `MCP_AUTH_TOKEN` | _(empty)_ | If set, every `/mcp` request must send `Authorization: Bearer <token>`. |
 | `MCP_ALLOWED_ORIGINS` | _(empty)_ | Trusted browser origins for `/mcp`. Empty rejects browser-origin MCP calls. |
 | `AGENT_APPROVAL_TOKEN` | _(empty)_ | Optional secret for MCP-based approval tools. Prefer dashboard approvals. |

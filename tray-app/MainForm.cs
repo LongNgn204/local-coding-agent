@@ -10,7 +10,7 @@ namespace LocalCodingAgentTray;
 
 public sealed class MainForm : Form
 {
-    private const string HealthProbeUserAgent = "LocalCodingAgentTray/5.0.0-preview.12";
+    private const string HealthProbeUserAgent = "LocalCodingAgentTray/5.0.0";
     private const string HealthProbeHeader = "X-Local-Coding-Agent-Probe";
     private const string TunnelStatusUrl = "http://127.0.0.1:8788/api/status";
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(2.5) };
@@ -58,7 +58,7 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "Local Coding Agent Tray v5.0.0-preview.12";
+        Text = "Local Coding Agent Tray v5.0.0";
         Width = 660;
         Height = 1000;
         StartPosition = FormStartPosition.CenterScreen;
@@ -167,7 +167,7 @@ public sealed class MainForm : Form
         y += 28;
         _chkV5Preview = new CheckBox
         {
-            Text = "Enable public v5 preview (experimental)",
+            Text = "Enable v5 features (official)",
             Left = 150,
             Top = y,
             Width = 360
@@ -752,9 +752,9 @@ public sealed class MainForm : Form
     {
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
-        var version = root.TryGetProperty("preview_version", out var preview)
-            ? preview.GetString()
-            : root.TryGetProperty("version", out var core) ? core.GetString() : "unknown";
+        var version = root.TryGetProperty("version", out var release)
+            ? release.GetString()
+            : root.TryGetProperty("preview_version", out var legacy) ? legacy.GetString() : "unknown";
         var profile = root.TryGetProperty("permission_profile", out var p) ? p.GetString() : null;
         var rootCount = root.TryGetProperty("roots", out var roots) && roots.ValueKind == JsonValueKind.Array
             ? roots.GetArrayLength()
@@ -781,11 +781,7 @@ public sealed class MainForm : Form
             var root = doc.RootElement;
             var ver = root.TryGetProperty("version", out var v) ? v.GetString() : "?";
             var mode = root.TryGetProperty("mode", out var m) ? m.GetString() : "?";
-            var previewOn = root.TryGetProperty("preview_enabled", out var pe) && pe.ValueKind == JsonValueKind.True;
-            var previewVer = root.TryGetProperty("preview_version", out var pv) ? pv.GetString() : null;
-            var shownVersion = previewOn && !string.IsNullOrWhiteSpace(previewVer)
-                ? $"{previewVer} (core {ver})"
-                : ver;
+            var shownVersion = ver;
             var profile = root.TryGetProperty("permission_profile", out var p) ? p.GetString() : null;
             var rootCount = root.TryGetProperty("roots", out var r) && r.ValueKind == JsonValueKind.Array
                 ? r.GetArrayLength()

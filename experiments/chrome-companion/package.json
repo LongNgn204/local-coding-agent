@@ -1,6 +1,6 @@
 {
-  "name": "local-coding-agent-chrome-companion-preview",
-  "version": "5.0.0-preview.12",
+  "name": "local-coding-agent-chrome-companion",
+  "version": "5.0.0",
   "private": true,
   "type": "module",
   "scripts": {

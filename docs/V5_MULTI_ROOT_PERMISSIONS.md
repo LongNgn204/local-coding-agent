@@ -1,7 +1,7 @@
-# Public Preview — Multi-root permission profiles
+# v5.0.0 — Multi-root permission profiles
 
-This feature is published as part of `v5.0.0-preview.12`. It remains
-experimental: review every authorized path and use `observe`, `edit`, or
+This feature is part of the official `v5.0.0` release. Review every authorized
+path and use `observe`, `edit`, or
 `develop` unless a trusted task genuinely requires `full_control`.
 
 ## Model
@@ -86,8 +86,7 @@ node scripts/local-coding-agent.mjs permissions show monorepo
 node scripts/local-coding-agent.mjs permissions use monorepo
 ```
 
-Starting through the CLI automatically enables the public preview when a
-permission profile file is configured. Desktop Studio exposes the same model
+v5 permission profiles are enabled by default. Desktop Studio exposes the same model
 in its **Authorized paths** panel. The tray app accepts a profile file and name
 for launch compatibility.
 

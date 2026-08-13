@@ -48,7 +48,7 @@ public sealed class PermissionProfileStore
         var fullWorkspace = string.IsNullOrWhiteSpace(workspace) ? "" : Path.GetFullPath(workspace);
         store.Profiles[name] = new PermissionProfile
         {
-            Description = "Public preview multi-root profile",
+            Description = "Local Coding Agent v5 multi-root profile",
             WorkingDirectory = fullWorkspace,
             Roots = string.IsNullOrWhiteSpace(fullWorkspace)
                 ? []
@@ -162,7 +162,7 @@ public sealed class PermissionProfileStore
 public sealed class PermissionProfile
 {
     [JsonPropertyName("description")]
-    public string Description { get; set; } = "Public preview multi-root profile";
+    public string Description { get; set; } = "Local Coding Agent v5 multi-root profile";
 
     [JsonPropertyName("working_directory")]
     public string WorkingDirectory { get; set; } = "";

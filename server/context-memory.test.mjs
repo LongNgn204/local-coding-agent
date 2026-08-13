@@ -27,7 +27,7 @@ test("ContextMemory writes immutable checkpoints, resumes latest, and prunes old
   try {
     const memory = new ContextMemory({
       dir,
-      releaseVersion: "4.4.3",
+      releaseVersion: "5.0.0",
       workspace: { id: "test", primary_root: dir, roots: [dir], mode: "safe", policy: "balanced" },
       maxCheckpoints: 2
     });

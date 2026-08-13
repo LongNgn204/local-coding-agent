@@ -30,8 +30,8 @@ public class AppConfig
     public string AuthToken { get; set; } = "";
     public bool OpenWebUi { get; set; } = true;
 
-    /// <summary>Experimental public-preview features. Stable behavior remains
-    /// available when this switch is disabled.</summary>
+    /// <summary>Official v5 features. Disable only for temporary v4
+    /// compatibility behavior.</summary>
     public bool V5Preview { get; set; } = true;
 
     /// <summary>

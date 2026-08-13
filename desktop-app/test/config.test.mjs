@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { ConfigStore } from "../main/config.mjs";
 
-test("ConfigStore migrates a workspace into a public preview permission profile", async (t) => {
+test("ConfigStore migrates a workspace into a v5 permission profile", async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), "lca-studio-config-"));
   const workspace = path.join(base, "workspace");
   const configDir = path.join(base, "private-config");

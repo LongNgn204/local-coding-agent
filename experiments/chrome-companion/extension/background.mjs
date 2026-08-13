@@ -1,4 +1,4 @@
-// Local Coding Agent Chrome Companion preview
+// Local Coding Agent Chrome Companion v5
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 const DEFAULT_BRIDGE_URL = "http://127.0.0.1:8790";

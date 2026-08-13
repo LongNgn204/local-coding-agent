@@ -248,7 +248,7 @@ export class StudioBackend {
     return parseToolResult(result);
   }
 
-  // Live health straight from /healthz (also surfaces preview_version).
+  // Live health straight from /healthz (with legacy preview aliases retained).
   async health() {
     if (!this.port) return { ok: false, reason: "not_started" };
     try {

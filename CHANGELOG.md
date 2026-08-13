@@ -3,6 +3,24 @@
 All notable changes to Local Coding Agent are documented here. The project
 follows [Semantic Versioning](https://semver.org/).
 
+## [5.0.0] - 2026-08-13
+
+The v5 feature set is now the official stable release channel and is enabled
+by default. The legacy `AGENT_V5_PREVIEW` environment name remains as a
+compatibility switch; set it to `0` only for temporary v4 behavior.
+
+### Changed
+
+- Promoted multi-root permissions, the redesigned dashboard, task agents,
+  local reports, tunnel recovery, Chrome Companion, and the dedicated optional
+  Windows power tools from preview to the official v5 release.
+- Updated the server, CLI, tray metadata, Chrome Companion, documentation,
+  build output, manifest channel, and download links to `5.0.0`.
+- v5 tools are registered by default. Shutdown remains separately disabled by
+  default and still requires the explicit local tray opt-in.
+- Kept legacy `preview_*` health fields and `preview_status` as compatibility
+  aliases for clients upgrading from `v5.0.0-preview.12`.
+
 ## [5.0.0-preview.12] - 2026-08-13
 
 The former private v5 preview is now available as an experimental public
@@ -401,6 +419,7 @@ Windows tray workflow.
 - Dashboard port `8788` remains reserved by the tunnel client; use the default
   dashboard port `8790`.
 
+[5.0.0]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v5.0.0
 [5.0.0-preview.12]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v5.0.0-preview.12
 [4.4.3]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.3
 [4.4.3-prodev]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.3-prodev

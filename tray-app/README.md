@@ -7,7 +7,7 @@ Agent on one machine:
   Tunnel.
 - A form to set the workspace root(s), mode, policy, ports, Runtime API key,
   Tunnel ID, and Organization ID.
-- A public preview profile manager for named multi-path permission sets. Each
+- A v5 profile manager for named multi-path permission sets. Each
   path can be `observe`, `edit`, `develop`, or `full_control`, with optional
   deny globs and a separate per-profile working path.
 - Stores the Runtime API key encrypted with Windows DPAPI (per user), never as
@@ -48,8 +48,8 @@ dotnet run
 # Or publish a single self-contained exe in .\publish:
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 
-# Public preview release (versioned output; does not replace stable):
-powershell -ExecutionPolicy Bypass -File .\build-preview-release.ps1
+# Official stable release (versioned output):
+powershell -ExecutionPolicy Bypass -File .\build-release.ps1
 ```
 
 ## First-time setup in the app
@@ -69,7 +69,7 @@ powershell -ExecutionPolicy Bypass -File .\build-preview-release.ps1
    reports ready, and only then starts `tunnel-client` with the generated
    profile. It retries a failed initial MCP probe automatically:
 
-For the public multi-path preview, click **Manage authorized paths...**,
+For v5 multi-path permissions, click **Manage authorized paths...**,
 create or select a named profile, add its roots, assign each root a rights
 preset, and click **Save & use**. The profile store is kept in the current
 user's app-data directory by default and must remain outside every authorized
@@ -84,7 +84,7 @@ support messages.
 
 ## Prompt-requested shutdown
 
-This Windows-only preview feature is off by default. Enable **Allow prompt-requested
+This Windows-only feature is off by default. Enable **Allow prompt-requested
 shutdown (immediate, no approval)**, then click **Start** to apply it. A prompt
 must explicitly request shutdown. The agent should:
 

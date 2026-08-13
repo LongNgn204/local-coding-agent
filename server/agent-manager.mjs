@@ -216,7 +216,7 @@ const ROLE_PLAYBOOK = {
   ],
   release_prep: () => [
     "1. Run test:agent, test:pro, test:security, validate-skills.",
-    "2. Confirm version constants (stable + PREVIEW_VERSION).",
+    "2. Confirm official release and compatibility version constants.",
     "3. Update CHANGELOG with a dated, clearly-labeled section.",
     "4. Confirm preview flags default to off (stable behavior unchanged).",
     "5. Only tag/publish after maintainer approval."

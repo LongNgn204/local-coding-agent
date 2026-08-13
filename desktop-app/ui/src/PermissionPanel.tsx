@@ -38,7 +38,7 @@ export function PermissionPanel({ file, store, busy, onSave, onPickRoot }: Props
     next.profiles[name] = {
       version: 1,
       name,
-      description: "Public preview multi-root profile",
+      description: "Local Coding Agent v5 multi-root profile",
       working_directory: active.working_directory,
       roots: [{ label: "Primary workspace", path: active.working_directory, preset: "develop" }]
     };

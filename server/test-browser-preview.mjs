@@ -1,4 +1,4 @@
-// Local Coding Agent Chrome Companion preview integration test
+// Local Coding Agent Chrome Companion integration test
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { spawn } from "node:child_process";
@@ -38,7 +38,7 @@ async function waitForHealth(port, child, output) {
 }
 
 async function startServer({ port, dashboardPort, preview, policy = "full" }) {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), `lca-browser-preview-${preview ? "on" : "off"}-`));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), `lca-browser-v5-${preview === false ? "compat" : "on"}-`));
   const approvalsDir = `${workspace}-approvals`;
   let stdout = "";
   let stderr = "";
@@ -53,8 +53,10 @@ async function startServer({ port, dashboardPort, preview, policy = "full" }) {
       AGENT_MODE: "safe",
       AGENT_POLICY: policy,
       AGENT_APPROVALS_DIR: approvalsDir,
-      AGENT_V5_PREVIEW: preview ? "1" : "0",
-      AGENT_BROWSER_PREVIEW: preview ? "1" : "0"
+      ...(preview === undefined ? {} : {
+        AGENT_V5_PREVIEW: preview ? "1" : "0",
+        AGENT_BROWSER_PREVIEW: preview ? "1" : "0"
+      })
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -106,14 +108,27 @@ let previewServer;
 let balancedServer;
 let strictServer;
 let stableServer;
+let defaultServer;
 let client;
 let balancedClient;
 let strictClient;
 let stableClient;
+let defaultClient;
 try {
+  defaultServer = await startServer({ port: 19329, dashboardPort: 19330 });
+  check("official v5 features are enabled by default", defaultServer.health.version === "5.0.0" && defaultServer.health.v5_enabled === true, JSON.stringify(defaultServer.health));
+  defaultClient = new Client({ name: "browser-default-v5-test", version: "1.0.0" });
+  await defaultClient.connect(new StreamableHTTPClientTransport(new URL("http://127.0.0.1:19329/mcp")));
+  const defaultTools = (await defaultClient.listTools()).tools.map((tool) => tool.name);
+  check("default v5 mode exposes browser tools", defaultTools.includes("browser_status"));
+  await defaultClient.close();
+  defaultClient = null;
+  await defaultServer.stop();
+  defaultServer = null;
+
   previewServer = await startServer({ port: 19321, dashboardPort: 19322, preview: true });
-  check("health exposes preview.12", previewServer.health.preview_version === "5.0.0-preview.12", JSON.stringify(previewServer.health));
-  check("health exposes Chrome Companion preview", previewServer.health.browser_preview?.enabled === true);
+  check("health exposes official v5.0.0", previewServer.health.version === "5.0.0", JSON.stringify(previewServer.health));
+  check("health exposes Chrome Companion", previewServer.health.browser_preview?.enabled === true);
 
   const dashboardBase = "http://127.0.0.1:19322";
   const dashboardUi = await (await fetch(`${dashboardBase}/ui`)).text();
@@ -134,7 +149,7 @@ try {
   );
   const status = await json(await fetch(`${dashboardBase}/api/browser/status`));
   check("dashboard exposes a six-digit one-time pairing code", /^\d{6}$/.test(status.pairing_code || ""));
-  check("dashboard reports the unpacked extension directory", /chrome-companion-preview[\\/]extension$/.test(status.extension_dir || ""));
+  check("dashboard reports the unpacked extension directory", /chrome-companion[\\/]extension$/.test(status.extension_dir || ""));
 
   const badPair = await fetch(`${dashboardBase}/api/browser/pair`, {
     method: "POST",
@@ -251,16 +266,18 @@ try {
   stableClient = new Client({ name: "browser-stable-test", version: "1.0.0" });
   await stableClient.connect(new StreamableHTTPClientTransport(new URL("http://127.0.0.1:19323/mcp")));
   const stableTools = (await stableClient.listTools()).tools.map((tool) => tool.name);
-  check("stable mode does not expose browser preview tools", stableTools.every((name) => !name.startsWith("browser_")));
+  check("v4 compatibility mode does not expose browser tools", stableTools.every((name) => !name.startsWith("browser_")) && stableServer.health.v5_enabled === false);
 } finally {
   await client?.close().catch(() => {});
   await balancedClient?.close().catch(() => {});
   await strictClient?.close().catch(() => {});
   await stableClient?.close().catch(() => {});
+  await defaultClient?.close().catch(() => {});
   await previewServer?.stop().catch(() => {});
   await balancedServer?.stop().catch(() => {});
   await strictServer?.stop().catch(() => {});
   await stableServer?.stop().catch(() => {});
+  await defaultServer?.stop().catch(() => {});
 }
 
 console.log(`\n==== BROWSER PREVIEW: ${passed} passed, ${failed} failed ====`);

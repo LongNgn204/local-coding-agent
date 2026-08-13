@@ -22,7 +22,7 @@ const LOG_PATH = join(dirname(CONFIG_PATH), "launcher.log");
 const DEFAULT_PERMISSION_PROFILE_PATH = join(dirname(CONFIG_PATH), "permission-profiles.json");
 const SETUP_WIZARD_REPORT = join(REPO_ROOT, "setup-wizard-report.txt");
 const REPO_URL = "https://github.com/LongNgn204/local-coding-agent";
-const RELEASE_VERSION = "4.4.3";
+const RELEASE_VERSION = "5.0.0";
 
 const DEFAULTS = {
   node: process.env.NODE || "node",
@@ -633,7 +633,9 @@ async function start(flags) {
       AGENT_EXTRA_ROOTS: opts.extraRoots || "",
       AGENT_PERMISSION_PROFILE_FILE: opts.permissionProfileFile || "",
       AGENT_PERMISSION_PROFILE_NAME: opts.permissionProfileName || "",
-      AGENT_V5_PREVIEW: opts.permissionProfileFile ? "1" : (process.env.AGENT_V5_PREVIEW || "0"),
+      // Legacy environment name retained for compatibility; official v5 is on
+      // by default and can be explicitly disabled for temporary v4 behavior.
+      AGENT_V5_PREVIEW: opts.permissionProfileFile ? "1" : (process.env.AGENT_V5_PREVIEW ?? "1"),
       MCP_AUTH_TOKEN: opts.authToken || ""
     };
     const stdio = flags.background ? ["ignore", "ignore", "ignore"] : "inherit";
@@ -1267,7 +1269,7 @@ async function permissionsCommand(rest, flags) {
         [name]: {
           version: 1,
           name,
-          description: "Public preview multi-root profile",
+          description: "Local Coding Agent v5 multi-root profile",
           working_directory: workspace,
           roots: [{ label: "Primary workspace", path: workspace, preset }]
         }
@@ -1314,7 +1316,7 @@ async function permissionsCommand(rest, flags) {
     store.profiles[name] = {
       version: 1,
       name,
-      description: "Public preview multi-root profile",
+      description: "Local Coding Agent v5 multi-root profile",
       working_directory: workspace,
       roots: [{ label: "Primary workspace", path: workspace, preset }]
     };

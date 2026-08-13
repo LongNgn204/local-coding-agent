@@ -1,4 +1,4 @@
-// Local Coding Agent public preview — multi-root permission profiles.
+// Local Coding Agent v5 — multi-root permission profiles.
 // Copyright (c) 2026 Long Nguyen
 // SPDX-License-Identifier: AGPL-3.0-or-later
 

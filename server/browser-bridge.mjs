@@ -1,4 +1,4 @@
-// Local Coding Agent Chrome Companion preview bridge
+// Local Coding Agent Chrome Companion bridge
 // Copyright (c) 2026 Long Nguyen
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -61,7 +61,7 @@ export class BrowserBridge {
   }
 
   pair({ pairing_code, extension_id, name }, origin) {
-    if (!this.enabled) throw new Error("Chrome Companion preview is disabled.");
+    if (!this.enabled) throw new Error("Chrome Companion is disabled.");
     if (!CHROME_EXTENSION_ORIGIN_RE.test(origin)) throw new Error("Pairing is allowed only from a Chrome extension origin.");
     if (extension_id !== origin.slice("chrome-extension://".length)) throw new Error("Extension id does not match the request origin.");
     if (!/^\d{6}$/.test(String(pairing_code || "")) || !equalSecret(pairing_code, hash(this.pairingCode))) {
@@ -152,7 +152,7 @@ export class BrowserBridge {
   }
 
   dispatch(kind, payload = {}, { timeoutMs } = {}) {
-    if (!this.enabled) return Promise.reject(new Error("Chrome Companion preview is disabled."));
+    if (!this.enabled) return Promise.reject(new Error("Chrome Companion is disabled."));
     const client = [...this.clients.values()].find((candidate) =>
       candidate.lastSeenAt && Date.now() - candidate.lastSeenAt <= this.staleMs
     );

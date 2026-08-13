@@ -180,7 +180,7 @@ export function App() {
   ) : running ? (
     <span className="pill ok">
       <span className="led" /> server up
-      {health.preview_version ? ` · v${health.preview_version}` : ""}
+      {health.version ? ` · v${health.version}` : ""}
     </span>
   ) : (
     <span className="pill down">

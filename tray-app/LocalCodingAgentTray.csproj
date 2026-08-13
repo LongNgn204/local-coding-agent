@@ -8,11 +8,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>LocalCodingAgentTray</AssemblyName>
     <RootNamespace>LocalCodingAgentTray</RootNamespace>
-    <Version>5.0.0-preview.12</Version>
-    <AssemblyTitle>Local Coding Agent Preview Tray</AssemblyTitle>
-    <Product>Local Coding Agent Public Preview</Product>
-    <Description>Public preview multi-root tray supervisor for Local Coding Agent</Description>
-    <InformationalVersion>5.0.0-preview.12+public.multiroot.tunnel-recovery.instant-power</InformationalVersion>
+    <Version>5.0.0</Version>
+    <AssemblyTitle>Local Coding Agent Tray</AssemblyTitle>
+    <Product>Local Coding Agent</Product>
+    <Description>Official multi-root tray supervisor for Local Coding Agent</Description>
+    <InformationalVersion>5.0.0+stable.multiroot.tunnel-recovery.instant-power</InformationalVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>

@@ -54,7 +54,7 @@ async function call(client, name, args = {}) {
   return { isError: Boolean(result.isError), text, json };
 }
 
-test("public preview enforces per-root rights and approved dynamic grants", async (t) => {
+test("v5 enforces per-root rights and approved dynamic grants", async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), "lca-permission-preview-"));
   const observe = path.join(base, "observe");
   const edit = path.join(base, "edit");

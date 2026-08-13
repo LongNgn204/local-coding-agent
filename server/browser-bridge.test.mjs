@@ -1,4 +1,4 @@
-// Local Coding Agent Chrome Companion preview tests
+// Local Coding Agent Chrome Companion tests
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import assert from "node:assert/strict";
