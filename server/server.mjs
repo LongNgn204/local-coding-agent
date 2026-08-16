@@ -4051,6 +4051,13 @@ function dashboardHtml() {
               <div id="overviewApprovals"><div class="empty-state">Đang kiểm tra…</div></div>
               <div class="toolbar" style="margin-top:11px"><button class="btn primary" type="button" onclick="setView('approvals')">Mở trung tâm phê duyệt</button></div>
             </div>
+            <div class="panel">
+              <h3>Context và bàn giao</h3>
+              <div class="context-row"><span>Sức khỏe context</span><strong id="contextHealth">100/100</strong></div>
+              <div class="context-row"><span>Khuyến nghị</span><strong id="contextRecommendation">continue</strong></div>
+              <div class="context-row"><span>Compact gần nhất</span><strong id="contextLast">Chưa lưu</strong></div>
+              <div class="note" id="contextGoal">Chưa có checkpoint.</div>
+            </div>
           </div>
         </div>
       </section>
@@ -4242,8 +4249,8 @@ function renderContext(c){
   c=c||{};
   document.getElementById('contextHealth').textContent=h(c.health_score==null?100:c.health_score)+'/100';
   document.getElementById('contextRecommendation').textContent=(c.recommendation||'continue').replace(/_/g,' ')+' · '+h(c.activity_since_baseline&&c.activity_since_baseline.tool_calls)+' calls';
-  document.getElementById('contextLast').textContent=c.saved_at?new Date(c.saved_at).toLocaleString():'Not saved';
-  document.getElementById('contextGoal').textContent=c.goal||'No checkpoint yet';
+  document.getElementById('contextLast').textContent=c.saved_at?new Date(c.saved_at).toLocaleString():'Chưa lưu';
+  document.getElementById('contextGoal').textContent=c.goal||'Chưa có checkpoint.';
 }
 function renderChart(buckets){
   var c=document.getElementById('chart'), x=c.getContext('2d'); var W=c.width,H=c.height; x.clearRect(0,0,W,H);

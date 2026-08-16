@@ -147,6 +147,13 @@ try {
     "dashboard lazy-loads the workspace tree",
     !/\n\s*loadTree\(\);\s*\n/.test(dashboardUi) && dashboardUi.includes("if(name==='files'&&!treeLoaded) loadTree()")
   );
+  const legacyDashboardEnd = dashboardUi.indexOf("-->", dashboardUi.indexOf("<!-- Legacy v4 dashboard"));
+  const activeDashboardUi = legacyDashboardEnd >= 0 ? dashboardUi.slice(legacyDashboardEnd + 3) : dashboardUi;
+  check(
+    "dashboard contains every context target used by the live status renderer",
+    ["contextHealth", "contextRecommendation", "contextLast", "contextGoal"]
+      .every((id) => activeDashboardUi.includes(`id="${id}"`))
+  );
   const status = await json(await fetch(`${dashboardBase}/api/browser/status`));
   check("dashboard exposes a six-digit one-time pairing code", /^\d{6}$/.test(status.pairing_code || ""));
   check("dashboard reports the unpacked extension directory", /chrome-companion[\\/]extension$/.test(status.extension_dir || ""));
