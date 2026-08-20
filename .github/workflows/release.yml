@@ -17,8 +17,8 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -41,7 +41,7 @@ jobs:
         run: |
           npm test
           npm run package
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tray-${{ runner.os }}
           path: |
@@ -57,8 +57,8 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -81,7 +81,7 @@ jobs:
         run: |
           npm test
           npm run package
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: studio-${{ runner.os }}
           path: |
@@ -93,8 +93,8 @@ jobs:
     name: Build Tray Classic compatibility app (Windows x64)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
       - name: Build self-contained compatibility executable
@@ -104,7 +104,7 @@ jobs:
         run: |
           $env:LCA_RELEASE_VERSION = $env:LCA_RELEASE_VERSION.TrimStart('v')
           ./tray-app/build-release.ps1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tray-classic-windows
           path: tray-app/publish/**/*.exe
@@ -114,8 +114,8 @@ jobs:
     name: Package Chrome Companion
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: Validate extension
@@ -127,7 +127,7 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           cd experiments/chrome-companion/extension
           zip -r "../../../ChromeCompanion-${version}.zip" .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: chrome-companion
           path: ChromeCompanion-*.zip
@@ -138,12 +138,12 @@ jobs:
     needs: [tray, studio, tray-classic, chrome-companion]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: "*"
           merge-multiple: true
           path: release-assets
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: release-assets/*
           generate_release_notes: true
