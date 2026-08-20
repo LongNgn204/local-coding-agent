@@ -7,10 +7,11 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Official cross-platform Electron Tray and Local Codex Studio release builds
-  for Windows x64 and both Apple Silicon and Intel macOS.
-- A tag-driven release pipeline that tests, packages, and publishes both apps,
-  the Windows classic compatibility tray, and Chrome Companion.
+- Official cross-platform Electron Tray release builds for Windows x64 and both
+  Apple Silicon and Intel macOS. Local Codex Studio remains an internal
+  experiment and is not publicly distributed.
+- A tag-driven release pipeline that tests and publishes Tray, the Windows
+  classic compatibility tray, and Chrome Companion.
 - One-command bootstrap scripts for PowerShell and macOS/Linux shells.
 
 ### Fixed

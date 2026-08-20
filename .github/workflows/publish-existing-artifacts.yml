@@ -37,22 +37,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          find source-assets -type f -exec cp -f {} release-assets/ \;
           version="${{ inputs.release_version }}"
           required=(
             "ChromeCompanion-${version}.zip"
-            "LocalCodexStudio-${version}-win-x64.exe"
-            "LocalCodexStudio-${version}-mac-arm64.zip"
-            "LocalCodexStudio-${version}-mac-x64.zip"
             "LocalCodingAgentTray-${version}-win-x64.exe"
             "LocalCodingAgentTray-${version}-mac-arm64.zip"
             "LocalCodingAgentTray-${version}-mac-x64.zip"
             "LocalCodingAgentTrayClassic-${version}-win-x64.exe"
           )
           for asset in "${required[@]}"; do
-            test -s "release-assets/$asset" || { echo "Missing release asset: $asset" >&2; exit 1; }
+            source="$(find source-assets -type f -name "$asset" -print -quit)"
+            test -n "$source" || { echo "Missing release asset: $asset" >&2; exit 1; }
+            cp -f "$source" "release-assets/$asset"
           done
-          test "$(find release-assets -maxdepth 1 -type f | wc -l | tr -d ' ')" = "8"
+          test "$(find release-assets -maxdepth 1 -type f | wc -l | tr -d ' ')" = "5"
           notes="docs/RELEASE_NOTES_V${version//./_}.md"
           if [[ -f "$notes" ]]; then
             cp "$notes" release-notes.md

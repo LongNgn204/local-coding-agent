@@ -49,46 +49,6 @@ jobs:
             desktop-tray/dist/*.zip
           if-no-files-found: error
 
-  studio:
-    name: Build Studio (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: |
-            desktop-app/package-lock.json
-            server/package-lock.json
-      - name: Install bundled MCP runtime
-        run: npm ci --omit=dev
-        working-directory: server
-      - name: Install Studio dependencies
-        run: npm ci
-        working-directory: desktop-app
-      - name: Set version from tag
-        shell: bash
-        working-directory: desktop-app
-        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
-      - name: Test and package Studio
-        shell: bash
-        working-directory: desktop-app
-        run: |
-          npm test
-          npm run package
-      - uses: actions/upload-artifact@v7
-        with:
-          name: studio-${{ runner.os }}
-          path: |
-            desktop-app/dist/*.exe
-            desktop-app/dist/*.zip
-          if-no-files-found: error
-
   tray-classic:
     name: Build Tray Classic compatibility app (Windows x64)
     runs-on: windows-latest
@@ -140,7 +100,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release assets
-    needs: [tray, studio, tray-classic, chrome-companion]
+    needs: [tray, tray-classic, chrome-companion]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

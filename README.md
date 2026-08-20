@@ -38,22 +38,25 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
 > before using it. It is not an OS sandbox; only connect workspaces you trust.
 
 > **Latest stable release: v5.0.1.** This maintenance release adds official
-> Tray and Studio packages for Windows and macOS, bundles the tested MCP
-> runtime, expands cross-platform CI, and hardens permissions and recovery.
+> Tray packages for Windows and macOS, bundles the tested MCP runtime, expands
+> cross-platform CI, and hardens permissions and recovery. Local Codex Studio
+> remains an internal experiment and is not publicly distributed.
 
 ### What's New In v5.0.1
 
 - Cross-platform Electron Tray: Windows x64, macOS Apple Silicon, and macOS Intel.
-- Local Codex Studio packages for the same Windows/macOS targets.
+- Internal Local Codex Studio experiment for continued development; no public
+  download is available yet.
 - Bundled MCP runtime, predictable release assets, and Electron's built-in Node
   fallback for the packaged Tray.
 - Permission-boundary, Windows power-path, dashboard resilience, and CI fixes.
 - Chrome Companion and classic Windows tray remain available as compatibility
   assets. The proprietary tunnel client is never bundled.
 
-**Tiếng Việt:** Bản `v5.0.1` hoàn thiện đóng gói Tray và Studio cho Windows lẫn
-macOS, mang theo MCP runtime đã kiểm thử, tăng độ ổn định của quyền truy cập,
-dashboard và tunnel. Tunnel client độc quyền vẫn do người dùng tự tải.
+**Tiếng Việt:** Bản `v5.0.1` hoàn thiện đóng gói Tray cho Windows lẫn macOS,
+mang theo MCP runtime đã kiểm thử, tăng độ ổn định của quyền truy cập, dashboard
+và tunnel. Studio vẫn là thử nghiệm nội bộ, chưa phát hành công khai. Tunnel
+client độc quyền vẫn do người dùng tự tải.
 
 Existing customers can update safely with `scripts\lca.cmd update` on Windows
 or `bash scripts/lca update` on macOS/Linux, then restart the tray app/server.
@@ -251,9 +254,9 @@ Direct v5.0.1 downloads:
 - [Tray — Windows x64](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-win-x64.exe)
 - [Tray — macOS Apple Silicon](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-mac-arm64.zip)
 - [Tray — macOS Intel](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-mac-x64.zip)
-- [Studio — Windows x64](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodexStudio-5.0.1-win-x64.exe)
-- [Studio — macOS Apple Silicon](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodexStudio-5.0.1-mac-arm64.zip)
-- [Studio — macOS Intel](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodexStudio-5.0.1-mac-x64.zip)
+
+Local Codex Studio is an internal experiment under active development and is
+not available as a public download yet.
 
 ```powershell
 cd tray-app
@@ -572,9 +575,9 @@ Tải trực tiếp v5.0.1:
 - [Tray — Windows x64](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-win-x64.exe)
 - [Tray — macOS Apple Silicon](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-mac-arm64.zip)
 - [Tray — macOS Intel](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-mac-x64.zip)
-- [Studio — Windows x64](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodexStudio-5.0.1-win-x64.exe)
-- [Studio — macOS Apple Silicon](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodexStudio-5.0.1-mac-arm64.zip)
-- [Studio — macOS Intel](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodexStudio-5.0.1-mac-x64.zip)
+
+Local Codex Studio đang là bản thử nghiệm nội bộ, vẫn trong quá trình phát
+triển và chưa có bản tải công khai.
 
 ```powershell
 cd tray-app
