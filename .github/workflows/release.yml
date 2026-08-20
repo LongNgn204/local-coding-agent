@@ -1,0 +1,149 @@
+name: Release applications
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  tray:
+    name: Build Tray (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            desktop-tray/package-lock.json
+            server/package-lock.json
+      - name: Install bundled MCP runtime
+        run: npm ci --omit=dev
+        working-directory: server
+      - name: Install Tray dependencies
+        run: npm ci
+        working-directory: desktop-tray
+      - name: Set version from tag
+        shell: bash
+        working-directory: desktop-tray
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+      - name: Test and package Tray
+        shell: bash
+        working-directory: desktop-tray
+        run: |
+          npm test
+          npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tray-${{ runner.os }}
+          path: |
+            desktop-tray/dist/*.exe
+            desktop-tray/dist/*.zip
+          if-no-files-found: error
+
+  studio:
+    name: Build Studio (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            desktop-app/package-lock.json
+            server/package-lock.json
+      - name: Install bundled MCP runtime
+        run: npm ci --omit=dev
+        working-directory: server
+      - name: Install Studio dependencies
+        run: npm ci
+        working-directory: desktop-app
+      - name: Set version from tag
+        shell: bash
+        working-directory: desktop-app
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+      - name: Test and package Studio
+        shell: bash
+        working-directory: desktop-app
+        run: |
+          npm test
+          npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio-${{ runner.os }}
+          path: |
+            desktop-app/dist/*.exe
+            desktop-app/dist/*.zip
+          if-no-files-found: error
+
+  tray-classic:
+    name: Build Tray Classic compatibility app (Windows x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build self-contained compatibility executable
+        shell: pwsh
+        env:
+          LCA_RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          $env:LCA_RELEASE_VERSION = $env:LCA_RELEASE_VERSION.TrimStart('v')
+          ./tray-app/build-release.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tray-classic-windows
+          path: tray-app/publish/**/*.exe
+          if-no-files-found: error
+
+  chrome-companion:
+    name: Package Chrome Companion
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate extension
+        run: npm run check
+        working-directory: experiments/chrome-companion
+      - name: Package extension
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cd experiments/chrome-companion/extension
+          zip -r "../../../ChromeCompanion-${version}.zip" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chrome-companion
+          path: ChromeCompanion-*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release assets
+    needs: [tray, studio, tray-classic, chrome-companion]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*"
+          merge-multiple: true
+          path: release-assets
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true

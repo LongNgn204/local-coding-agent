@@ -50,7 +50,7 @@ import { ContextMemory, contextPressure } from "./context-memory.mjs";
 // ----------------------------------------------------------------------------
 // Configuration (all overridable via environment variables)
 // ----------------------------------------------------------------------------
-const VERSION = "5.0.0";
+const VERSION = "5.0.1";
 const CORE_VERSION = "4.4.3";
 const PRODUCT_TIER = "pro";
 // v5 is the official release channel. AGENT_V5_PREVIEW is retained as a
@@ -114,7 +114,14 @@ const PERMISSION_RESOLVER = new PermissionResolver(PERMISSION_PROFILE);
 // profile when no explicit permission profile is configured.
 const PRIMARY_ROOT = PERMISSION_RESOLVER.workingDirectory;
 const ROOTS = PERMISSION_RESOLVER.roots;
-if (PERMISSION_PROFILE.profile_file && ROOTS.some((root) => isPathInside(canonicalizePath(PERMISSION_PROFILE.profile_file), canonicalizePath(root)))) {
+if (
+  PERMISSION_PROFILE.profile_file &&
+  ROOTS.some((root) => {
+    const canonicalRoot = canonicalizePath(root);
+    const isFsRoot = canonicalRoot === path.parse(canonicalRoot).root;
+    return !isFsRoot && isPathInside(canonicalizePath(PERMISSION_PROFILE.profile_file), canonicalRoot);
+  })
+) {
   throw new Error("AGENT_PERMISSION_PROFILE_FILE must be stored outside every authorized workspace root.");
 }
 
@@ -130,7 +137,10 @@ const ALLOWED_ORIGINS = new Set(
     .filter(Boolean)
 );
 
-const DATA_DIR = path.resolve(APP_DIR, "data");
+// Packaged desktop apps live in application resources, which may be read-only.
+// They provide a per-user writable directory; source/CLI launches keep the
+// historical server/data default for compatibility.
+const DATA_DIR = path.resolve(process.env.AGENT_DATA_DIR || path.join(APP_DIR, "data"));
 const WORKSPACE_ID = createHash("sha256").update(comparePath(PRIMARY_ROOT)).digest("hex").slice(0, 16);
 const WORKSPACE_DATA_DIR = path.join(DATA_DIR, "workspaces", WORKSPACE_ID);
 const PRIVATE_STATE_DIR = path.resolve(
@@ -176,7 +186,11 @@ const DECISIONS_PATH = path.join(AGENT_STATE_DIR, "decisions.md");
 // repo/workspace so a file-writing agent cannot forge its own approval when it
 // happens to be working on this server's source tree.
 const APPROVALS_DIR = path.resolve(process.env.AGENT_APPROVALS_DIR || path.join(PRIVATE_STATE_DIR, "approvals", WORKSPACE_ID));
-if (ROOTS.some((root) => isPathInside(canonicalizePath(APPROVALS_DIR), canonicalizePath(root)))) {
+if (ROOTS.some((root) => {
+  const canonicalRoot = canonicalizePath(root);
+  const isFsRoot = canonicalRoot === path.parse(canonicalRoot).root;
+  return !isFsRoot && isPathInside(canonicalizePath(APPROVALS_DIR), canonicalRoot);
+})) {
   throw new Error("Approval storage must be outside every authorized workspace root. Set AGENT_APPROVALS_DIR to a private operator-owned path.");
 }
 const APPROVAL_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -2050,7 +2064,11 @@ function resolvePath(input = ".", requiredCapability = null) {
 
 function isWithinRoots(p, roots = PERMISSION_RESOLVER.roots) {
   const canonical = canonicalizePath(p);
-  return roots.some((root) => isPathInside(canonical, canonicalizePath(root)));
+  return roots.some((root) => {
+    const canonicalRoot = canonicalizePath(root);
+    const isFsRoot = canonicalRoot === path.parse(canonicalRoot).root;
+    return !isFsRoot && isPathInside(canonical, canonicalRoot);
+  });
 }
 
 function isConfiguredRootPath(p) {
@@ -4239,11 +4257,19 @@ function renderCards(d){
   document.getElementById('lastUpdated').textContent=fmtTime(Date.now());
 }
 function renderContext(c){
+  // Context health belonged to the legacy overview. The new dashboard keeps
+  // these nodes optional, so their absence must never make the whole server
+  // look offline.
+  var health=document.getElementById('contextHealth');
+  if(!health) return;
   c=c||{};
-  document.getElementById('contextHealth').textContent=h(c.health_score==null?100:c.health_score)+'/100';
-  document.getElementById('contextRecommendation').textContent=(c.recommendation||'continue').replace(/_/g,' ')+' · '+h(c.activity_since_baseline&&c.activity_since_baseline.tool_calls)+' calls';
-  document.getElementById('contextLast').textContent=c.saved_at?new Date(c.saved_at).toLocaleString():'Not saved';
-  document.getElementById('contextGoal').textContent=c.goal||'No checkpoint yet';
+  health.textContent=h(c.health_score==null?100:c.health_score)+'/100';
+  var recommendation=document.getElementById('contextRecommendation');
+  var last=document.getElementById('contextLast');
+  var goal=document.getElementById('contextGoal');
+  if(recommendation) recommendation.textContent=(c.recommendation||'continue').replace(/_/g,' ')+' · '+h(c.activity_since_baseline&&c.activity_since_baseline.tool_calls)+' calls';
+  if(last) last.textContent=c.saved_at?new Date(c.saved_at).toLocaleString():'Not saved';
+  if(goal) goal.textContent=c.goal||'No checkpoint yet';
 }
 function renderChart(buckets){
   var c=document.getElementById('chart'), x=c.getContext('2d'); var W=c.width,H=c.height; x.clearRect(0,0,W,H);
@@ -4321,17 +4347,40 @@ async function decideApproval(id,action){
   await fetch('/api/approvals/'+encodeURIComponent(id)+'/'+action,{method:'POST'});
   loadApprovals();
 }
-async function tick(){
-  try{
-    var r=await fetch('/metrics',{cache:'no-store'}); var d=await r.json();
-    renderCards(d); renderContext(d.context); renderChart(d.buckets); renderTools(d.top_tools); renderRecent(d.recent); renderProTips(d); loadApprovals();
-    document.getElementById('status').textContent='live'; document.getElementById('status').className='';
-    document.getElementById('status').style.color='#2dd4bf';
-    document.getElementById('liveDot').style.background='#38d6c4';
-  }catch(e){
-    document.getElementById('status').textContent='offline'; document.getElementById('status').style.color='#f87171';
-    document.getElementById('liveDot').style.background='#fb7185';
+function setDashboardLive(on){
+  var status=document.getElementById('status'), dot=document.getElementById('liveDot');
+  if(status){
+    status.textContent=on?'live':'offline';
+    status.className='';
+    status.style.color=on?'#2dd4bf':'#f87171';
   }
+  if(dot) dot.style.background=on?'#38d6c4':'#fb7185';
+}
+function renderSafely(name,fn){
+  try{ fn(); }
+  catch(e){ console.warn('[dashboard] '+name+' render failed',e); }
+}
+async function tick(){
+  var d;
+  try{
+    var r=await fetch('/metrics',{cache:'no-store'});
+    if(!r.ok) throw new Error('metrics HTTP '+r.status);
+    d=await r.json();
+  }catch(e){
+    setDashboardLive(false);
+    return;
+  }
+
+  // Connectivity is determined only by the metrics transport. A missing or
+  // optional widget must not turn a healthy MCP server into a false OFFLINE.
+  setDashboardLive(true);
+  renderSafely('cards',function(){renderCards(d);});
+  renderSafely('context',function(){renderContext(d.context);});
+  renderSafely('chart',function(){renderChart(d.buckets);});
+  renderSafely('tools',function(){renderTools(d.top_tools);});
+  renderSafely('recent',function(){renderRecent(d.recent);});
+  renderSafely('tips',function(){renderProTips(d);});
+  loadApprovals();
 }
 async function clearMetrics(){
   if(!confirm('Xóa toàn bộ metrics của phiên hiện tại? Hành động này không xóa source code hoặc báo cáo.')) return;
@@ -6682,7 +6731,12 @@ function registerSystemPowerTools(mcp) {
         throw new Error("Prompt-requested shutdown is disabled in the Windows tray.");
       }
       const request = normalizeShutdownRequest(args);
-      const result = scheduleWindowsShutdown(request, { testMode: SYSTEM_POWER_TEST_MODE });
+      const result = scheduleWindowsShutdown(request, {
+        testMode: SYSTEM_POWER_TEST_MODE,
+        // CI intentionally exercises this Windows-only path on every runner.
+        // Test mode must emulate Windows without ever invoking the OS command.
+        platform: SYSTEM_POWER_TEST_MODE ? "win32" : process.platform
+      });
       const scheduledAt = Date.now();
       pendingSystemShutdown = {
         scheduled_at: new Date(scheduledAt).toISOString(),
@@ -6716,7 +6770,10 @@ function registerSystemPowerTools(mcp) {
     async () => {
       const knownPending = pendingSystemShutdown;
       try {
-        const result = cancelWindowsShutdown({ testMode: SYSTEM_POWER_TEST_MODE });
+        const result = cancelWindowsShutdown({
+          testMode: SYSTEM_POWER_TEST_MODE,
+          platform: SYSTEM_POWER_TEST_MODE ? "win32" : process.platform
+        });
         pendingSystemShutdown = null;
         return jsonResult({
           ok: true,
@@ -6828,7 +6885,7 @@ function registerPermissionTools(mcp) {
       const canonical = canonicalizePath(target);
       const info = await stat(canonical).catch(() => null);
       if (!info?.isDirectory()) throw new Error(`Path access can only be requested for an existing directory: ${target}`);
-      if (PERMISSION_PROFILE.profile_file && isPathInside(canonicalizePath(PERMISSION_PROFILE.profile_file), canonical)) {
+      if (PERMISSION_PROFILE.profile_file && canonical !== path.parse(canonical).root && isPathInside(canonicalizePath(PERMISSION_PROFILE.profile_file), canonical)) {
         throw new Error("Cannot authorize a path that contains the active permission profile store.");
       }
       if (scope === "profile") {

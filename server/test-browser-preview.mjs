@@ -116,7 +116,7 @@ let stableClient;
 let defaultClient;
 try {
   defaultServer = await startServer({ port: 19329, dashboardPort: 19330 });
-  check("official v5 features are enabled by default", defaultServer.health.version === "5.0.0" && defaultServer.health.v5_enabled === true, JSON.stringify(defaultServer.health));
+  check("official v5 features are enabled by default", defaultServer.health.version === "5.0.1" && defaultServer.health.v5_enabled === true, JSON.stringify(defaultServer.health));
   defaultClient = new Client({ name: "browser-default-v5-test", version: "1.0.0" });
   await defaultClient.connect(new StreamableHTTPClientTransport(new URL("http://127.0.0.1:19329/mcp")));
   const defaultTools = (await defaultClient.listTools()).tools.map((tool) => tool.name);
@@ -127,7 +127,7 @@ try {
   defaultServer = null;
 
   previewServer = await startServer({ port: 19321, dashboardPort: 19322, preview: true });
-  check("health exposes official v5.0.0", previewServer.health.version === "5.0.0", JSON.stringify(previewServer.health));
+  check("health exposes official v5.0.1", previewServer.health.version === "5.0.1", JSON.stringify(previewServer.health));
   check("health exposes Chrome Companion", previewServer.health.browser_preview?.enabled === true);
 
   const dashboardBase = "http://127.0.0.1:19322";

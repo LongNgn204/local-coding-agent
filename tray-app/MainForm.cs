@@ -10,7 +10,7 @@ namespace LocalCodingAgentTray;
 
 public sealed class MainForm : Form
 {
-    private const string HealthProbeUserAgent = "LocalCodingAgentTray/5.0.0";
+    private const string HealthProbeUserAgent = "LocalCodingAgentTray/5.0.1";
     private const string HealthProbeHeader = "X-Local-Coding-Agent-Probe";
     private const string TunnelStatusUrl = "http://127.0.0.1:8788/api/status";
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(2.5) };
@@ -58,7 +58,7 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "Local Coding Agent Tray v5.0.0";
+        Text = "Local Coding Agent Tray v5.0.1";
         Width = 660;
         Height = 1000;
         StartPosition = FormStartPosition.CenterScreen;

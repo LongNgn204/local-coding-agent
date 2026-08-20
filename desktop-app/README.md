@@ -60,7 +60,19 @@ Electron is hardened: `contextIsolation: true`, `nodeIntegration: false`,
 the system browser instead), and only local content is loaded. The server stays
 loopback-only. Secrets are never printed.
 
-The app is **dev-run only** for now — it is not packaged to `.exe`.
+## Package releases
+
+The production build bundles the tested MCP server runtime (but never the
+proprietary tunnel client) and can run without a repo clone:
+
+```
+npm run package       # portable Windows exe / macOS zip / Linux AppImage
+npm run package:dir   # unpacked smoke-test build for the current OS
+```
+
+Release assets use `LocalCodexStudio-<version>-<os>-<arch>.<ext>` for Windows
+x64 and both Apple Silicon and Intel macOS. The landing page discovers them
+automatically from GitHub Releases.
 
 ---
 
@@ -81,5 +93,6 @@ npm run dev     # chạy Vite rồi mở Electron
 Giao diện: thanh trên chọn workspace / engine (`codex_cli` mặc định hoặc
 `script_runner`) / mode (`safe`/`full`) + trạng thái server; danh sách task bên
 trái; ô tạo task mới và khung xem Report/Log (có phân trang) ở giữa. Chọn
-`script_runner` để không tốn quota Codex. Ứng dụng chỉ chạy dev, chưa đóng gói
-`.exe`.
+`script_runner` để không tốn quota Codex. Đóng gói bằng `npm run package`; bản
+Windows là một file `.exe` portable có kèm MCP server runtime. Tunnel client
+độc quyền không được đóng gói kèm.

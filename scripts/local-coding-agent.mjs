@@ -22,7 +22,7 @@ const LOG_PATH = join(dirname(CONFIG_PATH), "launcher.log");
 const DEFAULT_PERMISSION_PROFILE_PATH = join(dirname(CONFIG_PATH), "permission-profiles.json");
 const SETUP_WIZARD_REPORT = join(REPO_ROOT, "setup-wizard-report.txt");
 const REPO_URL = "https://github.com/LongNgn204/local-coding-agent";
-const RELEASE_VERSION = "5.0.0";
+const RELEASE_VERSION = "5.0.1";
 
 const DEFAULTS = {
   node: process.env.NODE || "node",

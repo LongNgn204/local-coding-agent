@@ -6,15 +6,18 @@ ask before anything destructive.
 
 ## What this is
 A local **MCP server** (`server/server.mjs`, Node.js) that lets ChatGPT Web act
-as a coding agent on the user's machine, plus an optional **Windows tray app**
-(`tray-app/`) and a **local dashboard** (`http://127.0.0.1:8790/ui`).
+as a coding agent on the user's machine, plus a cross-platform Electron
+**Tray app** (`desktop-tray/`), **Local Codex Studio** (`desktop-app/`), a
+classic Windows compatibility tray (`tray-app/`), and a local dashboard
+(`http://127.0.0.1:8790/ui`).
 
 ## Prerequisites (check first; do not auto-install without asking)
 - **Node.js ≥ 18** — `node -v`. If missing, point the user to https://nodejs.org.
 - **The OpenAI tunnel client is NOT in this repo** (proprietary). The user must
   obtain it and place it at `tools/tunnel-client.exe` (Windows) or
   `tools/tunnel-client` (macOS/Linux). Never download/commit it.
-- (Windows tray app only) **.NET 10 SDK** — `dotnet --version`.
+- (Only when building the classic Windows tray) **.NET 10 SDK** —
+  `dotnet --version`. Packaged Electron apps include their runtime.
 - Optional: **ripgrep** (`rg`) makes search faster; the server auto-detects it.
 
 ## Install (one command)

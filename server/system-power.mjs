@@ -39,7 +39,10 @@ export function scheduleWindowsShutdown(
   if (platform !== "win32") throw new Error("Prompt-requested shutdown is currently supported on Windows only.");
 
   const comment = `Local Coding Agent finished the approved task: ${normalized.reason}`.slice(0, 220);
-  const executable = path.join(env.SystemRoot || env.WINDIR || "C:\\Windows", "System32", "shutdown.exe");
+  // Always use Windows path semantics. These helpers are also exercised from
+  // macOS/Linux CI with platform="win32", where path.join would otherwise
+  // produce a mixed C:\\Windows/System32 path.
+  const executable = path.win32.join(env.SystemRoot || env.WINDIR || "C:\\Windows", "System32", "shutdown.exe");
   const args = ["/s", "/t", String(normalized.delay_seconds), "/d", "p:0:0", "/c", comment];
   if (testMode) {
     return { ok: true, test_mode: true, executable, args, delay_seconds: normalized.delay_seconds, comment };
@@ -68,7 +71,7 @@ export function cancelWindowsShutdown(
   } = {}
 ) {
   if (platform !== "win32") throw new Error("Shutdown cancellation is currently supported on Windows only.");
-  const executable = path.join(env.SystemRoot || env.WINDIR || "C:\\Windows", "System32", "shutdown.exe");
+  const executable = path.win32.join(env.SystemRoot || env.WINDIR || "C:\\Windows", "System32", "shutdown.exe");
   const args = ["/a"];
   if (testMode) return { ok: true, test_mode: true, executable, args };
 

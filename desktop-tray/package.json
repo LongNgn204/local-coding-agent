@@ -1,21 +1,23 @@
 {
-  "name": "local-codex-studio",
+  "name": "local-coding-agent-tray",
   "version": "5.0.1",
   "private": true,
-  "description": "Local Codex Studio — Electron GUI that runs coding tasks locally through the OpenAI Codex CLI, reusing this repo's tested MCP backend.",
+  "description": "Local Coding Agent Tray v5.0.1 — cross-platform Electron GUI that supervises the MCP server and the OpenAI Secure MCP Tunnel.",
   "author": "Long Nguyễn",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "main": "main/main.mjs",
   "build": {
-    "appId": "com.localcodingagent.studio",
-    "productName": "Local Codex Studio",
-    "artifactName": "LocalCodexStudio-${version}-${os}-${arch}.${ext}",
+    "appId": "com.localcodingagent.tray",
+    "productName": "Local Coding Agent",
+    "artifactName": "LocalCodingAgentTray-${version}-${os}-${arch}.${ext}",
     "asar": true,
     "npmRebuild": false,
     "files": [
       "main/**",
+      "preload.cjs",
       "ui/dist/**",
+      "assets/**",
       "package.json"
     ],
     "extraResources": [
@@ -62,7 +64,10 @@
         }
       ],
       "identity": null,
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "extendInfo": {
+        "NSHighResolutionCapable": true
+      }
     },
     "linux": {
       "target": [

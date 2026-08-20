@@ -1,3 +1,7 @@
+param(
+    [string]$ReleaseVersion = $(if ($env:LCA_RELEASE_VERSION) { $env:LCA_RELEASE_VERSION } else { "5.0.1" })
+)
+
 # Local Coding Agent
 # Copyright (c) 2026 Long Nguyen
 # SPDX-License-Identifier: AGPL-3.0-or-later
@@ -8,8 +12,7 @@ $ErrorActionPreference = "Stop"
 # a GitHub Release asset after tests and secret checks pass.
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectFile = Join-Path $ProjectDir "LocalCodingAgentTray.csproj"
-$ReleaseVersion = "5.0.0"
-$ArtifactBaseName = "LocalCodingAgentTray-$ReleaseVersion-win-x64"
+$ArtifactBaseName = "LocalCodingAgentTrayClassic-$ReleaseVersion-win-x64"
 $OutputDir = Join-Path $ProjectDir "publish\$ReleaseVersion"
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
@@ -23,6 +26,8 @@ dotnet publish $ProjectFile `
     -c Release `
     -r win-x64 `
     --self-contained true `
+    /p:Version=$ReleaseVersion `
+    /p:InformationalVersion=$ReleaseVersion `
     /p:AssemblyName=$ArtifactBaseName `
     /p:PublishSingleFile=true `
     /p:IncludeNativeLibrariesForSelfExtract=true `

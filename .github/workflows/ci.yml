@@ -49,7 +49,7 @@ jobs:
           node --test ../scripts/permission-cli.test.mjs
           node --check system-power.mjs
           npm run test:system-power
-          npm --prefix ../experiments/chrome-companion-preview run check
+          npm --prefix ../experiments/chrome-companion run check
           node --check ../evals/run.mjs
           node --check ../scripts/local-coding-agent.mjs
           node --check ../scripts/network-doctor.mjs
@@ -177,7 +177,12 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: desktop-app/package-lock.json
+          cache-dependency-path: |
+            desktop-app/package-lock.json
+            server/package-lock.json
+      - name: Install bundled server dependencies
+        run: npm ci
+        working-directory: server
       - name: Install locked desktop dependencies
         run: npm ci
         working-directory: desktop-app
@@ -187,6 +192,35 @@ jobs:
           npm run build
           npm audit --audit-level=high
         working-directory: desktop-app
+
+  desktop-tray:
+    name: Desktop tray (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            desktop-tray/package-lock.json
+            server/package-lock.json
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+      - name: Install desktop tray dependencies
+        run: npm ci
+        working-directory: desktop-tray
+      - name: Test, build, and audit desktop tray
+        run: |
+          npm test
+          npm run build
+          npm audit --audit-level=high
+        working-directory: desktop-tray
 
   studio-v5:
     name: Studio v5 security (${{ matrix.os }})

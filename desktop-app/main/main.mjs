@@ -152,6 +152,7 @@ function registerIpc() {
       backend = new StudioBackend({
         workspace,
         mode,
+        dataDir: path.join(app.getPath("userData"), "server-data"),
         permissionProfileFile: permission.file,
         permissionProfileName,
         onLog: pushLog

@@ -23,8 +23,13 @@ import { createRequire } from "node:module";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// desktop-app/main -> repo root is two levels up.
-export const REPO_ROOT = path.resolve(__dirname, "..", "..");
+// In development, desktop-app/main -> repo root is two levels up. Packaged
+// builds carry a minimal server runtime under resources/runtime so Studio is a
+// real standalone app rather than depending on the user's clone location.
+const packagedRuntime = process.resourcesPath ? path.join(process.resourcesPath, "runtime") : "";
+export const REPO_ROOT = packagedRuntime && existsSync(path.join(packagedRuntime, "server", "server.mjs"))
+  ? packagedRuntime
+  : path.resolve(__dirname, "..", "..");
 export const SERVER_DIR = path.join(REPO_ROOT, "server");
 export const SERVER_ENTRY = path.join(SERVER_DIR, "server.mjs");
 
@@ -94,6 +99,7 @@ export class StudioBackend {
    * @param {string}  [opts.host]        Loopback host (default 127.0.0.1).
    * @param {number}  [opts.port]        MCP port (default: find a free one).
    * @param {number}  [opts.dashboardPort]
+   * @param {string}  [opts.dataDir]     Writable server state directory.
    * @param {string}  [opts.nodePath]    node executable (default process.execPath).
    * @param {number}  [opts.healthTimeoutMs] health poll budget (default 15000).
    * @param {(line:string)=>void} [opts.onLog] server stdout/stderr sink.
@@ -104,6 +110,7 @@ export class StudioBackend {
     this.workspace = opts.workspace ? path.resolve(opts.workspace) : REPO_ROOT;
     this.permissionProfileFile = opts.permissionProfileFile ? path.resolve(opts.permissionProfileFile) : "";
     this.permissionProfileName = String(opts.permissionProfileName || "");
+    this.dataDir = opts.dataDir ? path.resolve(opts.dataDir) : "";
     this.requestedPort = opts.port || null;
     this.requestedDashboardPort = opts.dashboardPort || null;
     this.nodePath = opts.nodePath || process.execPath;
@@ -166,6 +173,7 @@ export class StudioBackend {
       AGENT_MODE: this.mode,
       AGENT_PERMISSION_PROFILE_FILE: this.permissionProfileFile,
       AGENT_PERMISSION_PROFILE_NAME: this.permissionProfileName,
+      AGENT_DATA_DIR: this.dataDir,
       AGENT_HOST: this.host
     };
 
@@ -231,7 +239,7 @@ export class StudioBackend {
     // Connect the MCP client.
     const { Client, StreamableHTTPClientTransport } = await loadMcpSdk();
     this.transport = new StreamableHTTPClientTransport(new URL(`${this.baseUrl()}/mcp`));
-    this.client = new Client({ name: "local-codex-studio", version: "0.1.0" }, { capabilities: {} });
+    this.client = new Client({ name: "local-codex-studio", version: "5.0.1" }, { capabilities: {} });
     await this.client.connect(this.transport);
 
     return this.health();

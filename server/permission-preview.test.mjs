@@ -8,6 +8,7 @@ import test from "node:test";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { canonicalizePath } from "./permission-resolver.mjs";
 
 const SERVER = path.resolve("server.mjs");
 
@@ -164,6 +165,6 @@ test("v5 enforces per-root rights and approved dynamic grants", async (t) => {
   assert.equal(approvedPersistent.ok, true);
   assert.equal((await call(client, "activate_path_access", { id: persistentRequest.json.id })).isError, false);
   const stored = JSON.parse(await readFile(profileFile, "utf8"));
-  assert.ok(stored.profiles.mixed.roots.some((root) => path.resolve(root.path) === path.resolve(persistent)));
+  assert.ok(stored.profiles.mixed.roots.some((root) => canonicalizePath(root.path) === canonicalizePath(persistent)));
   assert.equal((await call(client, "run_command", { cwd: persistent, command: "node --version" })).isError, false);
 });

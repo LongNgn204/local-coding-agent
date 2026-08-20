@@ -3,6 +3,33 @@
 All notable changes to Local Coding Agent are documented here. The project
 follows [Semantic Versioning](https://semver.org/).
 
+## [5.0.1] - 2026-08-20
+
+### Added
+
+- Official cross-platform Electron Tray and Local Codex Studio release builds
+  for Windows x64 and both Apple Silicon and Intel macOS.
+- A tag-driven release pipeline that tests, packages, and publishes both apps,
+  the Windows classic compatibility tray, and Chrome Companion.
+- One-command bootstrap scripts for PowerShell and macOS/Linux shells.
+
+### Fixed
+
+- Packaged desktop apps now include the tested MCP server runtime instead of
+  depending on the original repository path.
+- The packaged Tray can use Electron's bundled Node runtime when a system Node
+  installation is unavailable.
+- Filesystem-root authorization, canonical multi-root permission checks,
+  Windows power-command paths, dashboard partial failures, and cross-platform
+  CI coverage were hardened.
+- Release artifact names are unique, predictable, and discoverable by the
+  download page on both supported desktop operating systems.
+
+### Security
+
+- The proprietary OpenAI tunnel client remains excluded from source and every
+  release artifact. Users must supply their own official binary.
+
 ## [5.0.0] - 2026-08-13
 
 The v5 feature set is now the official stable release channel and is enabled
@@ -419,6 +446,7 @@ Windows tray workflow.
 - Dashboard port `8788` remains reserved by the tunnel client; use the default
   dashboard port `8790`.
 
+[5.0.1]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v5.0.1
 [5.0.0]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v5.0.0
 [5.0.0-preview.12]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v5.0.0-preview.12
 [4.4.3]: https://github.com/LongNgn204/local-coding-agent/releases/tag/v4.4.3

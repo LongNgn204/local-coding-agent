@@ -30,38 +30,30 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
 
 <p><b>English</b> | <a href="#tiếng-việt">Tiếng Việt</a></p>
 
+<p><a href="https://repobylong.pages.dev/local-coding-agent/"><b>Download &amp; quick setup page →</b></a></p>
+
 </div>
 
 > This tool can run commands on your computer. Read [SECURITY.md](SECURITY.md)
 > before using it. It is not an OS sandbox; only connect workspaces you trust.
 
-> **Latest stable release: v5.0.0.** The complete v5 feature set is now the
-> official release channel and is enabled by default. It includes the v4.4.3
-> core improvements, Compact & Resume, multi-root permissions, the redesigned
-> dashboard, tunnel recovery, Chrome Companion, and optional system power tools.
+> **Latest stable release: v5.0.1.** This maintenance release adds official
+> Tray and Studio packages for Windows and macOS, bundles the tested MCP
+> runtime, expands cross-platform CI, and hardens permissions and recovery.
 
-### What's New In v5.0.0
+### What's New In v5.0.1
 
-- Named multi-root permission profiles with per-path `observe`, `edit`,
-  `develop`, and `full_control` rights, deny rules, and temporary grants.
-- A redesigned local dashboard with clearer connection health, permission
-  state, report browsing, workspace navigation, and recovery information.
-- More reliable tray startup and tunnel recovery, including Tunnel ID suffix
-  diagnostics and a manual reconnect action.
-- Chrome Companion exposes only one manually paired and
-  armed tab through bounded `browser_*` tools.
-- Optional Windows prompt-requested shutdown. It is disabled by default and
-  requires the local tray opt-in. Once enabled, an explicit shutdown prompt can
-  execute immediately without a second dashboard approval; raw shutdown and
-  restart commands remain blocked.
-- Local-first anti-lag reports, task agents, customer setup/update/diagnostic
-  prompts, and compact MCP output defaults.
+- Cross-platform Electron Tray: Windows x64, macOS Apple Silicon, and macOS Intel.
+- Local Codex Studio packages for the same Windows/macOS targets.
+- Bundled MCP runtime, predictable release assets, and Electron's built-in Node
+  fallback for the packaged Tray.
+- Permission-boundary, Windows power-path, dashboard resilience, and CI fixes.
+- Chrome Companion and classic Windows tray remain available as compatibility
+  assets. The proprietary tunnel client is never bundled.
 
-**Tiếng Việt:** Bản `v5.0.0` là bản phát hành chính thức với đầy đủ tính năng v5:
-profile nhiều path và phân quyền theo từng path, dashboard mới, tray/tunnel tự
-phục hồi, Chrome Companion cho một tab được người dùng arm, báo cáo anti-lag và
-tùy chọn tắt Windows bằng prompt rõ ràng. Tính năng tắt máy mặc định **tắt**;
-chỉ hoạt động sau khi người dùng bật công tắc trong tray.
+**Tiếng Việt:** Bản `v5.0.1` hoàn thiện đóng gói Tray và Studio cho Windows lẫn
+macOS, mang theo MCP runtime đã kiểm thử, tăng độ ổn định của quyền truy cập,
+dashboard và tunnel. Tunnel client độc quyền vẫn do người dùng tự tải.
 
 Existing customers can update safely with `scripts\lca.cmd update` on Windows
 or `bash scripts/lca update` on macOS/Linux, then restart the tray app/server.
@@ -245,26 +237,31 @@ logs     show launcher logs
 url      print the MCP URL
 ```
 
-### Windows Tray App
+### Cross-platform Tray App
 
-The Windows tray app is a GUI supervisor for the same local server and tunnel.
-It can start/stop the server, save tunnel settings, copy the MCP URL, open the
-dashboard, and store the Runtime API key encrypted with Windows DPAPI.
+The Electron tray app is a GUI supervisor for the same local server and tunnel
+on Windows and macOS. It stores secrets with Windows DPAPI or macOS Keychain.
 
 Download the self-contained `.exe` from
 [Releases](https://github.com/LongNgn204/local-coding-agent/releases), or build
 it yourself:
 
-Direct Windows x64 download for the latest stable release:
-[LocalCodingAgentTray-5.0.0-win-x64.exe](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.0/LocalCodingAgentTray-5.0.0-win-x64.exe).
+Direct v5.0.1 downloads:
+
+- [Tray — Windows x64](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-win-x64.exe)
+- [Tray — macOS Apple Silicon](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-mac-arm64.zip)
+- [Tray — macOS Intel](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-mac-x64.zip)
+- [Studio — Windows x64](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodexStudio-5.0.1-win-x64.exe)
+- [Studio — macOS Apple Silicon](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodexStudio-5.0.1-mac-arm64.zip)
+- [Studio — macOS Intel](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodexStudio-5.0.1-mac-x64.zip)
 
 ```powershell
 cd tray-app
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-The tray app is optional. The universal CLI is recommended for customers on
-Windows, macOS, and Linux because it does not require building a GUI app.
+The classic .NET Windows tray remains a compatibility download. New installs
+should use the cross-platform Electron Tray above.
 
 ### Connect To ChatGPT Web
 
@@ -561,26 +558,31 @@ logs     xem log launcher
 url      in MCP URL
 ```
 
-### Windows Tray App
+### Tray App đa nền tảng
 
-Windows tray app là GUI supervisor cho cùng local server và tunnel. Nó có thể
-start/stop server, lưu tunnel settings, copy MCP URL, mở dashboard và lưu Runtime
-API key bằng Windows DPAPI.
+Tray Electron là GUI supervisor cho cùng local server và tunnel trên Windows và
+macOS. Secret được mã hoá bằng Windows DPAPI hoặc macOS Keychain.
 
 Tải file `.exe` self-contained từ
 [Releases](https://github.com/LongNgn204/local-coding-agent/releases), hoặc tự
 build:
 
-Tải trực tiếp bản Windows x64 mới nhất:
-[LocalCodingAgentTray-5.0.0-win-x64.exe](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.0/LocalCodingAgentTray-5.0.0-win-x64.exe).
+Tải trực tiếp v5.0.1:
+
+- [Tray — Windows x64](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-win-x64.exe)
+- [Tray — macOS Apple Silicon](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-mac-arm64.zip)
+- [Tray — macOS Intel](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-mac-x64.zip)
+- [Studio — Windows x64](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodexStudio-5.0.1-win-x64.exe)
+- [Studio — macOS Apple Silicon](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodexStudio-5.0.1-mac-arm64.zip)
+- [Studio — macOS Intel](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodexStudio-5.0.1-mac-x64.zip)
 
 ```powershell
 cd tray-app
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-Tray app là tuỳ chọn. Universal CLI vẫn là hướng khuyên dùng cho khách trên
-Windows, macOS và Linux vì không cần build GUI app.
+Tray .NET cũ vẫn được giữ làm bản tương thích Windows. Cài mới nên dùng Tray
+Electron đa nền tảng ở trên.
 
 ### Kết Nối Với ChatGPT Web
 
