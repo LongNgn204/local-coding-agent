@@ -42,3 +42,5 @@ Studio đã kèm MCP server cùng Node runtime; tunnel client chính thức khô
 Bản macOS hiện chưa ký chứng thư. Nếu Gatekeeper chặn, hãy nhấp chuột phải vào
 app, chọn **Open** và xác nhận một lần. Windows SmartScreen cũng có thể hiện cảnh
 báo tương tự vì file portable chưa được ký số.
+
+[Full changelog](https://github.com/LongNgn204/local-coding-agent/compare/v5.0.0...v5.0.1)

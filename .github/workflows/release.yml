@@ -104,10 +104,15 @@ jobs:
         run: |
           $env:LCA_RELEASE_VERSION = $env:LCA_RELEASE_VERSION.TrimStart('v')
           ./tray-app/build-release.ps1
+          $assetDir = Join-Path $PWD "tray-app/release-asset"
+          New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
+          $asset = Get-ChildItem -Path (Join-Path $PWD "tray-app/publish") -Recurse -File -Filter "LocalCodingAgentTrayClassic-$env:LCA_RELEASE_VERSION-win-x64.exe" | Select-Object -First 1
+          if (-not $asset) { throw "Classic tray release executable was not found." }
+          Copy-Item -LiteralPath $asset.FullName -Destination $assetDir -Force
       - uses: actions/upload-artifact@v7
         with:
           name: tray-classic-windows
-          path: tray-app/publish/**/*.exe
+          path: tray-app/release-asset/*.exe
           if-no-files-found: error
 
   chrome-companion:
@@ -138,12 +143,23 @@ jobs:
     needs: [tray, studio, tray-classic, chrome-companion]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           pattern: "*"
           merge-multiple: true
           path: release-assets
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes="docs/RELEASE_NOTES_V${version//./_}.md"
+          if [[ -f "$notes" ]]; then
+            cp "$notes" release-notes.md
+          else
+            printf '# Local Coding Agent %s\n\nSee CHANGELOG.md for details.\n' "$version" > release-notes.md
+          fi
       - uses: softprops/action-gh-release@v3
         with:
           files: release-assets/*
-          generate_release_notes: true
+          body_path: release-notes.md
