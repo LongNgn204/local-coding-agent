@@ -114,6 +114,7 @@ test("Permission store validation accepts a good store and rejects a bad one", (
   const dir = tempDir();
   try {
     const store = new ConfigStore({ dir, repoRoot: REPO_ROOT, ...codec });
+    const goodRoot = path.join(os.tmpdir(), "work");
     const good = {
       version: 1,
       active_profile: "work",
@@ -122,17 +123,17 @@ test("Permission store validation accepts a good store and rejects a bad one", (
           version: 1,
           name: "work",
           description: "test",
-          working_directory: "/tmp/work",
-          roots: [{ label: "Primary workspace", path: "/tmp/work", preset: "develop" }]
+          working_directory: goodRoot,
+          roots: [{ label: "Primary workspace", path: goodRoot, preset: "develop" }]
         }
       }
     };
     const { store: saved } = store.setPermissionStore(good);
     assert.equal(saved.active_profile, "work");
     assert.equal(store.get().permissionProfileName, "work");
-    assert.equal(store.get().workspace, "/tmp/work");
+    assert.equal(store.get().workspace, path.resolve(goodRoot));
 
-    const bad = { version: 1, active_profile: "x", profiles: { x: { working_directory: "/tmp", roots: [] } } };
+    const bad = { version: 1, active_profile: "x", profiles: { x: { working_directory: os.tmpdir(), roots: [] } } };
     assert.throws(() => store.setPermissionStore(bad), /at least one root/i);
     assert.throws(() => store.setPermissionStore({ version: 1, active_profile: "x", profiles: {} }), /at least one permission profile/i);
   } finally {
