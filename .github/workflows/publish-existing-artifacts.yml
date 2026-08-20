@@ -1,0 +1,70 @@
+name: Publish existing release artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful Release applications run ID
+        required: true
+        type: string
+      release_tag:
+        description: New immutable release tag
+        required: true
+        type: string
+      release_version:
+        description: Package version used in artifact names
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    name: Validate and publish existing artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.source_run_id }}
+          pattern: "*"
+          path: source-assets
+      - name: Flatten and verify the immutable asset set
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          find source-assets -type f -exec cp -f {} release-assets/ \;
+          version="${{ inputs.release_version }}"
+          required=(
+            "ChromeCompanion-${version}.zip"
+            "LocalCodexStudio-${version}-win-x64.exe"
+            "LocalCodexStudio-${version}-mac-arm64.zip"
+            "LocalCodexStudio-${version}-mac-x64.zip"
+            "LocalCodingAgentTray-${version}-win-x64.exe"
+            "LocalCodingAgentTray-${version}-mac-arm64.zip"
+            "LocalCodingAgentTray-${version}-mac-x64.zip"
+            "LocalCodingAgentTrayClassic-${version}-win-x64.exe"
+          )
+          for asset in "${required[@]}"; do
+            test -s "release-assets/$asset" || { echo "Missing release asset: $asset" >&2; exit 1; }
+          done
+          test "$(find release-assets -maxdepth 1 -type f | wc -l | tr -d ' ')" = "8"
+          notes="docs/RELEASE_NOTES_V${version//./_}.md"
+          if [[ -f "$notes" ]]; then
+            cp "$notes" release-notes.md
+          else
+            printf '# Local Coding Agent %s\n\nSee CHANGELOG.md for details.\n' "$version" > release-notes.md
+          fi
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: Local Coding Agent v${{ inputs.release_version }}
+          body_path: release-notes.md
+          files: release-assets/*
+          draft: false
+          prerelease: false
+          make_latest: true
