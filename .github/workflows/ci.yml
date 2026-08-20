@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   server:
     name: Server (${{ matrix.os }})
@@ -215,11 +219,15 @@ jobs:
       - name: Install desktop tray dependencies
         run: npm ci
         working-directory: desktop-tray
-      - name: Test, build, and audit desktop tray
-        run: |
-          npm test
-          npm run build
-          npm audit --audit-level=high
+      - name: Test desktop tray
+        run: npm test
+        working-directory: desktop-tray
+      - name: Build desktop tray
+        run: npm run build
+        working-directory: desktop-tray
+      - name: Audit desktop tray dependencies
+        run: npm audit --audit-level=high --fetch-retries=1 --fetch-timeout=60000
+        timeout-minutes: 3
         working-directory: desktop-tray
 
   studio-v5:
