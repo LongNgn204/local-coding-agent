@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppConfig, MetaInfo, SecretInfo, Status, StatusMessage } from "./types";
 import { PathsModal } from "./PathsModal";
 import { LogsModal } from "./LogsModal";
+import { Check, Field, Section } from "./Controls";
+import { ThemeControl } from "./ThemeControl";
 
 const MODES = ["safe", "full"];
 const POLICIES = ["strict", "balanced", "full"];
@@ -41,78 +43,6 @@ function emptyStatus(): Status {
     mcpUrl: "http://127.0.0.1:8787/mcp",
     dashboardUrl: "http://127.0.0.1:8790/ui"
   };
-}
-
-interface FieldProps {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  invalid?: boolean;
-  hint?: string;
-  placeholder?: string;
-  browse?: () => void;
-  type?: string;
-  onShowToggle?: () => void;
-  showToggle?: boolean;
-}
-
-function Field({ label, value, onChange, invalid, hint, placeholder, browse, type = "text", onShowToggle, showToggle }: FieldProps) {
-  return (
-    <label className={`field${invalid ? " invalid" : ""}`} title={hint}>
-      <span className="field-label">{label}</span>
-      <span className="field-control">
-        <input
-          type={type}
-          value={value}
-          placeholder={placeholder}
-          onChange={(e) => onChange(e.target.value)}
-          spellCheck={false}
-          autoComplete="off"
-        />
-        {showToggle && (
-          <button type="button" className="mini" onClick={onShowToggle} title="Show/hide">
-            {type === "password" ? "Show" : "Hide"}
-          </button>
-        )}
-        {browse && (
-          <button type="button" className="mini" onClick={browse}>
-            Browse
-          </button>
-        )}
-      </span>
-    </label>
-  );
-}
-
-interface CheckProps {
-  label: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  danger?: boolean;
-  hint?: string;
-}
-
-function Check({ label, checked, onChange, danger, hint }: CheckProps) {
-  return (
-    <label className={`check${danger ? " danger" : ""}`} title={hint}>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      <span>{label}</span>
-    </label>
-  );
-}
-
-interface GroupProps {
-  title: string;
-  children: React.ReactNode;
-}
-
-function Group({ title, children }: GroupProps) {
-  return (
-    <section className="group">
-      <h2>{title}</h2>
-      <div className="group-body">{children}</div>
-    </section>
-  );
 }
 
 const SERVER_STATE_COLOR: Record<string, string> = {
@@ -340,20 +270,23 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Local Coding Agent Tray v5.0.1</h1>
-        <span className="app-meta">{meta ? meta.configPath : ""}</span>
+        <div className="app-title-block">
+          <h1>Local Coding Agent Tray v5.0.1</h1>
+          <span className="app-meta">{meta ? meta.configPath : ""}</span>
+        </div>
+        <ThemeControl />
       </header>
 
       <main className="app-main">
-        <Group title="Paths">
+        <Section title="Paths">
           <Field label="Node executable" value={cfg.node} onChange={setField("node")} invalid={!!errors.node} hint="Executable used to run the MCP Node.js server." placeholder="node" />
           <Field label="MCP app folder" value={cfg.mcpAppDir} onChange={setField("mcpAppDir")} invalid={!!errors.mcpAppDir} hint="Folder containing server.mjs (source/runtime of the MCP server)." browse={browseDir("mcpAppDir")} />
           <Field label="tunnel-client" value={cfg.tunnelBin} onChange={setField("tunnelBin")} invalid={!!errors.tunnelBin} hint="Your copy of the OpenAI tunnel client (platform binary, never shipped in this repo)." browse={browseFile("tunnelBin")} />
           <Field label="Tunnel profile dir" value={cfg.profileDir} onChange={setField("profileDir")} hint="Folder holding tunnel profiles (YAML)." browse={browseDir("profileDir")} />
           <Field label="Tunnel profile name" value={cfg.profile} onChange={setField("profile")} hint="Profile name used by the tunnel client." placeholder="local-coding-agent" />
-        </Group>
+        </Section>
 
-        <Group title="Agent">
+        <Section title="Agent">
           <Field label="Legacy workspace" value={cfg.workspace} onChange={setField("workspace")} invalid={!!errors.workspace} hint="Root folder the agent may read/write (legacy single-path mode)." browse={browseDir("workspace")} />
           <Field label="Legacy roots (;)" value={cfg.extraRoots} onChange={setField("extraRoots")} hint="Extra authorized roots, semicolon-separated (legacy mode)." placeholder="D:\Projects;D:\OCR" />
           <Field label="Profile store" value={cfg.permissionProfileFile} onChange={setField("permissionProfileFile")} hint="File storing named multi-path permission profiles." browse={browseFile("permissionProfileFile")} />
@@ -432,9 +365,9 @@ export default function App() {
               </button>
             </div>
           )}
-        </Group>
+        </Section>
 
-        <Group title="Tunnel">
+        <Section title="Tunnel">
           <Field label="Tunnel ID" value={cfg.tunnelId} onChange={setField("tunnelId")} invalid={!!errors.tunnelId} hint="Tunnel identifier (tunnel_...) from ChatGPT/OpenAI." placeholder="tunnel_..." />
           <div className="inline-actions">
             <Field label="Organization ID" value={cfg.organizationId} onChange={setField("organizationId")} invalid={!!errors.organizationId} hint="Optional OpenAI organization ID (org_...), fixes tunnel_active_organization_required." placeholder="org_..." />
@@ -476,7 +409,7 @@ export default function App() {
               hint="DANGEROUS: removes the catastrophic-command blocklist (mkfs, dd to devices, rm -rf /, …). The agent can run ANY command it can construct. Only for trusted workspaces."
             />
           </div>
-        </Group>
+        </Section>
 
         <section className="group">
           <h2>Actions</h2>

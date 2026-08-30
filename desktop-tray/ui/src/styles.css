@@ -1,16 +1,41 @@
-:root {
-  --bg: #0f1419;
-  --bg-2: #161c23;
-  --bg-3: #1d252e;
-  --border: #2a333d;
-  --text: #dbe4ee;
-  --text-dim: #8b98a5;
-  --accent: #2f81f7;
-  --ok: #3fb950;
-  --warn: #d29922;
-  --error: #f85149;
-  --off: #6e7681;
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b1018;
+  --bg-2: #111827;
+  --bg-3: #182235;
+  --surface: #141d2c;
+  --border: #2a3850;
+  --text: #eef3fb;
+  --text-dim: #9aa7bb;
+  --accent: #4c8dff;
+  --accent-strong: #2f6fe4;
+  --ok: #55d69a;
+  --warn: #f2bd5b;
+  --error: #ff7373;
+  --off: #7c8799;
+  --focus: #8bb5ff;
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
   --input-h: 34px;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f7fb;
+  --bg-2: #ffffff;
+  --bg-3: #edf2f9;
+  --surface: #ffffff;
+  --border: #d6dfec;
+  --text: #182235;
+  --text-dim: #64748b;
+  --accent: #2563eb;
+  --accent-strong: #1d4ed8;
+  --ok: #168a5b;
+  --warn: #a56312;
+  --error: #c93b43;
+  --off: #718096;
+  --focus: #2563eb;
+  --shadow: 0 16px 40px rgba(60, 76, 105, 0.14);
 }
 
 * {
@@ -38,11 +63,43 @@ body {
 
 .app-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-2);
+}
+
+.app-title-block {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.theme-control {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+}
+
+.theme-option {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.theme-option[aria-pressed="true"] {
+  background: var(--bg-3);
+  color: var(--text);
 }
 
 .app-header h1 {
@@ -77,6 +134,12 @@ body {
   color: var(--text-dim);
 }
 
+.section-heading p {
+  margin: -3px 0 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
 .group-body {
   display: flex;
   flex-direction: column;
@@ -99,6 +162,19 @@ body {
   font-size: 11px;
   color: var(--text-dim);
   user-select: none;
+}
+
+.field-hint,
+.field-error {
+  font-size: 11px;
+}
+
+.field-hint {
+  color: var(--text-dim);
+}
+
+.field-error {
+  color: var(--error);
 }
 
 .field-control {
@@ -148,6 +224,19 @@ button {
 
 button:hover:not(:disabled) {
   border-color: var(--accent);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.button.compact {
+  height: var(--input-h);
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 button:disabled {
@@ -478,4 +567,15 @@ button.mini.close {
 .key-status {
   font-size: 11px;
   color: var(--text-dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

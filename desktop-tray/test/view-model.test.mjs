@@ -30,7 +30,10 @@ test("setup completeness rejects the tunnel-reserved dashboard port", () => {
 
 test("theme preference is normalized and resolved", () => {
   assert.equal(normalizeTheme("unknown"), "system");
+  assert.equal(normalizeTheme(" DARK "), "dark");
+  assert.equal(normalizeTheme(""), "system");
   assert.equal(effectiveTheme("system", true), "dark");
+  assert.equal(effectiveTheme("system", false), "light");
   assert.equal(effectiveTheme("light", true), "light");
 });
 
