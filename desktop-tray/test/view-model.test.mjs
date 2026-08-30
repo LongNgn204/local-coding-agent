@@ -28,6 +28,22 @@ test("setup completeness rejects the tunnel-reserved dashboard port", () => {
   assert.deepEqual(getSetupIssues({ ...valid, dashboardPort: 8788 }), ["dashboardPort"]);
 });
 
+test("setup issues are stable and cover every runnable field", () => {
+  assert.deepEqual(
+    getSetupIssues({
+      ...valid,
+      node: "",
+      mcpAppDir: "",
+      workspace: "",
+      mode: "turbo",
+      policy: "open",
+      port: 0,
+      dashboardPort: 70000
+    }),
+    ["node", "mcpAppDir", "workspace", "mode", "policy", "port", "dashboardPort"]
+  );
+});
+
 test("theme preference is normalized and resolved", () => {
   assert.equal(normalizeTheme("unknown"), "system");
   assert.equal(normalizeTheme(" DARK "), "dark");

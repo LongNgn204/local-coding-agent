@@ -4,6 +4,8 @@ import { PathsModal } from "./PathsModal";
 import { LogsModal } from "./LogsModal";
 import { Check, Field, Section } from "./Controls";
 import { ThemeControl } from "./ThemeControl";
+import { OnboardingWizard } from "./OnboardingWizard";
+import { isSetupComplete } from "./view-model.mjs";
 
 const MODES = ["safe", "full"];
 const POLICIES = ["strict", "balanced", "full"];
@@ -30,7 +32,7 @@ const EMPTY_CFG: AppConfig = {
   runtimeKey: "",
   tunnelHealthPort: "8788",
   openWebUi: true,
-  noTunnel: false,
+  noTunnel: true,
   v5Preview: true,
   allowSystemShutdown: false,
   allowDangerous: false
@@ -76,6 +78,8 @@ export default function App() {
   const [showAuth, setShowAuth] = useState(false);
   const [modal, setModal] = useState<"" | "paths" | "logs">("");
   const [logLines, setLogLines] = useState<string[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const mounted = useRef(true);
 
   const patch = useCallback((patchObj: Partial<AppConfig>) => {
@@ -118,11 +122,14 @@ export default function App() {
 
   const loadConfig = useCallback(async () => {
     const { config, secrets: sec, meta: m } = await window.lcat.getConfig();
-    setCfg({ ...EMPTY_CFG, ...(config as unknown as AppConfig) });
+    const next = { ...EMPTY_CFG, ...(config as unknown as AppConfig) };
+    setCfg(next);
     setSecrets(sec);
     setMeta(m as unknown as MetaInfo);
     setAuthTokenInput("");
     setRuntimeKeyInput("");
+    setLoaded(true);
+    if (!isSetupComplete(next)) setShowOnboarding(true);
   }, []);
 
   useEffect(() => {
@@ -145,13 +152,13 @@ export default function App() {
     say("Configuration saved.", "ok");
   }, [cfg, say]);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (): Promise<boolean> => {
     const errs = validate();
     if (Object.keys(errs).length) {
       setErrors(errs);
       const first = Object.values(errs)[0];
       say(first, "error");
-      return;
+      return false;
     }
     setBusy("start");
     try {
@@ -160,10 +167,17 @@ export default function App() {
       const res = await window.lcat.start({ tunnel: tunnelWanted });
       say(res.message, res.ok ? "ok" : "error");
       if (!res.ok) mapStartError(res.message);
+      return res.ok;
     } finally {
       setBusy("");
     }
   }, [cfg, validate, say]);
+
+  const completeSetup = useCallback(async () => {
+    const ok = await start();
+    if (ok) setShowOnboarding(false);
+    return ok;
+  }, [start]);
 
   const stop = useCallback(async () => {
     setBusy("stop");
@@ -465,6 +479,24 @@ export default function App() {
         />
       )}
       {modal === "logs" && <LogsModal lines={logLines} meta={meta} onClose={() => setModal("")} />}
+      {loaded && showOnboarding && (
+        <OnboardingWizard
+          config={cfg}
+          secrets={secrets}
+          errors={errors}
+          runtimeKeyInput={runtimeKeyInput}
+          showRuntimeKey={showKey}
+          onPatch={patch}
+          onRuntimeKeyInput={setRuntimeKeyInput}
+          onToggleRuntimeKey={() => setShowKey((value) => !value)}
+          onBrowseWorkspace={browseDir("workspace")}
+          onBrowseTunnel={browseFile("tunnelBin")}
+          onManagePaths={() => setModal("paths")}
+          onSaveRuntimeKey={saveKey}
+          onComplete={completeSetup}
+          onClose={isSetupComplete(cfg) ? () => setShowOnboarding(false) : undefined}
+        />
+      )}
     </div>
   );
 }
