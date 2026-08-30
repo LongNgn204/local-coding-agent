@@ -72,3 +72,36 @@ test("tunnel presentation names an unconfigured tunnel", () => {
   assert.match(result.label, /NOT CONFIGURED/);
   assert.equal(result.tone, "neutral");
 });
+
+test("every server lifecycle state has an explicit usable presentation", () => {
+  const expected = {
+    offline: ["OFFLINE", "neutral"],
+    starting: ["STARTING", "warn"],
+    online: ["ONLINE", "ok"],
+    stopping: ["STOPPING", "warn"],
+    error: ["ERROR", "error"]
+  };
+  for (const [state, [word, tone]] of Object.entries(expected)) {
+    const result = serverPresentation({ state, version: "5.0.1", mode: "safe", policy: "balanced", roots: 1, reason: "Port conflict" });
+    assert.match(result.label, new RegExp(word));
+    assert.equal(result.tone, tone);
+    assert.notEqual(result.detail.trim(), "");
+  }
+});
+
+test("every tunnel lifecycle state has an explicit usable presentation", () => {
+  const expected = {
+    not_configured: ["NOT CONFIGURED", "neutral"],
+    stopped: ["STOPPED", "neutral"],
+    starting: ["STARTING", "warn"],
+    connected: ["CONNECTED", "ok"],
+    reconnecting: ["RECONNECTING", "warn"],
+    error: ["ERROR", "error"]
+  };
+  for (const [state, [word, tone]] of Object.entries(expected)) {
+    const result = tunnelPresentation({ state, reason: state === "error" ? "Authentication failed" : "" });
+    assert.match(result.label, new RegExp(word));
+    assert.equal(result.tone, tone);
+    assert.notEqual(result.detail.trim(), "");
+  }
+});

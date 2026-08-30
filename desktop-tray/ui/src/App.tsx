@@ -1,14 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AppConfig, MetaInfo, SecretInfo, Status, StatusMessage } from "./types";
 import { PathsModal } from "./PathsModal";
 import { LogsModal } from "./LogsModal";
-import { Check, Field, Section } from "./Controls";
 import { ThemeControl } from "./ThemeControl";
 import { OnboardingWizard } from "./OnboardingWizard";
-import { isSetupComplete } from "./view-model.mjs";
+import { PowerPanel } from "./PowerPanel";
+import { SettingsPanel } from "./SettingsPanel";
+import type { SettingsView } from "./SettingsPanel";
+import { getSetupIssues, isSetupComplete, serverPresentation, tunnelPresentation } from "./view-model.mjs";
 
-const MODES = ["safe", "full"];
-const POLICIES = ["strict", "balanced", "full"];
+type AppView = "overview" | SettingsView;
+
+const NAV: Array<{ id: AppView; label: string }> = [
+  { id: "overview", label: "Overview" },
+  { id: "workspace", label: "Workspace" },
+  { id: "connection", label: "Connection" },
+  { id: "security", label: "Security" },
+  { id: "advanced", label: "Advanced" }
+];
 
 const EMPTY_CFG: AppConfig = {
   node: "node",
@@ -47,21 +56,14 @@ function emptyStatus(): Status {
   };
 }
 
-const SERVER_STATE_COLOR: Record<string, string> = {
-  online: "state-ok",
-  starting: "state-warn",
-  stopping: "state-warn",
-  error: "state-error",
-  offline: "state-off"
-};
-
-const TUNNEL_STATE_COLOR: Record<string, string> = {
-  connected: "state-ok",
-  starting: "state-warn",
-  reconnecting: "state-warn",
-  error: "state-error",
-  stopped: "state-off",
-  not_configured: "state-off"
+const ERROR_COPY: Record<string, string> = {
+  node: "Node executable is empty.",
+  mcpAppDir: "MCP app folder is empty.",
+  workspace: "Choose the workspace the agent may access.",
+  mode: "Mode must be safe or full.",
+  policy: "Policy must be strict, balanced, or full.",
+  port: "MCP port must be between 1 and 65535.",
+  dashboardPort: "Dashboard port must be between 1 and 65535 and cannot use reserved port 8788."
 };
 
 export default function App() {
@@ -71,7 +73,7 @@ export default function App() {
   const [status, setStatus] = useState<Status>(emptyStatus());
   const [message, setMessage] = useState<StatusMessage>({ text: "", kind: "info" });
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState<string>("");
+  const [busy, setBusy] = useState("");
   const [runtimeKeyInput, setRuntimeKeyInput] = useState("");
   const [authTokenInput, setAuthTokenInput] = useState("");
   const [showKey, setShowKey] = useState(false);
@@ -80,52 +82,29 @@ export default function App() {
   const [logLines, setLogLines] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const mounted = useRef(true);
+  const [view, setView] = useState<AppView>("overview");
 
   const patch = useCallback((patchObj: Partial<AppConfig>) => {
-    setCfg((prev) => ({ ...prev, ...patchObj }));
+    setCfg((previous) => ({ ...previous, ...patchObj }));
     setErrors({});
   }, []);
+  const say = useCallback((text: string, kind: StatusMessage["kind"] = "info") => setMessage({ text, kind }), []);
 
-  const setField = (key: keyof AppConfig) => (value: string) => patch({ [key]: value } as Partial<AppConfig>);
-
-  const browseDir = (key: keyof AppConfig) => async () => {
+  const browseDir = useCallback(async (key: keyof AppConfig) => {
     const picked = await window.lcat.pickDir("Pick folder");
     if (picked) patch({ [key]: picked } as Partial<AppConfig>);
-  };
-
-  const browseFile = (key: keyof AppConfig) => async () => {
+  }, [patch]);
+  const browseFile = useCallback(async (key: keyof AppConfig) => {
     const picked = await window.lcat.pickFile("Pick file");
     if (picked) patch({ [key]: picked } as Partial<AppConfig>);
-  };
-
-  const say = useCallback((text: string, kind: StatusMessage["kind"] = "info") => {
-    setMessage({ text, kind });
-  }, []);
-
-  // ---- validation ------------------------------------------------------------
-
-  const validate = useCallback((): Record<string, string> => {
-    const errs: Record<string, string> = {};
-    if (!cfg.node.trim()) errs.node = "Node executable is empty.";
-    if (!cfg.mcpAppDir.trim()) errs.mcpAppDir = "MCP app folder is empty.";
-    if (!cfg.port || cfg.port < 1 || cfg.port > 65535) errs.port = "Port must be between 1 and 65535.";
-    if (!cfg.dashboardPort || cfg.dashboardPort < 1 || cfg.dashboardPort > 65535) errs.dashboardPort = "Dashboard port must be between 1 and 65535.";
-    if (cfg.dashboardPort === 8788) errs.dashboardPort = "Port 8788 is reserved for the tunnel client.";
-    if (!cfg.workspace.trim()) errs.workspace = "Legacy workspace is empty. Pick a folder the agent may access.";
-    if (!cfg.policy) errs.policy = "Policy is required.";
-    if (!cfg.mode) errs.mode = "Mode is required.";
-    return errs;
-  }, [cfg]);
-
-  // ---- actions ---------------------------------------------------------------
+  }, [patch]);
 
   const loadConfig = useCallback(async () => {
-    const { config, secrets: sec, meta: m } = await window.lcat.getConfig();
+    const { config, secrets: secretState, meta: metadata } = await window.lcat.getConfig();
     const next = { ...EMPTY_CFG, ...(config as unknown as AppConfig) };
     setCfg(next);
-    setSecrets(sec);
-    setMeta(m as unknown as MetaInfo);
+    setSecrets(secretState);
+    setMeta(metadata as unknown as MetaInfo);
     setAuthTokenInput("");
     setRuntimeKeyInput("");
     setLoaded(true);
@@ -133,370 +112,149 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    loadConfig();
-    window.lcat.getStatus().then((s) => setStatus(s as unknown as Status));
-    const offStatus = window.lcat.onStatus((s) => setStatus(s as unknown as Status));
-    const offLog = window.lcat.onLog((line) => setLogLines((prev) => [...prev.slice(-999), line]));
+    void loadConfig();
+    void window.lcat.getStatus().then((next) => setStatus(next as unknown as Status));
+    const offStatus = window.lcat.onStatus((next) => setStatus(next as unknown as Status));
+    const offLog = window.lcat.onLog((line) => setLogLines((previous) => [...previous.slice(-999), line]));
     const offModal = window.lcat.onOpenModal((name) => setModal(name === "logs" ? "logs" : "paths"));
-    return () => {
-      mounted.current = false;
-      offStatus();
-      offLog();
-      offModal();
-    };
+    return () => { offStatus(); offLog(); offModal(); };
   }, [loadConfig]);
 
+  const validate = useCallback(() => {
+    const next = Object.fromEntries(getSetupIssues(cfg).map((key) => [key, ERROR_COPY[key]]));
+    setErrors(next);
+    return next;
+  }, [cfg]);
+
+  const mapStartError = useCallback((text: string) => {
+    const lower = text.toLowerCase();
+    const map: Array<[RegExp, string]> = [
+      [/mcp app folder does not exist|server script not found/, "mcpAppDir"],
+      [/tunnel executable not found/, "tunnelBin"], [/tunnel id is empty/, "tunnelId"],
+      [/runtime api key/, "runtimeKey"], [/organization/i, "organizationId"],
+      [/workspace/, "workspace"], [/port/i, "port"]
+    ];
+    const match = map.find(([pattern]) => pattern.test(lower));
+    if (match) setErrors((previous) => ({ ...previous, [match[1]]: text }));
+  }, []);
+
   const saveSettings = useCallback(async () => {
+    const issues = validate();
+    if (Object.keys(issues).length) { say(Object.values(issues)[0], "error"); return; }
     await window.lcat.setConfig(cfg);
-    setErrors({});
     say("Configuration saved.", "ok");
-  }, [cfg, say]);
+  }, [cfg, say, validate]);
 
   const start = useCallback(async (): Promise<boolean> => {
-    const errs = validate();
-    if (Object.keys(errs).length) {
-      setErrors(errs);
-      const first = Object.values(errs)[0];
-      say(first, "error");
-      return false;
-    }
+    const issues = validate();
+    if (Object.keys(issues).length) { say(Object.values(issues)[0], "error"); return false; }
     setBusy("start");
     try {
       await window.lcat.setConfig(cfg);
-      const tunnelWanted = Boolean(cfg.tunnelId.trim() && cfg.tunnelBin.trim());
-      const res = await window.lcat.start({ tunnel: tunnelWanted });
-      say(res.message, res.ok ? "ok" : "error");
-      if (!res.ok) mapStartError(res.message);
-      return res.ok;
-    } finally {
-      setBusy("");
-    }
-  }, [cfg, validate, say]);
-
-  const completeSetup = useCallback(async () => {
-    const ok = await start();
-    if (ok) setShowOnboarding(false);
-    return ok;
-  }, [start]);
+      const tunnelWanted = !cfg.noTunnel && Boolean(cfg.tunnelId.trim() && cfg.tunnelBin.trim());
+      const result = await window.lcat.start({ tunnel: tunnelWanted });
+      say(result.message, result.ok ? "ok" : "error");
+      if (!result.ok) mapStartError(result.message);
+      return result.ok;
+    } catch (error) {
+      say((error as Error).message, "error");
+      return false;
+    } finally { setBusy(""); }
+  }, [cfg, mapStartError, say, validate]);
 
   const stop = useCallback(async () => {
     setBusy("stop");
-    try {
-      const res = await window.lcat.stop();
-      say(res.message, res.ok ? "ok" : "error");
-    } finally {
-      setBusy("");
-    }
+    try { const result = await window.lcat.stop(); say(result.message, result.ok ? "ok" : "error"); }
+    catch (error) { say((error as Error).message, "error"); }
+    finally { setBusy(""); }
   }, [say]);
 
   const reconnectTunnel = useCallback(async () => {
     setBusy("reconnect");
-    try {
-      const res = await window.lcat.reconnectTunnel();
-      say(res.message, res.ok ? "ok" : "error");
-      if (!res.ok) mapStartError(res.message);
-    } finally {
-      setBusy("");
-    }
-  }, [say]);
-
-  const copyMcpUrl = useCallback(async () => {
-    await window.lcat.copyMcpUrl();
-    say("Copied.", "ok");
-  }, [say]);
-
-  const copyTunnelId = useCallback(async () => {
-    const id = await window.lcat.copyTunnelId();
-    say(id ? "Copied." : "Tunnel ID is empty.", id ? "ok" : "warn");
-  }, [say]);
+    try { const result = await window.lcat.reconnectTunnel(); say(result.message, result.ok ? "ok" : "error"); if (!result.ok) mapStartError(result.message); }
+    catch (error) { say((error as Error).message, "error"); }
+    finally { setBusy(""); }
+  }, [mapStartError, say]);
 
   const saveTunnel = useCallback(async () => {
-    const errs: Record<string, string> = {};
-    if (!cfg.tunnelId.trim()) errs.tunnelId = "Tunnel ID is empty. Paste the tunnel_... ID from ChatGPT/OpenAI first.";
-    const org = cfg.organizationId.trim();
-    if (org && !/^org_/.test(org)) errs.organizationId = "Organization ID looks invalid (expected org_...).";
-    if (Object.keys(errs).length) {
-      setErrors(errs);
-      say(Object.values(errs)[0], "error");
-      return;
-    }
+    const nextErrors: Record<string, string> = {};
+    if (!cfg.tunnelId.trim()) nextErrors.tunnelId = "Paste the tunnel_... ID first.";
+    if (cfg.organizationId.trim() && !/^org_/.test(cfg.organizationId.trim())) nextErrors.organizationId = "Organization ID must start with org_.";
+    if (Object.keys(nextErrors).length) { setErrors(nextErrors); say(Object.values(nextErrors)[0], "error"); return; }
     await window.lcat.setConfig(cfg);
-    setErrors({});
-    say("Tunnel saved.", "ok");
+    say("Tunnel configuration saved.", "ok");
   }, [cfg, say]);
 
   const saveKey = useCallback(async () => {
-    if (!runtimeKeyInput.trim()) {
-      say("No key saved yet.", "warn");
-      return;
-    }
-    await window.lcat.saveSecret("runtimeKey", runtimeKeyInput);
+    if (!runtimeKeyInput.trim()) { say("Enter a runtime API key before saving.", "warn"); return; }
+    await window.lcat.saveSecret("runtimeKey", runtimeKeyInput.trim());
     setRuntimeKeyInput("");
-    setSecrets(await (await window.lcat.getConfig()).secrets);
-    say("Runtime API key saved.", "ok");
+    setSecrets((await window.lcat.getConfig()).secrets);
+    say("Runtime API key saved encrypted.", "ok");
   }, [runtimeKeyInput, say]);
 
   const saveAuthToken = useCallback(async () => {
-    await window.lcat.saveSecret("authToken", authTokenInput.trim());
+    if (authTokenInput.trim()) await window.lcat.saveSecret("authToken", authTokenInput.trim());
+    else await window.lcat.clearSecret("authToken");
     setAuthTokenInput("");
-    setSecrets(await (await window.lcat.getConfig()).secrets);
-    say(authTokenInput.trim() ? "Auth token saved." : "Auth token cleared.", "ok");
+    setSecrets((await window.lcat.getConfig()).secrets);
+    say(authTokenInput.trim() ? "Auth token saved encrypted." : "Auth token cleared.", "ok");
   }, [authTokenInput, say]);
 
   const openDashboard = useCallback(async () => {
     const url = await window.lcat.openDashboard();
-    say(url ? `Dashboard opened: ${url}` : "Dashboard not available.", url ? "info" : "warn");
+    say(url ? `Dashboard opened: ${url}` : "Dashboard is not available yet.", url ? "info" : "warn");
   }, [say]);
 
-  function mapStartError(m: string) {
-    const lower = m.toLowerCase();
-    const map: Array<[RegExp, string]> = [
-      [/mcp app folder does not exist|server script not found/, "mcpAppDir"],
-      [/tunnel executable not found/, "tunnelBin"],
-      [/tunnel id is empty/, "tunnelId"],
-      [/runtime api key/, "runtimeKey"],
-      [/organization/i, "organizationId"],
-      [/workspace/, "workspace"],
-      [/port/i, "port"]
-    ];
-    for (const [re, field] of map) {
-      if (re.test(lower)) {
-        setErrors((prev) => ({ ...prev, [field]: m }));
-        return;
-      }
-    }
-  }
+  const completeSetup = useCallback(async () => {
+    const ok = await start();
+    if (ok) { setShowOnboarding(false); setView("overview"); }
+    return ok;
+  }, [start]);
 
-  const serverState = status.server.state;
-  const tunnelState = status.tunnel.state;
-  const serverLabel =
-    serverState === "online"
-      ? `Server: ONLINE v${status.server.version} (${status.server.permissionProfile || "legacy"}, ${status.server.roots} path(s))`
-      : `Server: ${serverState.toUpperCase()}`;
-  const tunnelLabel = `Tunnel: ${tunnelState.toUpperCase()}${status.tunnel.reason ? ` — ${status.tunnel.reason}` : ""}`;
-
-  const serverCanStop = useMemo(() => {
-    return status.server.state === "online" || status.server.state === "error" || status.server.state === "starting";
-  }, [status.server.state]);
-
-  const busyAny = busy !== "";
+  const serverCanStop = useMemo(() => ["online", "error", "starting"].includes(status.server.state), [status.server.state]);
+  const serverSummary = serverPresentation(status.server as unknown as Record<string, unknown>);
+  const tunnelSummary = tunnelPresentation(status.tunnel as unknown as Record<string, unknown>);
 
   return (
     <div className="app">
-      <header className="app-header">
-        <div className="app-title-block">
-          <h1>Local Coding Agent Tray v5.0.1</h1>
-          <span className="app-meta">{meta ? meta.configPath : ""}</span>
-        </div>
+      <header className="app-header modern-header">
+        <div className="brand-lockup"><div className="brand-mark" aria-hidden="true">L</div><div><h1>Local Coding Agent</h1><span className="app-meta">Tray v5.0.1</span></div></div>
+        <nav className="app-nav" aria-label="Main navigation">
+          {NAV.map((item) => <button key={item.id} type="button" className={view === item.id ? "active" : ""} aria-current={view === item.id ? "page" : undefined} onClick={() => setView(item.id)}>{item.label}</button>)}
+        </nav>
         <ThemeControl />
       </header>
 
-      <main className="app-main">
-        <Section title="Paths">
-          <Field label="Node executable" value={cfg.node} onChange={setField("node")} invalid={!!errors.node} hint="Executable used to run the MCP Node.js server." placeholder="node" />
-          <Field label="MCP app folder" value={cfg.mcpAppDir} onChange={setField("mcpAppDir")} invalid={!!errors.mcpAppDir} hint="Folder containing server.mjs (source/runtime of the MCP server)." browse={browseDir("mcpAppDir")} />
-          <Field label="tunnel-client" value={cfg.tunnelBin} onChange={setField("tunnelBin")} invalid={!!errors.tunnelBin} hint="Your copy of the OpenAI tunnel client (platform binary, never shipped in this repo)." browse={browseFile("tunnelBin")} />
-          <Field label="Tunnel profile dir" value={cfg.profileDir} onChange={setField("profileDir")} hint="Folder holding tunnel profiles (YAML)." browse={browseDir("profileDir")} />
-          <Field label="Tunnel profile name" value={cfg.profile} onChange={setField("profile")} hint="Profile name used by the tunnel client." placeholder="local-coding-agent" />
-        </Section>
-
-        <Section title="Agent">
-          <Field label="Legacy workspace" value={cfg.workspace} onChange={setField("workspace")} invalid={!!errors.workspace} hint="Root folder the agent may read/write (legacy single-path mode)." browse={browseDir("workspace")} />
-          <Field label="Legacy roots (;)" value={cfg.extraRoots} onChange={setField("extraRoots")} hint="Extra authorized roots, semicolon-separated (legacy mode)." placeholder="D:\Projects;D:\OCR" />
-          <Field label="Profile store" value={cfg.permissionProfileFile} onChange={setField("permissionProfileFile")} hint="File storing named multi-path permission profiles." browse={browseFile("permissionProfileFile")} />
-          <Field label="Active profile" value={cfg.permissionProfileName} onChange={setField("permissionProfileName")} hint="Currently active named permission profile." />
-          <div className="manage-row">
-            <button type="button" onClick={() => setModal("paths")}>
-              Manage authorized paths...
-            </button>
-            <span className="hint">Named multi-path profiles</span>
-          </div>
-          <div className="row-2col">
-            <label className={`field${errors.mode ? " invalid" : ""}`}>
-              <span className="field-label">Mode</span>
-              <span className="field-control">
-                <select value={cfg.mode} onChange={(e) => patch({ mode: e.target.value as "safe" | "full" })}>
-                  {MODES.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </span>
-            </label>
-            <label className={`field${errors.port ? " invalid" : ""}`}>
-              <span className="field-label">Port</span>
-              <span className="field-control">
-                <input
-                  type="number"
-                  min={1}
-                  max={65535}
-                  value={cfg.port}
-                  onChange={(e) => patch({ port: parseInt(e.target.value, 10) || 0 })}
-                />
-              </span>
-            </label>
-          </div>
-          <div className="row-2col">
-            <label className={`field${errors.policy ? " invalid" : ""}`}>
-              <span className="field-label">Policy</span>
-              <span className="field-control">
-                <select value={cfg.policy} onChange={(e) => patch({ policy: e.target.value as AppConfig["policy"] })}>
-                  {POLICIES.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-              </span>
-            </label>
-            <label className={`field${errors.dashboardPort ? " invalid" : ""}`}>
-              <span className="field-label">Dashboard port</span>
-              <span className="field-control">
-                <input
-                  type="number"
-                  min={1}
-                  max={65535}
-                  value={cfg.dashboardPort}
-                  onChange={(e) => patch({ dashboardPort: parseInt(e.target.value, 10) || 0 })}
-                />
-              </span>
-            </label>
-          </div>
-          <Field
-            label="Auth token (opt)"
-            value={authTokenInput !== "" ? authTokenInput : secrets.hasAuthToken ? "••••••••" : ""}
-            onChange={(v) => setAuthTokenInput(v)}
-            type={showAuth ? "text" : "password"}
-            showToggle
-            onShowToggle={() => setShowAuth((s) => !s)}
-            hint="Optional bearer token for the local MCP API. Saved encrypted."
-          />
-          {authTokenInput !== "" && (
-            <div className="inline-actions">
-              <button type="button" className="mini" onClick={saveAuthToken}>
-                Save auth token
-              </button>
-            </div>
-          )}
-        </Section>
-
-        <Section title="Tunnel">
-          <Field label="Tunnel ID" value={cfg.tunnelId} onChange={setField("tunnelId")} invalid={!!errors.tunnelId} hint="Tunnel identifier (tunnel_...) from ChatGPT/OpenAI." placeholder="tunnel_..." />
-          <div className="inline-actions">
-            <Field label="Organization ID" value={cfg.organizationId} onChange={setField("organizationId")} invalid={!!errors.organizationId} hint="Optional OpenAI organization ID (org_...), fixes tunnel_active_organization_required." placeholder="org_..." />
-            <button type="button" className="mini" onClick={saveTunnel}>
-              Save tunnel
-            </button>
-          </div>
-          <div className="inline-actions">
-            <Field
-              label="Runtime API key"
-              value={runtimeKeyInput}
-              onChange={setRuntimeKeyInput}
-              type={showKey ? "text" : "password"}
-              showToggle
-              onShowToggle={() => setShowKey((s) => !s)}
-              hint="Platform runtime key (CONTROL_PLANE_API_KEY). Stored encrypted, never in plain text."
-              placeholder={secrets.hasRuntimeKey ? "•••••••• (saved)" : "sk-..."}
-            />
-            <button type="button" className="mini" onClick={saveKey}>
-              Save key
-            </button>
-          </div>
-          <div className="key-status">{secrets.hasRuntimeKey ? "Runtime API key saved." : "No key saved yet."}</div>
-          <div className="checks">
-            <Check label="Open tunnel web UI on start" checked={cfg.openWebUi} onChange={(v) => patch({ openWebUi: v })} hint="Open the tunnel web UI when the tunnel connects." />
-            <Check label="Enable v5 features (official)" checked={cfg.v5Preview} onChange={(v) => patch({ v5Preview: v })} hint="Official v5 feature set. Disable only for temporary v4 compatibility." />
-            <Check
-              label="Allow prompt-requested shutdown (immediate, no approval)"
-              checked={cfg.allowSystemShutdown}
-              onChange={(v) => patch({ allowSystemShutdown: v })}
-              danger
-              hint="DANGEROUS: lets the agent shut down the machine on an explicit prompt without dashboard approval. Raw power commands stay blocked."
-            />
-            <Check
-              label="Allow dangerous system commands (AGENT_ALLOW_DANGEROUS)"
-              checked={cfg.allowDangerous}
-              onChange={(v) => patch({ allowDangerous: v })}
-              danger
-              hint="DANGEROUS: removes the catastrophic-command blocklist (mkfs, dd to devices, rm -rf /, …). The agent can run ANY command it can construct. Only for trusted workspaces."
-            />
-          </div>
-        </Section>
-
-        <section className="group">
-          <h2>Actions</h2>
-          <div className="actions">
-            <button type="button" className="primary" disabled={busyAny} onClick={start}>
-              {busy === "start" ? "Starting…" : "Start"}
-            </button>
-            <button type="button" disabled={busyAny || !serverCanStop} onClick={stop}>
-              {busy === "stop" ? "Stopping…" : "Stop"}
-            </button>
-            <button type="button" disabled={busyAny} onClick={reconnectTunnel}>
-              {busy === "reconnect" ? "Reconnecting…" : "Reconnect tunnel"}
-            </button>
-            <button type="button" onClick={openDashboard}>
-              Open Dashboard
-            </button>
-          </div>
-          <h2>Utilities</h2>
-          <div className="actions">
-            <button type="button" onClick={saveSettings}>
-              Save settings
-            </button>
-            <button type="button" onClick={copyMcpUrl}>
-              Copy local MCP URL
-            </button>
-            <button type="button" onClick={copyTunnelId}>
-              Copy Tunnel ID
-            </button>
-            <button type="button" onClick={() => setModal("logs")}>
-              Logs/Config
-            </button>
-          </div>
-        </section>
+      <main className="app-main modern-main">
+        {!loaded ? <div className="loading-state"><span className="status-icon">●</span> Loading local configuration…</div> : view === "overview" ? (
+          <PowerPanel config={cfg} status={status} message={message} busy={busy} serverCanStop={serverCanStop}
+            onStart={() => { void start(); }} onStop={() => { void stop(); }} onReconnect={() => { void reconnectTunnel(); }} onDashboard={() => { void openDashboard(); }}
+            onCopyMcp={() => { void window.lcat.copyMcpUrl().then(() => say("MCP URL copied.", "ok")); }}
+            onCopyTunnel={() => { void window.lcat.copyTunnelId().then((id) => say(id ? "Tunnel ID copied." : "Tunnel ID is empty.", id ? "ok" : "warn")); }}
+            onManagePaths={() => setModal("paths")} onLogs={() => setModal("logs")} />
+        ) : (
+          <SettingsPanel view={view} config={cfg} secrets={secrets} errors={errors} runtimeKeyInput={runtimeKeyInput} authTokenInput={authTokenInput}
+            showRuntimeKey={showKey} showAuthToken={showAuth} onPatch={patch} onRuntimeKeyInput={setRuntimeKeyInput} onAuthTokenInput={setAuthTokenInput}
+            onToggleRuntimeKey={() => setShowKey((current) => !current)} onToggleAuthToken={() => setShowAuth((current) => !current)}
+            onBrowseDir={(key) => { void browseDir(key); }} onBrowseFile={(key) => { void browseFile(key); }} onManagePaths={() => setModal("paths")}
+            onSaveSettings={() => { void saveSettings(); }} onSaveTunnel={() => { void saveTunnel(); }} onSaveRuntimeKey={() => { void saveKey(); }}
+            onSaveAuthToken={() => { void saveAuthToken(); }} onRunSetup={() => setShowOnboarding(true)} />
+        )}
       </main>
 
-      <footer className="app-footer">
-        <div className="status-bar">
-          <span className={`status-item ${SERVER_STATE_COLOR[serverState] || "state-off"}`}>{serverLabel}</span>
-          <span className={`status-item ${TUNNEL_STATE_COLOR[tunnelState] || "state-off"}`}>{tunnelLabel}</span>
-        </div>
-        <div className={`status-line ${message.kind === "error" ? "msg-error" : message.kind === "ok" ? "msg-ok" : message.kind === "warn" ? "msg-warn" : ""}`}>
-          {message.text || (secrets.hasRuntimeKey ? "" : "Save the Runtime API key before connecting the tunnel.")}
-        </div>
+      <footer className="app-footer modern-footer">
+        <div className="footer-status"><span className={`status-dot tone-${serverSummary.tone}`}></span>{serverSummary.label}</div>
+        <div className="footer-status"><span className={`status-dot tone-${tunnelSummary.tone}`}></span>{tunnelSummary.label}</div>
+        <span className="footer-spacer"></span><span className="footer-path" title={meta?.configPath || ""}>{cfg.workspace || "Workspace not configured"}</span>
       </footer>
 
-      {modal === "paths" && (
-        <PathsModal
-          onClose={() => setModal("")}
-          onSaved={() => {
-            loadConfig();
-            say("Permission profiles saved.", "ok");
-          }}
-        />
-      )}
+      {modal === "paths" && <PathsModal onClose={() => setModal("")} onSaved={() => { void loadConfig(); say("Permission profiles saved.", "ok"); }} />}
       {modal === "logs" && <LogsModal lines={logLines} meta={meta} onClose={() => setModal("")} />}
-      {loaded && showOnboarding && (
-        <OnboardingWizard
-          config={cfg}
-          secrets={secrets}
-          errors={errors}
-          runtimeKeyInput={runtimeKeyInput}
-          showRuntimeKey={showKey}
-          onPatch={patch}
-          onRuntimeKeyInput={setRuntimeKeyInput}
-          onToggleRuntimeKey={() => setShowKey((value) => !value)}
-          onBrowseWorkspace={browseDir("workspace")}
-          onBrowseTunnel={browseFile("tunnelBin")}
-          onManagePaths={() => setModal("paths")}
-          onSaveRuntimeKey={saveKey}
-          onComplete={completeSetup}
-          onClose={isSetupComplete(cfg) ? () => setShowOnboarding(false) : undefined}
-        />
-      )}
+      {loaded && showOnboarding && <OnboardingWizard config={cfg} secrets={secrets} errors={errors} runtimeKeyInput={runtimeKeyInput} showRuntimeKey={showKey}
+        onPatch={patch} onRuntimeKeyInput={setRuntimeKeyInput} onToggleRuntimeKey={() => setShowKey((current) => !current)}
+        onBrowseWorkspace={() => { void browseDir("workspace"); }} onBrowseTunnel={() => { void browseFile("tunnelBin"); }} onManagePaths={() => setModal("paths")}
+        onSaveRuntimeKey={saveKey} onComplete={completeSetup} onClose={isSetupComplete(cfg) ? () => setShowOnboarding(false) : undefined} />}
     </div>
   );
 }
