@@ -43,3 +43,4 @@ Thumbs.db
 # ---- Local agent workspaces / design sessions ----
 .worktrees/
 .superpowers/
+.test-agent-*/
