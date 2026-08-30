@@ -39,3 +39,7 @@ publish/
 Thumbs.db
 .vscode/
 .idea/
+
+# ---- Local agent workspaces / design sessions ----
+.worktrees/
+.superpowers/
