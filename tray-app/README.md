@@ -22,6 +22,15 @@ Agent on one machine:
   and shows only the final eight Tunnel ID characters for stale-connector
   diagnosis.
 - One-click **Copy local MCP URL**, **Copy Tunnel ID**, and **Open Dashboard**.
+- A responsive Windows UI with separate **Overview**, **Setup**, **Advanced**,
+  and **Activity** views. The status header remains visible while settings are
+  edited, secret fields have explicit show/hide controls, and the main actions
+  are grouped on the overview screen.
+- An explicit **Enable maximum access** action under Advanced. It requires a
+  typed confirmation, switches to `full` mode and policy, authorizes every
+  ready drive root with `full_control`, and opts into normally blocked
+  dangerous commands. **Restore safe defaults** returns to `safe` / `balanced`
+  and removes the extra all-root list.
 - Optional **Allow prompt-requested shutdown** switch. It exposes dedicated
   status/schedule/cancel tools without weakening the permanent `run_command`
   shutdown block. Once enabled, an explicit shutdown prompt executes through

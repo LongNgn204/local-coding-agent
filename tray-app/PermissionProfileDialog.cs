@@ -22,15 +22,20 @@ public sealed class PermissionProfileDialog : Form
         _store = LoadOrCreateStore();
 
         Text = "Private multi-path permission profiles";
-        Width = 980;
-        Height = 660;
+        Width = 1020;
+        Height = 700;
+        MinimumSize = new System.Drawing.Size(920, 620);
         MinimizeBox = false;
-        MaximizeBox = false;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        MaximizeBox = true;
+        FormBorderStyle = FormBorderStyle.Sizable;
         StartPosition = FormStartPosition.CenterParent;
         ShowInTaskbar = false;
+        BackColor = UiTheme.Canvas;
+        ForeColor = UiTheme.Text;
+        Font = new Font("Segoe UI", 9.25f);
 
         BuildUi();
+        ApplyModernTheme();
         BindProfiles(string.IsNullOrWhiteSpace(_config.PermissionProfileName)
             ? _store.ActiveProfile
             : _config.PermissionProfileName);
@@ -51,13 +56,18 @@ public sealed class PermissionProfileDialog : Form
         Controls.Add(new Label { Text = "Profile store", Left = 16, Top = 19, Width = 110 });
         _file.Left = 130;
         _file.Top = 16;
-        _file.Width = 690;
+        _file.Width = 730;
+        _file.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         _file.Text = string.IsNullOrWhiteSpace(_config.PermissionProfileFile)
             ? AppConfig.DefaultPermissionProfilePath
             : Path.GetFullPath(_config.PermissionProfileFile);
         Controls.Add(_file);
 
-        var browseFile = new Button { Text = "Browse", Left = 830, Top = 14, Width = 120 };
+        var browseFile = new Button
+        {
+            Text = "Browse", Left = 870, Top = 14, Width = 120,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
         browseFile.Click += (_, _) => BrowseStore();
         Controls.Add(browseFile);
 
@@ -78,9 +88,14 @@ public sealed class PermissionProfileDialog : Form
         Controls.Add(new Label { Text = "Working path", Left = 16, Top = 96, Width = 110 });
         _workingDirectory.Left = 130;
         _workingDirectory.Top = 92;
-        _workingDirectory.Width = 690;
+        _workingDirectory.Width = 730;
+        _workingDirectory.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         Controls.Add(_workingDirectory);
-        var browseWorking = new Button { Text = "Browse", Left = 830, Top = 90, Width = 120 };
+        var browseWorking = new Button
+        {
+            Text = "Browse", Left = 870, Top = 90, Width = 120,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
         browseWorking.Click += (_, _) => BrowseFolderInto(_workingDirectory);
         Controls.Add(browseWorking);
 
@@ -88,8 +103,9 @@ public sealed class PermissionProfileDialog : Form
         {
             Left = 16,
             Top = 130,
-            Width = 934,
+            Width = 974,
             Height = 42,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             ForeColor = System.Drawing.Color.DimGray,
             Text = "observe = read only   |   edit = file changes, no commands   |   develop = file changes + safe commands\n" +
                    "full_control = full commands inside this root. Deny globs always win (separate patterns with semicolons)."
@@ -99,26 +115,48 @@ public sealed class PermissionProfileDialog : Form
         ConfigureRootsGrid();
         Controls.Add(_roots);
 
-        var addRoot = new Button { Text = "+ Add path", Left = 16, Top = 500, Width = 120 };
+        var addRoot = new Button
+        {
+            Text = "+ Add path", Left = 16, Top = 540, Width = 120,
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Left
+        };
         addRoot.Click += (_, _) => AddRoot();
         Controls.Add(addRoot);
-        var changeRoot = new Button { Text = "Change path", Left = 144, Top = 500, Width = 130 };
+        var changeRoot = new Button
+        {
+            Text = "Change path", Left = 144, Top = 540, Width = 130,
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Left
+        };
         changeRoot.Click += (_, _) => ChangeSelectedRoot();
         Controls.Add(changeRoot);
-        var removeRoot = new Button { Text = "Remove path", Left = 282, Top = 500, Width = 130 };
+        var removeRoot = new Button
+        {
+            Text = "Remove path", Left = 282, Top = 540, Width = 130,
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Left
+        };
         removeRoot.Click += (_, _) => RemoveSelectedRoots();
         Controls.Add(removeRoot);
 
         _summary.Left = 16;
-        _summary.Top = 540;
-        _summary.Width = 650;
+        _summary.Top = 580;
+        _summary.Width = 690;
         _summary.Height = 50;
+        _summary.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
         _summary.ForeColor = System.Drawing.Color.SteelBlue;
         Controls.Add(_summary);
 
-        var cancel = new Button { Text = "Cancel", Left = 688, Top = 548, Width = 120, Height = 36, DialogResult = DialogResult.Cancel };
+        var cancel = new Button
+        {
+            Text = "Cancel", Left = 728, Top = 588, Width = 120, Height = 36,
+            DialogResult = DialogResult.Cancel,
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Right
+        };
         Controls.Add(cancel);
-        var save = new Button { Text = "Save & use", Left = 818, Top = 548, Width = 132, Height = 36 };
+        var save = new Button
+        {
+            Text = "Save & use", Left = 858, Top = 588, Width = 132, Height = 36,
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Right
+        };
         save.Click += (_, _) => SaveAndUse();
         Controls.Add(save);
 
@@ -130,8 +168,9 @@ public sealed class PermissionProfileDialog : Form
     {
         _roots.Left = 16;
         _roots.Top = 178;
-        _roots.Width = 934;
-        _roots.Height = 310;
+        _roots.Width = 974;
+        _roots.Height = 350;
+        _roots.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
         _roots.AllowUserToAddRows = false;
         _roots.AllowUserToDeleteRows = true;
         _roots.AllowUserToResizeRows = false;
@@ -151,6 +190,51 @@ public sealed class PermissionProfileDialog : Form
         _roots.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Deny globs", Name = "deny", Width = 220 });
         _roots.RowsRemoved += (_, _) => UpdateSummary();
         _roots.RowsAdded += (_, _) => UpdateSummary();
+    }
+
+    private void ApplyModernTheme()
+    {
+        foreach (var textBox in Controls.OfType<TextBox>())
+        {
+            textBox.BorderStyle = BorderStyle.FixedSingle;
+            textBox.BackColor = UiTheme.Surface;
+            textBox.ForeColor = UiTheme.Text;
+            textBox.Font = new Font("Segoe UI", 9.25f);
+        }
+
+        _profiles.FlatStyle = FlatStyle.Flat;
+        _profiles.BackColor = UiTheme.Surface;
+        _profiles.ForeColor = UiTheme.Text;
+
+        foreach (var button in Controls.OfType<Button>())
+        {
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderSize = 1;
+            button.FlatAppearance.BorderColor = UiTheme.Border;
+            button.BackColor = button.Text.Equals("Save & use", StringComparison.OrdinalIgnoreCase)
+                ? UiTheme.Primary
+                : UiTheme.Surface;
+            button.ForeColor = button.Text.Equals("Save & use", StringComparison.OrdinalIgnoreCase)
+                ? Color.White
+                : UiTheme.Text;
+            button.Cursor = Cursors.Hand;
+            button.Font = new Font("Segoe UI Semibold", 9f);
+        }
+
+        _roots.BackgroundColor = UiTheme.Surface;
+        _roots.BorderStyle = BorderStyle.None;
+        _roots.GridColor = UiTheme.Border;
+        _roots.EnableHeadersVisualStyles = false;
+        _roots.ColumnHeadersDefaultCellStyle.BackColor = UiTheme.SoftBlue;
+        _roots.ColumnHeadersDefaultCellStyle.ForeColor = UiTheme.Text;
+        _roots.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI Semibold", 9f);
+        _roots.ColumnHeadersHeight = 38;
+        _roots.DefaultCellStyle.BackColor = UiTheme.Surface;
+        _roots.DefaultCellStyle.ForeColor = UiTheme.Text;
+        _roots.DefaultCellStyle.SelectionBackColor = Color.FromArgb(219, 232, 255);
+        _roots.DefaultCellStyle.SelectionForeColor = UiTheme.Text;
+        _roots.RowTemplate.Height = 32;
+        _summary.ForeColor = UiTheme.Primary;
     }
 
     private void BindProfiles(string preferred)

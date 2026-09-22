@@ -8,7 +8,7 @@ using System.Text.Json;
 
 namespace LocalCodingAgentTray;
 
-public sealed class MainForm : Form
+public sealed partial class MainForm : Form
 {
     private const string HealthProbeUserAgent = "LocalCodingAgentTray/5.0.1";
     private const string HealthProbeHeader = "X-Local-Coding-Agent-Probe";
@@ -58,15 +58,17 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "Local Coding Agent Tray v5.0.1";
-        Width = 660;
-        Height = 1000;
+        Text = "Local Coding Agent";
+        Width = 1120;
+        Height = 780;
+        MinimumSize = new System.Drawing.Size(960, 680);
         StartPosition = FormStartPosition.CenterScreen;
         MinimizeBox = true;
-        FormBorderStyle = FormBorderStyle.FixedSingle;
-        MaximizeBox = false;
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MaximizeBox = true;
+        AutoScaleMode = AutoScaleMode.Dpi;
 
-        BuildUi();
+        BuildModernUi();
         SyncFromConfig();
 
         _sup.OnLog += AppendLog;
@@ -317,11 +319,14 @@ public sealed class MainForm : Form
         _cmbMode.SelectedItem = _cfg.Mode == "safe" ? "safe" : "full";
         _cmbPolicy.SelectedItem = _cfg.Policy is "strict" or "full" ? _cfg.Policy : "balanced";
         _numPort.Value = Math.Clamp(_cfg.Port, 1, 65535);
+        _numDashboardPort.Value = Math.Clamp(_cfg.DashboardPort, 1, 65535);
         _txtAuth.Text = _cfg.AuthToken;
         _chkOpenWeb.Checked = _cfg.OpenWebUi;
         _chkV5Preview.Checked = _cfg.V5Preview;
         _chkAllowSystemShutdown.Checked = _cfg.AllowSystemShutdown;
         _lblKeyState.Text = _cfg.HasKey ? "Key is saved (encrypted)." : "No key saved yet.";
+        RefreshUiSummary();
+        UpdateMaximumAccessState();
     }
 
     private void SyncToConfig()
@@ -337,9 +342,10 @@ public sealed class MainForm : Form
         _cfg.ExtraRoots = _txtExtraRoots.Text.Trim();
         _cfg.PermissionProfileFile = _txtPermissionProfileFile.Text.Trim();
         _cfg.PermissionProfileName = _txtPermissionProfileName.Text.Trim();
-        _cfg.Mode = (_cmbMode.SelectedItem as string) ?? "full";
+        _cfg.Mode = (_cmbMode.SelectedItem as string) ?? "safe";
         _cfg.Policy = (_cmbPolicy.SelectedItem as string) ?? "balanced";
         _cfg.Port = (int)_numPort.Value;
+        _cfg.DashboardPort = (int)_numDashboardPort.Value;
         _cfg.AuthToken = _txtAuth.Text.Trim();
         _cfg.OpenWebUi = _chkOpenWeb.Checked;
         _cfg.V5Preview = _chkV5Preview.Checked;
@@ -840,7 +846,9 @@ public sealed class MainForm : Form
             {
                 _lblStatus.Text = status;
                 _lblStatus.ForeColor = statusColor;
+                _lblStatusDot.ForeColor = statusColor;
                 _lblConnectionHint.Text = hint;
+                RefreshUiSummary();
                 UpdateActionButtons();
             }));
         }

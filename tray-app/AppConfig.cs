@@ -41,6 +41,13 @@ public class AppConfig
     /// </summary>
     public bool AllowSystemShutdown { get; set; } = false;
 
+    /// <summary>
+    /// Explicit opt-in for commands that the server normally blocks even in
+    /// full mode. This can permit catastrophic system operations and must only
+    /// be enabled through the tray's typed maximum-access confirmation.
+    /// </summary>
+    public bool AllowDangerousCommands { get; set; } = false;
+
     /// <summary>DPAPI-encrypted (CurrentUser) tunnel key, base64. Never stored in plain text.</summary>
     public string EncryptedKey { get; set; } = "";
 

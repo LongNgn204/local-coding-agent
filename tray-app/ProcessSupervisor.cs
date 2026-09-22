@@ -65,6 +65,7 @@ public sealed class ProcessSupervisor : IDisposable
         // and enabled by default; users may disable it for v4 compatibility.
         psi.Environment["AGENT_V5_PREVIEW"] = cfg.V5Preview ? "1" : "0";
         psi.Environment["AGENT_ALLOW_SYSTEM_SHUTDOWN"] = cfg.AllowSystemShutdown ? "1" : "0";
+        psi.Environment["AGENT_ALLOW_DANGEROUS"] = cfg.AllowDangerousCommands ? "1" : "0";
 
         _node = new Process { StartInfo = psi, EnableRaisingEvents = true };
         _node.OutputDataReceived += (_, e) => { if (e.Data is not null) Log("[server] " + e.Data); };

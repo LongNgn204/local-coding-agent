@@ -15,14 +15,26 @@ $ProjectFile = Join-Path $ProjectDir "LocalCodingAgentTray.csproj"
 $ArtifactBaseName = "LocalCodingAgentTrayClassic-$ReleaseVersion-win-x64"
 $OutputDir = Join-Path $ProjectDir "publish\$ReleaseVersion"
 
-if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+$DotnetExe = $null
+$DotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
+if ($DotnetCommand) {
+    $SdkLines = @(& $DotnetCommand.Source --list-sdks 2>$null)
+    if ($SdkLines -match '^10\.') { $DotnetExe = $DotnetCommand.Source }
+}
+if (-not $DotnetExe) {
+    $UserDotnet = Join-Path `
+        ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) `
+        "Microsoft\dotnet-sdk-10\dotnet.exe"
+    if (Test-Path -LiteralPath $UserDotnet) { $DotnetExe = $UserDotnet }
+}
+if (-not $DotnetExe) {
     throw "The .NET 10 SDK is required to build the tray release."
 }
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
 Write-Host "Publishing official tray release (win-x64, self-contained, single file)..."
-dotnet publish $ProjectFile `
+& $DotnetExe publish $ProjectFile `
     -c Release `
     -r win-x64 `
     --self-contained true `
