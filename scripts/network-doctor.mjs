@@ -260,7 +260,7 @@ function writeTunnelProfile(opts, dir) {
   ];
   if (opts.organizationId) {
     lines.push("  extra_headers:");
-    lines.push(`    - "OpenAI-Organization: ${yamlEscape(opts.organizationId)}"`);
+    lines.push(`    OpenAI-Organization: "${yamlEscape(opts.organizationId)}"`);
   }
   lines.push(
     "health:",

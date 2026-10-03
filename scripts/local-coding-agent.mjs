@@ -432,7 +432,7 @@ function writeTunnelProfile(opts) {
   ];
   if (opts.organizationId) {
     lines.push("  extra_headers:");
-    lines.push(`    - "OpenAI-Organization: ${yamlEscape(opts.organizationId.trim())}"`);
+    lines.push(`    OpenAI-Organization: "${yamlEscape(opts.organizationId.trim())}"`);
   }
   lines.push(
     "health:",

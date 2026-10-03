@@ -521,6 +521,8 @@ public sealed partial class MainForm : Form
         while (DateTime.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var exitFailure = _sup.TunnelExitFailure();
+            if (exitFailure.Length > 0) throw new InvalidOperationException(exitFailure);
             last = await ProbeTunnelAsync(cancellationToken);
             if (last.Ready) return last;
             if (last.Reachable && (last.ProbeFailed || last.TunnelIdMismatch)) return last;

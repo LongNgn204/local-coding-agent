@@ -15,11 +15,24 @@ public sealed class ProcessSupervisor : IDisposable
 {
     private Process? _node;
     private Process? _tunnel;
+    private readonly Queue<string> _tunnelOutput = new();
+    private readonly object _tunnelOutputLock = new();
 
     public event Action<string>? OnLog;
 
     public bool NodeRunning => _node is { HasExited: false };
     public bool TunnelRunning => _tunnel is { HasExited: false };
+
+    public string TunnelExitFailure()
+    {
+        if (_tunnel is null || !_tunnel.HasExited) return "";
+        // Drain redirected output after exit so the actionable YAML/auth error
+        // is shown instead of a later connection-refused error from the admin UI.
+        _tunnel.WaitForExit();
+        lock (_tunnelOutputLock)
+            return $"Tunnel client exited (code {_tunnel.ExitCode}). "
+                + string.Join(" ", _tunnelOutput);
+    }
 
     private void Log(string line) => OnLog?.Invoke(line);
 
@@ -124,9 +137,23 @@ public sealed class ProcessSupervisor : IDisposable
             psi.Environment["MCP_EXTRA_HEADERS"] = "Authorization: env:MCP_AUTH_HEADER";
         }
 
+        lock (_tunnelOutputLock) _tunnelOutput.Clear();
+        void CaptureTunnelOutput(string? output)
+        {
+            if (output is null) return;
+            // Never reproduce credentials or routing identifiers in error dialogs.
+            foreach (var secret in new[] { key, cfg.AuthToken, cfg.TunnelId, cfg.OrganizationId })
+                if (!string.IsNullOrEmpty(secret)) output = output.Replace(secret, "[redacted]", StringComparison.Ordinal);
+            lock (_tunnelOutputLock)
+            {
+                _tunnelOutput.Enqueue(output.Length <= 1000 ? output : output[..1000]);
+                while (_tunnelOutput.Count > 8) _tunnelOutput.Dequeue();
+            }
+            Log("[tunnel] " + output);
+        }
         _tunnel = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        _tunnel.OutputDataReceived += (_, e) => { if (e.Data is not null) Log("[tunnel] " + e.Data); };
-        _tunnel.ErrorDataReceived += (_, e) => { if (e.Data is not null) Log("[tunnel] " + e.Data); };
+        _tunnel.OutputDataReceived += (_, e) => CaptureTunnelOutput(e.Data);
+        _tunnel.ErrorDataReceived += (_, e) => CaptureTunnelOutput(e.Data);
         _tunnel.Exited += (_, _) => Log("[tunnel] process exited");
         _tunnel.Start();
         _tunnel.BeginOutputReadLine();

@@ -109,7 +109,7 @@ restart, and power commands remain blocked in `run_command`.
 ```text
 CONTROL_PLANE_API_KEY=<saved runtime key>
 control_plane.tunnel_id=<Tunnel ID>
-control_plane.extra_headers=["OpenAI-Organization: <Organization ID>"]
+control_plane.extra_headers={OpenAI-Organization: "<Organization ID>"}
 ```
 
 The Organization ID fixes tunnel-client errors like:

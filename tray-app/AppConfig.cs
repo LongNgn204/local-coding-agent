@@ -146,7 +146,7 @@ public class AppConfig
         if (includeOrgHeader)
         {
             sb.AppendLine("  extra_headers:");
-            sb.AppendLine($"    - \"OpenAI-Organization: {YamlEscape(OrganizationId.Trim())}\"");
+            sb.AppendLine($"    OpenAI-Organization: \"{YamlEscape(OrganizationId.Trim())}\"");
         }
         sb.AppendLine("health:");
         sb.AppendLine("  listen_addr: \"127.0.0.1:8788\"");
@@ -219,7 +219,7 @@ public class AppConfig
                 if (line.Contains("OpenAI-Organization:", StringComparison.OrdinalIgnoreCase))
                 {
                     var marker = "OpenAI-Organization:";
-                    var value = line[(line.IndexOf(marker, StringComparison.OrdinalIgnoreCase) + marker.Length)..].Trim();
+                    var value = UnquoteYamlScalar(line[(line.IndexOf(marker, StringComparison.OrdinalIgnoreCase) + marker.Length)..].Trim());
                     if (value.StartsWith("env:", StringComparison.OrdinalIgnoreCase)) return "";
                     return value;
                 }
