@@ -40,6 +40,17 @@ Agent on one machine:
 
 Full documentation and security model: see the [repository README](../README.md).
 
+## Current C# release
+
+[C# v5.0.2 for Windows x64](https://github.com/LongNgn204/local-coding-agent/releases/tag/csharp-v5.0.2)
+ships the modern interface and the tunnel YAML fix. The executable is
+self-contained for .NET, **not** for Node.js or the MCP server: keep a checkout
+of this repository, install `server/` dependencies with `install.ps1`, and select
+your separately supplied tunnel client. Existing settings remain in AppData.
+
+[Release notes](../docs/RELEASE_NOTES_CSHARP_V5_0_2.md) ·
+[Vietnamese app roadmap](../docs/CSHARP_APP_ROADMAP.md).
+
 ## Requirements
 
 - **Build:** .NET SDK (project targets `net10.0-windows`):

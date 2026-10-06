@@ -1,5 +1,5 @@
 param(
-    [string]$ReleaseVersion = $(if ($env:LCA_RELEASE_VERSION) { $env:LCA_RELEASE_VERSION } else { "5.0.1" })
+    [string]$ReleaseVersion = $(if ($env:LCA_RELEASE_VERSION) { $env:LCA_RELEASE_VERSION } else { "5.0.2" })
 )
 
 # Local Coding Agent
@@ -7,6 +7,10 @@ param(
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 $ErrorActionPreference = "Stop"
+
+if ($ReleaseVersion -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
+    throw "Release version must be a semantic version, not a path or tag."
+}
 
 # Official release packaging. Output stays ignored by Git and is intended for
 # a GitHub Release asset after tests and secret checks pass.

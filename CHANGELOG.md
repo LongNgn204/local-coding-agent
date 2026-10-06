@@ -3,6 +3,44 @@
 All notable changes to Local Coding Agent are documented here. The project
 follows [Semantic Versioning](https://semver.org/).
 
+## [5.0.2 — C# Windows app] - 2026-10-06
+
+This release updates the C# tray only (`csharp-v5.0.2`). The MCP server,
+Electron packages, and Chrome Companion keep their existing versions.
+
+### Added
+
+- Modern, resizable WinForms interface with Overview, Setup, Advanced, and
+  Activity tabs, persistent status, grouped actions, and secret show/hide controls.
+- Explicit maximum-access action with typed confirmation and safe-default reset.
+- Automated C#-only release build, four smoke suites, and SHA-256 build manifest.
+- [App improvement roadmap in Vietnamese](docs/CSHARP_APP_ROADMAP.md).
+
+### Fixed
+
+- Tunnel profiles now write `control_plane.extra_headers` as a YAML map, as
+  required by the installed tunnel-client v0.0.14. Legacy profile headers still load.
+- A tunnel that exits reports its original error and exit code immediately,
+  rather than waiting for a misleading connection-refused timeout.
+- Runtime keys and routing identifiers are redacted in captured tunnel output.
+- SDK lookup supports the user-scoped .NET 10 installation. UI version and
+  health-probe user agent derive from the assembly version.
+
+### Scope and known limitations
+
+- Windows x64 only; no updated Electron/macOS/Studio binaries in this release.
+- The EXE bundles .NET, but still requires Node.js, server source/dependencies,
+  and a separately supplied tunnel client. It is not a fully standalone installer.
+- Existing Electron/Studio dependency audit and Windows Studio test failures
+  remain open; this release does not claim the complete repository CI is green.
+- Maximum access is off for new configurations, is not a sandbox, and does not
+  grant Windows Administrator privileges. Existing operator settings are retained.
+- Windows binaries are unsigned. No automatic update or code-signing claim.
+
+**Tiếng Việt:** Bản này hoàn thiện app C# và sửa lỗi tunnel không chạy do cấu
+trúc YAML. Nhật ký phát hành ghi rõ điều kiện sử dụng, kiểm thử và phần chưa làm;
+bản cũ được giữ nguyên để có thể quay lại khi cần.
+
 ## [5.0.1] - 2026-08-20
 
 ### Added

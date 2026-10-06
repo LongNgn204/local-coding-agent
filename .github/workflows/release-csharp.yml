@@ -1,0 +1,78 @@
+name: Release C# Windows app
+
+on:
+  push:
+    tags:
+      - "csharp-v*"
+
+permissions:
+  contents: write
+
+env:
+  LCA_RELEASE_TAG: ${{ github.ref_name }}
+
+jobs:
+  release:
+    name: Verify, build, and publish C# Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Validate tag and public source boundary
+        run: |
+          $tag = $env:LCA_RELEASE_TAG
+          if ($tag -notmatch '^csharp-v(\d+\.\d+\.\d+)$') { throw "Invalid C# release tag" }
+          $version = $Matches[1]
+          [xml]$project = Get-Content tray-app/LocalCodingAgentTray.csproj
+          if ($project.Project.PropertyGroup.Version -ne $version) { throw "Tag/project version mismatch" }
+          "LCA_RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+          node scripts/release-public-gate.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --check scripts/local-coding-agent.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --check scripts/network-doctor.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test scripts/network-doctor.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run four C# smoke suites
+        run: |
+          foreach ($suite in @('PermissionProfiles', 'RuntimeStatus', 'UiLayout', 'TunnelProfile')) {
+            dotnet run --project "tray-app/test/$suite.Smoke/$suite.Smoke.csproj" -c Release
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Build versioned self-contained executable
+        run: ./tray-app/build-release.ps1 -ReleaseVersion $env:LCA_RELEASE_VERSION
+      - name: Verify artifact version and checksum
+        run: |
+          $dir = "tray-app/publish/$env:LCA_RELEASE_VERSION"
+          $manifest = Get-Content "$dir/build-manifest.json" -Raw | ConvertFrom-Json
+          $exe = Join-Path $dir $manifest.executable
+          if ($manifest.version -ne $env:LCA_RELEASE_VERSION) { throw "Manifest version mismatch" }
+          if ((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifest.sha256) { throw "Hash mismatch" }
+          if ([Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path $exe)).ProductVersion.Split('+')[0] -ne $env:LCA_RELEASE_VERSION) { throw "EXE version mismatch" }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: csharp-windows-x64
+          path: |
+            tray-app/publish/${{ env.LCA_RELEASE_VERSION }}/*.exe
+            tray-app/publish/${{ env.LCA_RELEASE_VERSION }}/build-manifest.json
+          if-no-files-found: error
+      - name: Publish verified C# release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = 'docs/RELEASE_NOTES_CSHARP_V' + $env:LCA_RELEASE_VERSION.Replace('.', '_') + '.md'
+          if (!(Test-Path -LiteralPath $notes)) { throw "Release notes missing" }
+          $dir = "tray-app/publish/$env:LCA_RELEASE_VERSION"
+          $exe = Join-Path $dir "LocalCodingAgentTrayClassic-$env:LCA_RELEASE_VERSION-win-x64.exe"
+          gh release create $env:LCA_RELEASE_TAG $exe "$dir/build-manifest.json" --verify-tag --title "Local Coding Agent C# v$env:LCA_RELEASE_VERSION" --notes-file $notes --latest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -74,7 +74,7 @@ public sealed partial class MainForm
         };
         var subtitle = new Label
         {
-            Text = "Secure workspace supervisor  •  v5.0.1",
+            Text = $"Secure workspace supervisor  •  v{AppVersion.Current}",
             AutoSize = true,
             Font = new Font("Segoe UI", 9.5f),
             ForeColor = UiTheme.Muted,

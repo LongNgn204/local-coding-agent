@@ -37,7 +37,13 @@ Let an AI agent read files, edit code, run checks, inspect git, and show live he
 > This tool can run commands on your computer. Read [SECURITY.md](SECURITY.md)
 > before using it. It is not an OS sandbox; only connect workspaces you trust.
 
-> **Latest stable release: v5.0.1.** This maintenance release adds official
+> **Latest C# Windows release: [v5.0.2](https://github.com/LongNgn204/local-coding-agent/releases/tag/csharp-v5.0.2).**
+> Modern WinForms UI and corrected tunnel configuration. Requires Node.js,
+> server source/dependencies, and your own tunnel client; .NET is bundled.
+> See the [release notes](docs/RELEASE_NOTES_CSHARP_V5_0_2.md) and
+> [Vietnamese app roadmap](docs/CSHARP_APP_ROADMAP.md).
+>
+> **Latest cross-platform Electron release: v5.0.1.** This maintenance release adds official
 > Tray packages for Windows and macOS, bundles the tested MCP runtime, expands
 > cross-platform CI, and hardens permissions and recovery. Local Codex Studio
 > remains an internal experiment and is not publicly distributed.
@@ -251,9 +257,9 @@ it yourself:
 
 Direct v5.0.1 downloads:
 
-- [Tray — Windows x64](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-win-x64.exe)
-- [Tray — macOS Apple Silicon](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-mac-arm64.zip)
-- [Tray — macOS Intel](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-mac-x64.zip)
+- [Tray — Windows x64](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1%2Bstable.1/LocalCodingAgentTray-5.0.1-win-x64.exe)
+- [Tray — macOS Apple Silicon](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1%2Bstable.1/LocalCodingAgentTray-5.0.1-mac-arm64.zip)
+- [Tray — macOS Intel](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1%2Bstable.1/LocalCodingAgentTray-5.0.1-mac-x64.zip)
 
 Local Codex Studio is an internal experiment under active development and is
 not available as a public download yet.
@@ -263,8 +269,10 @@ cd tray-app
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-The classic .NET Windows tray remains a compatibility download. New installs
-should use the cross-platform Electron Tray above.
+For the native C# Windows interface, use
+[C# v5.0.2](https://github.com/LongNgn204/local-coding-agent/releases/tag/csharp-v5.0.2).
+It bundles .NET only; keep the repository server and Node.js installed.
+Electron packages above remain the older cross-platform release, not this update.
 
 ### Connect To ChatGPT Web
 
@@ -570,14 +578,19 @@ Tải file `.exe` self-contained từ
 [Releases](https://github.com/LongNgn204/local-coding-agent/releases), hoặc tự
 build:
 
-Tải trực tiếp v5.0.1:
+Tải trực tiếp Electron v5.0.1 (bản đa nền tảng cũ):
 
-- [Tray — Windows x64](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-win-x64.exe)
-- [Tray — macOS Apple Silicon](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-mac-arm64.zip)
-- [Tray — macOS Intel](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1/LocalCodingAgentTray-5.0.1-mac-x64.zip)
+- [Tray — Windows x64](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1%2Bstable.1/LocalCodingAgentTray-5.0.1-win-x64.exe)
+- [Tray — macOS Apple Silicon](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1%2Bstable.1/LocalCodingAgentTray-5.0.1-mac-arm64.zip)
+- [Tray — macOS Intel](https://github.com/LongNgn204/local-coding-agent/releases/download/v5.0.1%2Bstable.1/LocalCodingAgentTray-5.0.1-mac-x64.zip)
 
 Local Codex Studio đang là bản thử nghiệm nội bộ, vẫn trong quá trình phát
 triển và chưa có bản tải công khai.
+
+App C# Windows mới: [v5.0.2](https://github.com/LongNgn204/local-coding-agent/releases/tag/csharp-v5.0.2).
+Có giao diện gọn hơn và sửa lỗi tunnel YAML. EXE kèm .NET nhưng vẫn cần Node.js,
+server và tunnel client riêng. Xem [nhật ký](docs/RELEASE_NOTES_CSHARP_V5_0_2.md)
+và [hướng triển khai tiếp](docs/CSHARP_APP_ROADMAP.md).
 
 ```powershell
 cd tray-app

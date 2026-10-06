@@ -10,7 +10,7 @@ namespace LocalCodingAgentTray;
 
 public sealed partial class MainForm : Form
 {
-    private const string HealthProbeUserAgent = "LocalCodingAgentTray/5.0.1";
+    private static readonly string HealthProbeUserAgent = $"LocalCodingAgentTray/{AppVersion.Current}";
     private const string HealthProbeHeader = "X-Local-Coding-Agent-Probe";
     private const string TunnelStatusUrl = "http://127.0.0.1:8788/api/status";
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(2.5) };
